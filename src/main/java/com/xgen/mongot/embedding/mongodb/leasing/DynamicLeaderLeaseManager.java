@@ -41,6 +41,7 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -55,12 +56,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.bson.types.ObjectId;
@@ -162,6 +165,23 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   static final String OPS_GIVE_UP_LEASE_SUCCESS_COUNTER_NAME = "opsGiveUpLeaseSuccess";
   static final String OPS_GIVE_UP_LEASE_FAILURE_COUNTER_NAME = "opsGiveUpLeaseFailure";
+  // One counter tagged by outcome, as MaterializedViewManager does for collection drops. A
+  // refusal is the guard working, not an error, so it must not share a counter with a real
+  // failure that someone would page on.
+  static final String OPS_REPAIR_LEASE_COUNTER_NAME = "opsRepairLease";
+  static final String OPS_REPAIR_OUTCOME_TAG = "outcome";
+  static final String REPAIR_OUTCOME_DELETED = "deleted";
+  static final String REPAIR_OUTCOME_REFUSED_STILL_USABLE = "refusedStillUsable";
+  static final String REPAIR_OUTCOME_ALREADY_GONE = "alreadyGone";
+  static final String REPAIR_OUTCOME_LOST_RACE = "lostRace";
+  // The load path could not be re-run to completion (a transient lookup failure), so the tool
+  // cannot tell a corrupt lease from a healthy one and declines to delete. Distinct from
+  // REPAIR_OUTCOME_ERROR, which is an unexpected failure someone would page on.
+  static final String REPAIR_OUTCOME_INDETERMINATE = "indeterminate";
+  // The lease has not expired yet, so another host may still hold it. Deleting now would let the
+  // recreated lease restart at version 1 and defeat fencing; the guard working, not an error.
+  static final String REPAIR_OUTCOME_REFUSED_NOT_EXPIRED = "refusedNotExpired";
+  static final String REPAIR_OUTCOME_ERROR = "error";
   static final String POST_RESTORE_LEASE_REPAIR_SUCCESS_COUNTER_NAME =
       "postRestoreLeaseRepairSuccess";
   static final String POST_RESTORE_LEASE_REPAIR_FAILURE_COUNTER_NAME =
@@ -215,6 +235,16 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final Counter checkpointRejectedCounter;
   private final Counter skippedCheckpointCounter;
   private final CheckpointCommitRiskTracker checkpointCommitRisk;
+  // Leases the load path rejected, keyed by lease id. A rejected lease never reaches this.leases,
+  // so this map is the only in-process record that one exists. Entries clear as soon as the same
+  // lease loads cleanly or the GC sweep stops seeing it.
+  //
+  // TODO(CLOUDP-437301): report these ids upward in the conf-call request. Today the only signal
+  // an operator gets is the corruptedLeases counter, which carries no ids, so finding the lease to
+  // repair means reading host logs. Sending the ids would make the repair tool self-service.
+  private final Map<String, CorruptLease> corruptLeases;
+  // The bootstrap repair command is applied once per process; see executeOpsRepairLeaseCommand.
+  private final AtomicBoolean opsRepairLeaseApplied = new AtomicBoolean(false);
 
   @TestOnly
   public DynamicLeaderLeaseManager(
@@ -256,6 +286,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.dbResolver = dbResolver;
     this.leaseKeyToDatabase = new ConcurrentHashMap<>();
     this.leaseKeyToSourceDatabase = new ConcurrentHashMap<>();
+    this.corruptLeases = new ConcurrentHashMap<>();
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.opsCommands = opsCommands;
     this.isDedicatedCluster = dbResolver.isDedicatedCluster();
@@ -437,18 +468,21 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           // Populate the database mapping before normalization so that getDatabaseForLease()
           // resolves correctly when normalizeLeaseIfNeeded() calls back into it for UUID
           // resolution.
-          Lease parsed = parseLeaseOrThrow(rawLease);
+          Lease parsed = parseLeaseOrThrow(rawLease, defaultDb);
           this.leaseKeyToDatabase.putIfAbsent(parsed.id(), defaultDb);
           Lease lease = normalizeLeaseIfNeeded(parsed);
           if (lease != null) {
             this.leases.put(lease.id(), lease);
+            // The lease loads cleanly now, so retire whatever an earlier sweep recorded against it.
+            // An operator command must never delete a lease that has recovered.
+            this.corruptLeases.remove(lease.id());
           } else {
-            // TODO(CLOUDP-384971): clean up corrupted leases
+            // normalizeLeaseIfNeeded already recorded which check rejected this lease.
             this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
             corruptedLeaseIds.add(parsed.id());
           }
         } catch (BsonParseException e) {
-          // parseLeaseOrThrow already incremented the corruptedLeases counter
+          // parseLeaseOrThrow counted and recorded it.
           corruptedLeaseIds.add(extractLeaseId(rawLease));
         }
       }
@@ -472,23 +506,497 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   }
 
   /**
-   * Wraps {@link Lease#fromBson} and increments the corrupted lease counter on parse failure.
-   * Callers can catch the re-thrown exception to decide whether to skip or propagate.
+   * Wraps {@link Lease#fromBson}, increments the corrupted lease counter on parse failure, and
+   * records the rejection against {@code dbName}. Callers can catch the re-thrown exception to
+   * decide whether to skip or propagate.
+   *
+   * <p>Recording belongs here rather than in any one caller because every path that reads the lease
+   * collection funnels through this method. A rejection recorded by whichever path happened to read
+   * the document first is the only in-process trace of a lease that never reaches {@link #leases}.
    */
-  private Lease parseLeaseOrThrow(BsonDocument rawLease) throws BsonParseException {
+  private Lease parseLeaseOrThrow(BsonDocument rawLease, String dbName) throws BsonParseException {
     try {
       return Lease.fromBson(rawLease);
     } catch (BsonParseException e) {
       this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
+      leaseIdOf(rawLease)
+          .ifPresentOrElse(
+              id -> recordCorruptLease(id, dbName, LeaseRepairUtil.CorruptionReason.UNPARSEABLE),
+              // No readable string id, so there is no key to record the rejection under and the
+              // lease is counted but absent from corruptLeases. The map is only a lookup hint, so
+              // this is not a safety problem, but the runbook tells operators to read the lease id
+              // out of the logs. Without this line the document is counted and then vanishes.
+              () ->
+                  LOG.atWarn()
+                      .addKeyValue("database", dbName)
+                      .addKeyValue("idType", idTypeOf(rawLease))
+                      .log(
+                          "Corrupt lease document has no readable string _id; counted but not"
+                              + " recorded for repair. Read the raw document to recover its id"));
       throw e;
     }
   }
 
   private static String extractLeaseId(BsonDocument rawLease) {
+    if (!rawLease.containsKey("_id")) {
+      return "unknown";
+    }
+    return leaseIdOf(rawLease).orElse("unparseable");
+  }
+
+  /** The BSON type of the document's {@code _id}, for logs when it is not a readable string. */
+  private static String idTypeOf(BsonDocument rawLease) {
+    BsonValue id = rawLease.get("_id");
+    return id == null ? "absent" : id.getBsonType().name();
+  }
+
+  /** The lease's {@code _id} as a string, or empty when the document has no readable string id. */
+  private static Optional<String> leaseIdOf(BsonDocument rawLease) {
     try {
-      return rawLease.containsKey("_id") ? rawLease.get("_id").asString().getValue() : "unknown";
+      return rawLease.containsKey("_id")
+          ? Optional.of(rawLease.get("_id").asString().getValue())
+          : Optional.empty();
     } catch (Exception e) {
-      return "unparseable";
+      return Optional.empty();
+    }
+  }
+
+  /**
+   * Applies the bootstrap {@code opsRepairLease} command, deleting lease documents the load path
+   * still rejects.
+   *
+   * <p>Applied once per process. The command arrives in bootstrap config, so it cannot be withdrawn
+   * while the host runs, and re-attempting on every poll would keep incrementing the repair counter
+   * long after the work was done. One-shot matches the delivery: an operator sets the config,
+   * restarts the host, and the command fires on the first poll. If it does not take, the next
+   * attempt is another restart, which the runbook says plainly.
+   */
+  private void executeOpsRepairLeaseCommand() {
+    Optional<LeaseManagerOpsCommands.OpsRepairLeaseCommand> command =
+        this.opsCommands.opsRepairLease();
+    if (command.isEmpty() || this.opsRepairLeaseApplied.getAndSet(true)) {
+      return;
+    }
+    if (!isValidRepairLeaseCommand(command.get())) {
+      return;
+    }
+    @Var int deleted = 0;
+    for (String leaseId : command.get().leaseIds()) {
+      // Barrier per lease id. This runs at the top of pollFollowerStatuses, which
+      // MaterializedViewManager schedules with scheduleWithFixedDelay, where a throw cancels every
+      // future execution. An ops command must not be able to stop a host refreshing statuses for
+      // all of its generations, so one bad lease id costs that id and nothing else. AssertionError
+      // is caught too: Check.instanceOf and Check.isPresent throw it on this path.
+      try {
+        if (deleteCorruptLease(leaseId)) {
+          deleted++;
+        }
+      } catch (Exception | AssertionError t) {
+        recordRepairOutcome(REPAIR_OUTCOME_ERROR);
+        LOG.atError()
+            .addKeyValue("leaseId", leaseId)
+            .addKeyValue("hostname", this.hostname)
+            .setCause(t)
+            .log("Repair of this lease id threw; continuing with the remaining ids");
+      }
+    }
+    LOG.atWarn()
+        .addKeyValue("deleted", deleted)
+        .addKeyValue("requested", command.get().leaseIds().size())
+        .addKeyValue("hostname", this.hostname)
+        .log("Applied ops repair lease command");
+  }
+
+  private boolean isValidRepairLeaseCommand(LeaseManagerOpsCommands.OpsRepairLeaseCommand command) {
+    if (!command.instance().equals(this.hostname)) {
+      LOG.atInfo()
+          .addKeyValue("commandInstance", command.instance())
+          .addKeyValue("hostname", this.hostname)
+          .log("Skipping repair lease ops command - instance mismatch");
+      return false;
+    }
+    if (Instant.now().isAfter(command.expiresAt())) {
+      // Logged at INFO, not DEBUG: an expired command is the most likely reason an operator sees
+      // nothing happen, and the window has to outlast a reconfigure and restart.
+      LOG.atInfo()
+          .addKeyValue("expiresAt", command.expiresAt())
+          .addKeyValue("hostname", this.hostname)
+          .log("Skipping repair lease ops command - command expired");
+      return false;
+    }
+    if (command.leaseIds().isEmpty()) {
+      // WARN, not INFO: a misspelled leaseIds key is reported as an unknown field and ignored
+      // rather than rejected, so the command still arrives here with the defaulted empty list.
+      // This log is the only place that mistake becomes visible.
+      LOG.atWarn()
+          .addKeyValue("hostname", this.hostname)
+          .log(
+              "Skipping repair lease ops command - no leases targeted; check the leaseIds key "
+                  + "for a typo");
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Where a lease document lives, or why the search could not say.
+   *
+   * <p>{@code searchIncomplete} separates "every candidate database was checked and none held it"
+   * from "at least one check did not complete". Only the first justifies concluding the document is
+   * gone; the second is the same unanswered-lookup case the re-check declines on.
+   */
+  private record LeaseLocation(Optional<String> database, boolean searchIncomplete) {
+    static LeaseLocation found(String database) {
+      return new LeaseLocation(Optional.of(database), false);
+    }
+
+    static final LeaseLocation CONFIRMED_ABSENT = new LeaseLocation(Optional.empty(), false);
+    static final LeaseLocation UNDETERMINED = new LeaseLocation(Optional.empty(), true);
+  }
+
+  /**
+   * Locates the database holding {@code leaseId}. Prefers a recorded rejection, then the
+   * generation's database mapping, then a search of every database this host knows about, mirroring
+   * the set {@link #findGcCandidates} sweeps.
+   *
+   * <p>The search matters on a multi-tenant cluster, where leases live in per-tenant internal
+   * databases and the caller names only a lease id.
+   *
+   * <p>A per-database failure is logged and the search continues, because another candidate may
+   * still hold the document. If the search then finds nothing, the failures are what distinguish
+   * {@link LeaseLocation#UNDETERMINED} from {@link LeaseLocation#CONFIRMED_ABSENT}: reporting a
+   * lease gone when no database was successfully read would clear its rejection record on the
+   * strength of an outage.
+   */
+  private LeaseLocation locateLease(String leaseId) {
+    CorruptLease recorded = this.corruptLeases.get(leaseId);
+    if (recorded != null) {
+      return LeaseLocation.found(recorded.database());
+    }
+    Set<String> candidates = knownInternalDatabases();
+    @Var boolean anyLookupFailed = false;
+    for (String dbName : candidates) {
+      try {
+        BsonDocument found =
+            this.operationExecutor.execute(
+                "locateLease",
+                () -> this.getCollection(dbName).find(Filters.eq("_id", leaseId)).first());
+        if (found != null) {
+          return LeaseLocation.found(dbName);
+        }
+      } catch (Exception e) {
+        anyLookupFailed = true;
+        LOG.atWarn()
+            .addKeyValue("leaseId", leaseId)
+            .addKeyValue("database", dbName)
+            .setCause(e)
+            .log("Failed to search database while locating a lease");
+      }
+    }
+    if (anyLookupFailed) {
+      return LeaseLocation.UNDETERMINED;
+    }
+    if (!this.isDedicatedCluster && this.leaseKeyToDatabase.isEmpty()) {
+      // Multi-tenant cluster before any generation has registered, which happens when the one-shot
+      // command fires on the first poll after a restart, ahead of conf-call index registration.
+      // Only the default internal database was searched and the tenant databases are unreachable,
+      // so absence is not established. Reporting alreadyGone here would burn the one-shot on a
+      // false verdict; indeterminate tells the operator to reapply instead.
+      LOG.atWarn()
+          .addKeyValue("leaseId", leaseId)
+          .log(
+              "No tenant database mappings registered yet, cannot rule out a lease in a tenant"
+                  + " database");
+      return LeaseLocation.UNDETERMINED;
+    }
+    return LeaseLocation.CONFIRMED_ABSENT;
+  }
+
+  /**
+   * Every internal database this host currently knows about: the default plus each database a
+   * registered generation or sweep has mapped. Shared by {@link #locateLease} and {@link
+   * #findGcCandidates} so the repair search and the GC sweep stay aligned by construction.
+   */
+  private Set<String> knownInternalDatabases() {
+    Set<String> databases = new HashSet<>(this.leaseKeyToDatabase.values());
+    databases.add(this.dbResolver.resolveDefault());
+    return databases;
+  }
+
+  /** Records why the load path rejected {@code leaseId}, when its database is known. */
+  private void recordCorruptLease(String leaseId, LeaseRepairUtil.CorruptionReason reason) {
+    databaseForLease(leaseId, "recording a rejected lease")
+        .ifPresent(dbName -> recordCorruptLease(leaseId, dbName, reason));
+  }
+
+  private void recordCorruptLease(
+      String leaseId, String dbName, LeaseRepairUtil.CorruptionReason reason) {
+    this.corruptLeases.put(leaseId, new CorruptLease(dbName, reason));
+  }
+
+  /** Increments the repair counter under {@code outcome}. */
+  private void recordRepairOutcome(String outcome) {
+    this.metricsFactory
+        .counter(OPS_REPAIR_LEASE_COUNTER_NAME, Tags.of(OPS_REPAIR_OUTCOME_TAG, outcome))
+        .increment();
+  }
+
+  /** Whether the load path rejects {@code rawLease}, refuses it as usable, or cannot tell. */
+  private enum RepairClassification {
+    /** The load path definitively rejects this document; mongot would skip it on every pass. */
+    REJECTED_CORRUPT,
+    /** The document loads cleanly, so deleting it would drop a live fencing token. */
+    USABLE,
+    /** A lookup failed, so corruption cannot be confirmed. Fail closed and decline the delete. */
+    UNDETERMINED
+  }
+
+  /**
+   * Re-runs the load path over {@code rawLease} and reports whether it is still rejected, usable
+   * again, or indeterminate.
+   *
+   * <p>Not a cheap predicate. This issues the same listCollections call the load path issues, and
+   * it refreshes the recorded rejection reason as a side effect. Re-running the whole load path is
+   * deliberate: two of the three {@link LeaseRepairUtil.CorruptionReason} values parse cleanly, so
+   * a parse check alone would call those leases healthy and refuse to delete exactly the documents
+   * this tool exists to clear.
+   *
+   * <p>The three outcomes are kept distinct so a transient Mongo failure during the re-check is
+   * never read as corruption. A failed lookup returns {@link RepairClassification#UNDETERMINED},
+   * which the caller declines rather than deleting a possibly-valid lease.
+   */
+  private RepairClassification classifyLeaseForRepair(String dbName, BsonDocument rawLease) {
+    Lease parsed;
+    try {
+      parsed = Lease.fromBson(rawLease);
+    } catch (BsonParseException e) {
+      // A required field is missing or malformed: the load path can never accept this document.
+      return RepairClassification.REJECTED_CORRUPT;
+    }
+    @Var Lease normalized = parsed;
+    if (parsed.materializedViewCollectionMetadata().collectionUuid().equals(NIL)) {
+      Optional<UUID> resolved;
+      try {
+        resolved =
+            this.uuidResolver.resolve(
+                dbName, parsed.materializedViewCollectionMetadata().collectionName());
+      } catch (LeaseRepairUtil.LeaseRepairException e) {
+        // The lookup itself failed. A brief Mongo hiccup must not be read as licence to delete a
+        // valid lease, so fail closed and let the operator reapply once the cluster is healthy.
+        LOG.atWarn()
+            .addKeyValue("leaseId", parsed.id())
+            .setCause(e)
+            .log(
+                "Could not resolve materialized-view UUID during repair re-check; cannot confirm"
+                    + " corruption");
+        return RepairClassification.UNDETERMINED;
+      }
+      if (resolved.isEmpty()) {
+        // The collection genuinely does not exist, so the nil MV UUID can never be resolved.
+        // The three-arg overload, because dbName is in hand. The mapping-based overload consults
+        // leaseKeyToDatabase, which is empty for a never-registered lease, and would silently skip
+        // the record or point it at the wrong database.
+        recordCorruptLease(
+            parsed.id(), dbName, LeaseRepairUtil.CorruptionReason.UNRESOLVABLE_MV_UUID);
+        return RepairClassification.REJECTED_CORRUPT;
+      }
+      normalized = parsed.withResolvedMatViewUuid(resolved.get());
+    }
+    try {
+      postRestoreSanitizeIfNeeded(normalized);
+      return RepairClassification.USABLE;
+    } catch (LeaseRepairUtil.LeaseRepairException e) {
+      // Evidence versus unanswered question. A DEFINITIVE failure, such as an MV collection the
+      // resolver positively established is absent, is the load path re-rejecting the document, so
+      // the delete may proceed under the expiry and OCC guards. A LOOKUP_FAILED one taught us
+      // nothing, so fail closed and let the operator reapply once the cluster is healthy.
+      recordPostRestoreFailure(normalized, dbName, e);
+      return e.kind() == LeaseRepairUtil.LeaseRepairException.Kind.DEFINITIVE
+          ? RepairClassification.REJECTED_CORRUPT
+          : RepairClassification.UNDETERMINED;
+    }
+  }
+
+  /** The document's {@code leaseVersion}, when it holds a readable integer value. */
+  private static Optional<Long> readLeaseVersion(BsonDocument rawLease) {
+    BsonValue value = rawLease.get(Lease.Fields.LEASE_VERSION.getName());
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (value.isInt64()) {
+      return Optional.of(value.asInt64().getValue());
+    }
+    if (value.isInt32()) {
+      return Optional.of((long) value.asInt32().getValue());
+    }
+    return Optional.empty();
+  }
+
+  /** The document's {@code leaseExpiration}, when it holds a readable date value. */
+  private static Optional<Instant> readLeaseExpiration(BsonDocument rawLease) {
+    BsonValue value = rawLease.get(Lease.Fields.LEASE_EXPIRATION.getName());
+    if (value == null || !value.isDateTime()) {
+      return Optional.empty();
+    }
+    return Optional.of(Instant.ofEpochMilli(value.asDateTime().getValue()));
+  }
+
+  /**
+   * The delete filter for {@code leaseId}, pinned to the observed {@code leaseVersion} so a
+   * concurrent clean rewrite vetoes the delete, mirroring {@link #deleteStaleLease}. When the
+   * document is too corrupt to carry a readable version, falls back to an id-only delete: such a
+   * document cannot be a live lease any host is renewing, and the tool exists to clear it.
+   */
+  private static Bson corruptLeaseDeleteFilter(String leaseId, BsonDocument rawLease) {
+    Optional<Long> version = readLeaseVersion(rawLease);
+    if (version.isEmpty()) {
+      LOG.atWarn()
+          .addKeyValue("leaseId", leaseId)
+          .log("Corrupt lease has no readable leaseVersion; deleting without OCC protection");
+      return Filters.eq("_id", leaseId);
+    }
+    return Filters.and(
+        Filters.eq("_id", leaseId),
+        Filters.eq(Lease.Fields.LEASE_VERSION.getName(), version.get()));
+  }
+
+  /**
+   * Deletes lease {@code leaseId} when the load path still rejects it, clearing a document that
+   * mongot skips on every pass and that therefore blocks lease creation for its materialized view.
+   * The next {@code initializeLease} recreates the lease from scratch.
+   *
+   * <p>The document is re-read and re-checked immediately before deleting, because deleting a lease
+   * that has since been rewritten cleanly would drop the fencing token that stops two hosts writing
+   * the same materialized view. That re-check is the safety property, not any prior record: callers
+   * name an explicit lease id, so this must not depend on a background sweep having happened to see
+   * the document first.
+   *
+   * <p>Three guards protect the delete. The re-check must positively re-reject the document: a
+   * transient lookup failure is treated as indeterminate and declines the delete rather than
+   * risking a valid lease. The lease must have expired, so no other host can still hold it. And the
+   * delete is pinned to the observed {@code leaseVersion}, so a clean rewrite that slips into the
+   * window between the re-check and the delete bumps the version and vetoes it, the same OCC {@code
+   * deleteStaleLease} uses. Only a document too corrupt to carry a readable version or expiration
+   * falls back past those last two guards; such a document cannot be a live lease any host renews.
+   *
+   * @return true when a document was deleted.
+   */
+  @VisibleForTesting
+  boolean deleteCorruptLease(String leaseId) {
+    // locateLease is inside the try on purpose. It reads every candidate database, so it can
+    // throw just as readily as the delete itself, and anything escaping this method reaches
+    // pollFollowerStatuses, whose scheduler stops running it again after a throw.
+    try {
+      LeaseLocation located = locateLease(leaseId);
+      if (located.database().isEmpty()) {
+        if (located.searchIncomplete()) {
+          // At least one database could not be read, so "not found" proves nothing. Decline
+          // and keep any recorded rejection, matching how an unanswered re-check behaves.
+          recordRepairOutcome(REPAIR_OUTCOME_INDETERMINATE);
+          LOG.atWarn()
+              .addKeyValue("leaseId", leaseId)
+              .log(
+                  "Could not search every known database for the lease document, refusing to"
+                      + " conclude it is gone");
+          return false;
+        }
+        this.corruptLeases.remove(leaseId);
+        recordRepairOutcome(REPAIR_OUTCOME_ALREADY_GONE);
+        LOG.atInfo()
+            .addKeyValue("leaseId", leaseId)
+            .log("No lease document under this id in any known database, nothing to delete");
+        return false;
+      }
+      String dbName = located.database().get();
+      BsonDocument rawLease =
+          this.operationExecutor.execute(
+              "readCorruptLease",
+              () -> this.getCollection(dbName).find(Filters.eq("_id", leaseId)).first());
+      if (rawLease == null) {
+        this.corruptLeases.remove(leaseId);
+        recordRepairOutcome(REPAIR_OUTCOME_ALREADY_GONE);
+        LOG.atInfo()
+            .addKeyValue("leaseId", leaseId)
+            .log("Corrupt lease already gone, nothing to delete");
+        return false;
+      }
+      RepairClassification classification = classifyLeaseForRepair(dbName, rawLease);
+      if (classification == RepairClassification.USABLE) {
+        this.corruptLeases.remove(leaseId);
+        recordRepairOutcome(REPAIR_OUTCOME_REFUSED_STILL_USABLE);
+        LOG.atWarn()
+            .addKeyValue("leaseId", leaseId)
+            .addKeyValue("hostname", this.hostname)
+            .log("Lease loads cleanly at delete time, refusing to delete");
+        return false;
+      }
+      if (classification == RepairClassification.UNDETERMINED) {
+        // A lookup failed, so corruption cannot be confirmed. Leave any recorded reason in place
+        // and decline; the operator can reapply once the cluster is healthy.
+        recordRepairOutcome(REPAIR_OUTCOME_INDETERMINATE);
+        LOG.atWarn()
+            .addKeyValue("leaseId", leaseId)
+            .addKeyValue("hostname", this.hostname)
+            .log("Could not confirm the lease is corrupt at delete time, refusing to delete");
+        return false;
+      }
+      Optional<Instant> expiration = readLeaseExpiration(rawLease);
+      if (expiration.isPresent() && Instant.now().isBefore(expiration.get())) {
+        // The lease has not expired, so another host may still hold it. Deleting now would let the
+        // next initializeLease recreate the lease at version 1 while the old writer's cached copy
+        // survives fencing. The runbook says wait for expiry; enforce it here.
+        recordRepairOutcome(REPAIR_OUTCOME_REFUSED_NOT_EXPIRED);
+        LOG.atWarn()
+            .addKeyValue("leaseId", leaseId)
+            .addKeyValue("hostname", this.hostname)
+            .addKeyValue("leaseExpiration", expiration.get())
+            .log("Lease has not expired yet, refusing to delete");
+        return false;
+      }
+      Bson deleteFilter = corruptLeaseDeleteFilter(leaseId, rawLease);
+      var result =
+          this.operationExecutor.execute(
+              "deleteCorruptLease", () -> this.getCollection(dbName).deleteOne(deleteFilter));
+      if (result.getDeletedCount() == 0) {
+        this.corruptLeases.remove(leaseId);
+        recordRepairOutcome(REPAIR_OUTCOME_LOST_RACE);
+        LOG.atInfo()
+            .addKeyValue("leaseId", leaseId)
+            .log(
+                "Corrupt lease not deleted; another host removed it or rewrote it cleanly, bumping"
+                    + " the leaseVersion the delete was pinned to");
+        return false;
+      }
+      this.corruptLeases.remove(leaseId);
+      // Drop the cached lease, but deliberately not the database mappings. A rejected lease is not
+      // removed from this.leases by the sweep, so an entry loaded cleanly before the document went
+      // bad can still be sitting there, and it must not outlive the document.
+      //
+      // evictCachedLease is not used here. It also clears both mappings, which is right for the
+      // index-drop paths that call it because those retire the generation too. Repair leaves the
+      // generation registered, and without a mapping getDatabaseForLease throws, so the follower
+      // poll skips that key on every pass: the materialized view ends up with no leader rather
+      // than unblocked, which is the opposite of what this command is for.
+      this.leases.remove(leaseId);
+      demoteLeadershipForLease(leaseId);
+      recordRepairOutcome(REPAIR_OUTCOME_DELETED);
+      LOG.atWarn()
+          .addKeyValue("leaseId", leaseId)
+          .addKeyValue("hostname", this.hostname)
+          .addKeyValue("database", dbName)
+          .log(
+              "Deleted corrupt lease; the materialized view will be recreated from scratch on the"
+                  + " next lease initialization");
+      return true;
+    } catch (Exception | AssertionError e) {
+      // Best effort, matching every other lease-table op: the operator can reapply the command.
+      recordRepairOutcome(REPAIR_OUTCOME_ERROR);
+      LOG.atError()
+          .addKeyValue("leaseId", leaseId)
+          .addKeyValue("hostname", this.hostname)
+          .setCause(e)
+          .log("Failed to delete corrupt lease");
+      return false;
     }
   }
 
@@ -525,21 +1033,33 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             .log(
                 "Unable to normalize or validate lease, "
                     + "could be caused by dangling lease or corrupted lease");
-        // TODO(CLOUDP-384971): We should have a way to clean up corrupted leases to avoid blocking
-        // Lease creation.
+        recordCorruptLease(lease.id(), LeaseRepairUtil.CorruptionReason.UNRESOLVABLE_MV_UUID);
         return null;
       }
     }
-    return postRestoreSanitizeIfNeeded(normalized);
+    try {
+      return postRestoreSanitizeIfNeeded(normalized);
+    } catch (LeaseRepairUtil.LeaseRepairException e) {
+      // The load path draws no distinction between the two failure kinds: either way it cannot
+      // verify the namespace, so the lease stays unacquirable and repair is retried on the next
+      // load. Only the repair re-check acts on the kind.
+      recordPostRestoreFailure(normalized, e);
+      return null;
+    }
   }
 
-  // Sanitizes a stale flex→dedicated migration lease in-memory so downstream consumers see cleared
+  // Sanitizes a stale flex to dedicated migration lease in-memory so downstream consumers see
+  // cleared
   // commitInfo + refreshed UUIDs before any replication starts; the persistent rewrite happens via
-  // the next leadership-acquisition replaceOne. Returns null only when repair was needed but could
-  // not be completed, which leaves the lease unacquirable; every outcome we can positively
-  // determine — repaired, nothing to repair, or not a migration — returns a usable lease.
-  @Nullable
-  private Lease postRestoreSanitizeIfNeeded(Lease lease) {
+  // the next leadership-acquisition replaceOne. Every outcome we can positively determine, whether
+  // repaired, nothing to repair, or not a migration, returns a usable lease.
+  //
+  // Throws rather than returning null when repair was needed but could not be completed. The two
+  // callers need the LeaseRepairException.Kind: the load path treats either kind the same and
+  // leaves the lease unacquirable, while the repair re-check may only delete on a DEFINITIVE
+  // failure. Both must call recordPostRestoreFailure on the way out.
+  private Lease postRestoreSanitizeIfNeeded(Lease lease)
+      throws LeaseRepairUtil.LeaseRepairException {
     var repairNeed =
         LeaseRepairUtil.classifyRepairNeed(
             lease,
@@ -556,36 +1076,48 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     if (repairNeed == LeaseRepairUtil.RepairNeed.NONE) {
       return lease;
     }
-    try {
-      Lease repaired =
-          LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-              lease, this.uuidResolver, this.dbResolver.resolveDefault());
-      if (repaired == lease) {
-        // Stripped namespace absent, or name and both UUIDs already current: nothing to rewrite.
-        this.postRestoreRepairSuppressedCounter.increment();
-        logRepair(lease).log("Post-restore repair found nothing to fix; leaving lease unchanged");
-        return lease;
-      }
-      this.postRestoreLeaseRepairSuccessCounter.increment();
-      logRepair(lease)
-          .addKeyValue("oldSourceUuid", lease.collectionUuid())
-          .addKeyValue("newSourceUuid", repaired.collectionUuid())
-          .addKeyValue("oldMvUuid", lease.materializedViewCollectionMetadata().collectionUuid())
-          .addKeyValue("newMvUuid", repaired.materializedViewCollectionMetadata().collectionUuid())
-          .log("Repaired post-restore stale lease (flex→dedicated migration artifact)");
-      return repaired;
-    } catch (LeaseRepairUtil.LeaseRepairException e) {
-      // Indeterminate: the lookup itself failed, so we cannot tell a repaired lease from a stale
-      // one. Drop it so the lease stays unacquirable rather than replicating against a namespace we
-      // could not verify; repair is retried on the next lease load.
-      this.postRestoreLeaseRepairFailureCounter.increment();
-      logRepair(lease)
-          .setCause(e)
-          .log(
-              "Post-restore lease repair failed at load; dropping lease to prevent replication on"
-                  + " stale namespace");
-      return null;
+    Lease repaired =
+        LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+            lease, this.uuidResolver, this.dbResolver.resolveDefault());
+    if (repaired == lease) {
+      // Stripped namespace absent, or name and both UUIDs already current: nothing to rewrite.
+      this.postRestoreRepairSuppressedCounter.increment();
+      logRepair(lease).log("Post-restore repair found nothing to fix; leaving lease unchanged");
+      return lease;
     }
+    this.postRestoreLeaseRepairSuccessCounter.increment();
+    logRepair(lease)
+        .addKeyValue("oldSourceUuid", lease.collectionUuid())
+        .addKeyValue("newSourceUuid", repaired.collectionUuid())
+        .addKeyValue("oldMvUuid", lease.materializedViewCollectionMetadata().collectionUuid())
+        .addKeyValue("newMvUuid", repaired.materializedViewCollectionMetadata().collectionUuid())
+        .log("Repaired post-restore stale lease (flex to dedicated migration artifact)");
+    return repaired;
+  }
+
+  /**
+   * Records a failed post-restore repair: bumps the failure counter, records the rejection reason,
+   * and logs. Shared by the load path and the repair re-check so both leave the same trace.
+   */
+  private void recordPostRestoreFailure(Lease lease, LeaseRepairUtil.LeaseRepairException e) {
+    recordPostRestoreFailure(
+        lease, databaseForLease(lease.id(), "recording a post-restore failure").orElse(null), e);
+  }
+
+  /** As above, but records against {@code dbName} when the caller knows which database it read. */
+  private void recordPostRestoreFailure(
+      Lease lease, @Nullable String dbName, LeaseRepairUtil.LeaseRepairException e) {
+    this.postRestoreLeaseRepairFailureCounter.increment();
+    if (dbName != null) {
+      recordCorruptLease(
+          lease.id(), dbName, LeaseRepairUtil.CorruptionReason.POST_RESTORE_REPAIR_FAILED);
+    }
+    logRepair(lease)
+        .addKeyValue("failureKind", e.kind())
+        .setCause(e)
+        .log(
+            "Post-restore lease repair failed; dropping lease to prevent replication on stale"
+                + " namespace");
   }
 
   private LoggingEventBuilder logRepair(Lease lease) {
@@ -1008,12 +1540,13 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    */
   @Override
   public LeaseManager.GcScanResult findGcCandidates() {
-    Set<String> databases = new HashSet<>(this.leaseKeyToDatabase.values());
-    databases.add(this.dbResolver.resolveDefault());
+    Set<String> databases = knownInternalDatabases();
 
     List<Lease> leases = new ArrayList<>();
     @Var boolean complete = true;
     @Var boolean sawDocuments = false;
+    Set<String> sweptDatabases = new HashSet<>();
+    Set<String> seenLeaseIds = new HashSet<>();
     for (String dbName : databases) {
       try {
         List<BsonDocument> rawLeases =
@@ -1021,12 +1554,29 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
                 "findGcCandidates",
                 () -> this.getCollection(dbName).find().into(new ArrayList<>()));
         sawDocuments |= !rawLeases.isEmpty();
+        sweptDatabases.add(dbName);
+        rawLeases.forEach(raw -> leaseIdOf(raw).ifPresent(seenLeaseIds::add));
         for (BsonDocument rawLease : rawLeases) {
           try {
-            Lease lease = parseLeaseOrThrow(rawLease);
+            Lease parsed = parseLeaseOrThrow(rawLease, dbName);
             // Register the mapping (orphans have no generation to do it) for the mark/delete.
-            this.leaseKeyToDatabase.putIfAbsent(lease.id(), dbName);
-            leases.add(lease);
+            this.leaseKeyToDatabase.putIfAbsent(parsed.id(), dbName);
+            // Parsing is not the same as loading cleanly: UNRESOLVABLE_MV_UUID and
+            // POST_RESTORE_REPAIR_FAILED both parse and are still rejected by the load path.
+            // Retire the rejection only when the whole load path accepts the lease, the same gate
+            // syncLeasesFromMongod uses. Otherwise this sweep silently un-records leases an
+            // operator still needs to repair.
+            //
+            // Run the load path only for leases that actually have a record to retire. It issues
+            // listCollections calls and bumps the post-restore counters and logs, and doing that
+            // for every lease on every sweep would turn a bookkeeping check into per-sweep
+            // network traffic and telemetry noise.
+            if (this.corruptLeases.containsKey(parsed.id())
+                && normalizeLeaseIfNeeded(parsed) != null) {
+              this.corruptLeases.remove(parsed.id());
+            }
+            // The parsed lease stays a GC candidate either way, so the candidate list is unchanged.
+            leases.add(parsed);
           } catch (BsonParseException e) {
             // parseLeaseOrThrow counted it; corrupted leases are invisible to GC (CLOUDP-384971).
             LOG.atError()
@@ -1046,6 +1596,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             .log("Failed to scan database for GC leases");
       }
     }
+    // Retire records for leases this sweep no longer sees. Only databases actually swept are
+    // considered, so a database whose scan threw above keeps its records rather than losing them
+    // to a transient read failure. This is the only path with a complete view of every database.
+    this.corruptLeases
+        .entrySet()
+        .removeIf(
+            entry ->
+                sweptDatabases.contains(entry.getValue().database())
+                    && !seenLeaseIds.contains(entry.getKey()));
     return new LeaseManager.GcScanResult(leases, complete, sawDocuments);
   }
 
@@ -1141,7 +1700,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .log("Stale lease already deleted, skipping mat view drop");
       return Optional.empty();
     }
-    Lease lease = parseLeaseOrThrow(rawLease);
+    Lease lease = parseLeaseOrThrow(rawLease, dbName);
     if (lease.cleanupState() != Lease.CleanupState.ELIGIBLE_FOR_CLEANUP
         || !lease.leaseExpiration().isBefore(expirationCutoff)
         || lease.leaseVersion() != expectedLeaseVersion) {
@@ -1316,6 +1875,12 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     Map<MaterializedViewGenerationId, BsonTimestamp> replicationOpTimes = new HashMap<>();
     Set<MaterializedViewGenerationId> acquirableLeases = new HashSet<>();
 
+    // Applied at the top of the poll, before the early return below. A lease that blocks lease
+    // creation can leave this host with no registered generation at all, and that early return
+    // fires exactly in that state, so anything placed after it would never run for the case the
+    // tool exists to fix. This is the earliest point on a periodic path that always executes.
+    executeOpsRepairLeaseCommand();
+
     if (!this.localRoles.hasAnyFollower()) {
       LOG.atDebug()
           .addKeyValue("followerCount", 0)
@@ -1382,9 +1947,23 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
                     this.getCollectionForFollowerPoll(dbName)
                         .find(Filters.in("_id", keys))
                         .into(new ArrayList<>()));
+        // A key we asked for and did not get back no longer exists in this database, so retire a
+        // rejection recorded against this database. The record's database must match the one just
+        // read: a record naming another database says nothing was learned about it here, and
+        // retiring it would forget a document that may still exist. A rejected lease is still
+        // returned by the query (it exists, it just fails to load), so this cannot retire a record
+        // that is still valid. findGcCandidates applies the same swept-database guard.
+        Set<String> returnedIds = new HashSet<>();
+        rawLeases.forEach(raw -> leaseIdOf(raw).ifPresent(returnedIds::add));
+        keys.stream()
+            .filter(key -> !returnedIds.contains(key))
+            .forEach(
+                key ->
+                    this.corruptLeases.computeIfPresent(
+                        key, (id, record) -> record.database().equals(dbName) ? null : record));
         for (BsonDocument rawLease : rawLeases) {
           try {
-            Lease parsed = parseLeaseOrThrow(rawLease);
+            Lease parsed = parseLeaseOrThrow(rawLease, dbName);
             Lease normalized = normalizeLeaseIfNeeded(parsed);
             if (normalized != null) {
               fetchedLeases.put(normalized.id(), normalized);
@@ -1713,6 +2292,18 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   void putLease(String leaseKey, Lease lease) {
     this.leases.put(leaseKey, lease);
   }
+
+  @VisibleForTesting
+  Map<String, CorruptLease> getCorruptLeases() {
+    return ImmutableMap.copyOf(this.corruptLeases);
+  }
+
+  /**
+   * A lease the load path rejected: which database holds it, and which check rejected it. The
+   * database is carried because leases live in per-tenant internal databases on a multi-tenant
+   * cluster, so an operator action cannot assume the default one.
+   */
+  record CorruptLease(String database, LeaseRepairUtil.CorruptionReason reason) {}
 
   @VisibleForTesting
   Map<String, String> getLeaseKeyToDatabase() {
@@ -2059,6 +2650,27 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     }
   }
 
+  /**
+   * Demotes this host if it still holds leadership for {@code leaseId}, whose document has just
+   * been deleted. Leaving a stale LEADER role would keep the generation on the leader path with no
+   * lease behind it.
+   *
+   * <p>Scans the leader set rather than using a reverse index, since there is none and leaders are
+   * few. A generation whose metadata has already gone has nothing to demote.
+   */
+  private void demoteLeadershipForLease(String leaseId) {
+    for (MaterializedViewGenerationId generationId : this.localRoles.leaderIds()) {
+      try {
+        if (getLeaseKey(generationId).equals(leaseId)) {
+          becomeFollower(generationId);
+          return;
+        }
+      } catch (IllegalStateException e) {
+        // Metadata already removed for this generation, so there is no lease key to match.
+      }
+    }
+  }
+
   /** Transitions a generation ID from leader to follower state. */
   private void becomeFollower(MaterializedViewGenerationId generationId) {
     // The leader-check, lease-check, and role write all happen inside one computeRole() call so
@@ -2160,17 +2772,15 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
   @Nullable
   private Lease getLeaseFromDatabase(String collectionName) throws Exception {
+    String dbName = getDatabaseForLease(collectionName);
     BsonDocument rawLease =
         this.operationExecutor.execute(
             "getLease",
-            () ->
-                this.getCollection(getDatabaseForLease(collectionName))
-                    .find(new Document("_id", collectionName))
-                    .first());
+            () -> this.getCollection(dbName).find(new Document("_id", collectionName)).first());
     if (rawLease == null) {
       return null;
     }
-    Lease lease = normalizeLeaseIfNeeded(parseLeaseOrThrow(rawLease));
+    Lease lease = normalizeLeaseIfNeeded(parseLeaseOrThrow(rawLease, dbName));
     if (lease == null) {
       this.metricsFactory.counter(CORRUPTED_LEASES_COUNTER_NAME).increment();
     }
@@ -2284,7 +2894,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       } catch (Throwable t) {
         // Broad on purpose: repair must never crash leadership acquisition.
         throw new LeaseRepairUtil.LeaseRepairException(
-            "failed to resolve UUID for " + db + "." + coll, t);
+            LeaseRepairUtil.LeaseRepairException.Kind.LOOKUP_FAILED,
+            "failed to resolve UUID for " + db + "." + coll,
+            t);
       }
       if (info.isEmpty()) {
         // Absent database or collection: listCollections on an unknown database is empty, not an
@@ -2294,7 +2906,11 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       if (info.get() instanceof MongoDbCollectionInfo.Collection collection) {
         return Optional.of(collection.info().uuid());
       }
+      // LOOKUP_FAILED rather than DEFINITIVE. The namespace resolving to something other than a
+      // collection is deterministic, but it is an unexpected shape rather than a known corruption,
+      // so the repair tool stays fail-closed on it and declines to delete.
       throw new LeaseRepairUtil.LeaseRepairException(
+          LeaseRepairUtil.LeaseRepairException.Kind.LOOKUP_FAILED,
           "expected collection but found "
               + info.get().getClass().getSimpleName()
               + " at "

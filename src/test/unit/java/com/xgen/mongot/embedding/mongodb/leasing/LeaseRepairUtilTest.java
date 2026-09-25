@@ -202,49 +202,62 @@ public class LeaseRepairUtilTest {
 
     LeaseRepairUtil.CollectionUuidResolver anyUuid = (db, coll) -> Optional.of(UUID.randomUUID());
 
-    // Lease with no resume info in commitInfo → LeaseRepairException (nothing to derive source db)
+    // Lease with no resume info in commitInfo → LeaseRepairException (nothing to derive source db).
+    // DEFINITIVE: the lease data itself cannot support repair, so a retry fails identically.
     Lease noResume = leaseWithRawCommitInfo(EncodedUserData.EMPTY.asString());
-    assertThrows(
-        LeaseRepairUtil.LeaseRepairException.class,
-        () ->
-            LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-                noResume, anyUuid, INTERNAL_SEARCH_DB));
+    var noResumeFailure =
+        assertThrows(
+            LeaseRepairUtil.LeaseRepairException.class,
+            () ->
+                LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+                    noResume, anyUuid, INTERNAL_SEARCH_DB));
+    assertEquals(LeaseRepairUtil.LeaseRepairException.Kind.DEFINITIVE, noResumeFailure.kind());
 
     // Source-side lookup fails (called first) → LeaseRepairException propagates. Distinct from the
-    // resolver returning empty, which means the namespace is absent and the lease is fine.
+    // resolver returning empty, which means the namespace is absent and the lease is fine. The kind
+    // the resolver chose is preserved, since only the resolver knows whether it got an answer.
     LeaseRepairUtil.CollectionUuidResolver sourceFailing =
         (db, coll) -> {
           if (db.equals(INTERNAL_SEARCH_DB)) {
             return Optional.of(UUID.randomUUID());
           }
-          throw new LeaseRepairUtil.LeaseRepairException("source lookup failed");
+          throw new LeaseRepairUtil.LeaseRepairException(
+              LeaseRepairUtil.LeaseRepairException.Kind.LOOKUP_FAILED, "source lookup failed");
         };
-    assertThrows(
-        LeaseRepairUtil.LeaseRepairException.class,
-        () ->
-            LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-                stale, sourceFailing, INTERNAL_SEARCH_DB));
+    var sourceFailure =
+        assertThrows(
+            LeaseRepairUtil.LeaseRepairException.class,
+            () ->
+                LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+                    stale, sourceFailing, INTERNAL_SEARCH_DB));
+    assertEquals(LeaseRepairUtil.LeaseRepairException.Kind.LOOKUP_FAILED, sourceFailure.kind());
 
     // MV collection absent → repair failure, not a false positive: the MV lives in the internal
     // database, which is never tenant-named, so its absence says nothing about the prefix.
+    // DEFINITIVE, because an empty resolve is the resolver answering rather than failing. The
+    // repair tool deletes on this and declines on LOOKUP_FAILED, so the two must not be merged.
     LeaseRepairUtil.CollectionUuidResolver mvAbsent =
         (db, coll) ->
             db.equals(INTERNAL_SEARCH_DB) ? Optional.empty() : Optional.of(UUID.randomUUID());
-    assertThrows(
-        LeaseRepairUtil.LeaseRepairException.class,
-        () ->
-            LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-                stale, mvAbsent, INTERNAL_SEARCH_DB));
+    var mvAbsentFailure =
+        assertThrows(
+            LeaseRepairUtil.LeaseRepairException.class,
+            () ->
+                LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+                    stale, mvAbsent, INTERNAL_SEARCH_DB));
+    assertEquals(LeaseRepairUtil.LeaseRepairException.Kind.DEFINITIVE, mvAbsentFailure.kind());
 
     // Namespace on the lease doesn't actually have a tenant prefix → LeaseRepairException from
     // stripTenantPrefix. Reached only if a caller invokes repair without checking
     // requiresPostRestoreRepair first, so this documents the contract.
     Lease unprefixed = leaseWithNamespaceDb("sample_mflix");
-    assertThrows(
-        LeaseRepairUtil.LeaseRepairException.class,
-        () ->
-            LeaseRepairUtil.repairLeaseForPostRestoreMigration(
-                unprefixed, anyUuid, INTERNAL_SEARCH_DB));
+    var unprefixedFailure =
+        assertThrows(
+            LeaseRepairUtil.LeaseRepairException.class,
+            () ->
+                LeaseRepairUtil.repairLeaseForPostRestoreMigration(
+                    unprefixed, anyUuid, INTERNAL_SEARCH_DB));
+    assertEquals(LeaseRepairUtil.LeaseRepairException.Kind.DEFINITIVE, unprefixedFailure.kind());
   }
 
   @Test

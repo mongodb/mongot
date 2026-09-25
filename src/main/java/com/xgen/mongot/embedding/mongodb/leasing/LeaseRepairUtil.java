@@ -31,6 +31,36 @@ public final class LeaseRepairUtil {
   /** Tenant-prefix shape: 24 lowercase hex chars followed by an underscore. */
   private static final Pattern TENANT_PREFIX = Pattern.compile("^[a-f0-9]{24}_");
 
+  /**
+   * Why mongot cannot use a lease document. Unlike the post-restore cases above, these leases are
+   * not repairable in place: mongot skips them on every load, so they sit in the lease collection
+   * and block lease creation for their materialized view until an operator clears them.
+   *
+   * <p>Each value names a distinct failure in the load path, so the reason recorded against a lease
+   * says which check to re-run before acting on it. Two of the three parse cleanly, so parseability
+   * alone never establishes that a lease is usable.
+   */
+  public enum CorruptionReason {
+    /** {@link Lease#fromBson} threw: a required field is missing or holds the wrong type. */
+    UNPARSEABLE,
+
+    /**
+     * The document parses, but its materialized-view collection UUID is nil and no live collection
+     * resolves it. Establishing this needs a listCollections call.
+     */
+    UNRESOLVABLE_MV_UUID,
+
+    /**
+     * The document parses, but {@link #repairLeaseForPostRestoreMigration} failed on it, so the
+     * lease still points at a namespace left behind by a flex to dedicated migration.
+     *
+     * <p>Repairable by the ops tool only when the underlying failure is {@link
+     * LeaseRepairException.Kind#DEFINITIVE}. A lease recorded here because a lookup failed is
+     * declined as indeterminate instead, since the failure said nothing about the lease.
+     */
+    POST_RESTORE_REPAIR_FAILED,
+  }
+
   /** Returns the {@code db.collection} namespace recorded in the lease's commitInfo, if any. */
   public static Optional<String> extractNamespace(Lease lease) {
     return parseCommitInfo(lease).getResumeInfo().map(info -> info.getNamespace().getFullName());
@@ -124,6 +154,7 @@ public final class LeaseRepairUtil {
             .orElseThrow(
                 () ->
                     new LeaseRepairException(
+                        LeaseRepairException.Kind.DEFINITIVE,
                         "lease "
                             + lease.id()
                             + " has no resume info to derive source namespace from"));
@@ -138,13 +169,16 @@ public final class LeaseRepairUtil {
     UUID newSourceUuid = resolvedSourceUuid.get();
     MaterializedViewCollectionMetadata mvMeta = lease.materializedViewCollectionMetadata();
     // The MV lives in the internal database, which is never tenant-named, so its absence says
-    // nothing about the prefix and stays a repair failure.
+    // nothing about the prefix and stays a repair failure. DEFINITIVE, not LOOKUP_FAILED: an empty
+    // resolve means the resolver positively established that the collection is not there, which is
+    // evidence the lease is unusable rather than an unanswered question.
     UUID newMvUuid =
         uuidResolver
             .resolve(internalSearchDb, mvMeta.collectionName())
             .orElseThrow(
                 () ->
                     new LeaseRepairException(
+                        LeaseRepairException.Kind.DEFINITIVE,
                         "materialized view collection "
                             + internalSearchDb
                             + "."
@@ -208,6 +242,7 @@ public final class LeaseRepairUtil {
     var matcher = TENANT_PREFIX.matcher(prefixedDb);
     if (!matcher.find()) {
       throw new LeaseRepairException(
+          LeaseRepairException.Kind.DEFINITIVE,
           "expected tenant-prefixed database name but got: " + prefixedDb);
     }
     return prefixedDb.substring(matcher.end());
@@ -216,22 +251,55 @@ public final class LeaseRepairUtil {
   /**
    * Resolves a collection UUID by database + collection name. Empty means the namespace
    * definitively does not exist; {@link LeaseRepairException} means the lookup failed or resolved
-   * to a non- collection. Callers depend on that split: an absent namespace is evidence, a failed
-   * lookup isn't.
+   * to a non- collection, and carries {@link LeaseRepairException.Kind#LOOKUP_FAILED}. Callers
+   * depend on that split: an absent namespace is evidence, a failed lookup isn't.
    */
   @FunctionalInterface
   public interface CollectionUuidResolver {
     Optional<UUID> resolve(String database, String collection) throws LeaseRepairException;
   }
 
-  /** Thrown when post-restore repair cannot complete (e.g. UUID lookup failure, invalid input). */
+  /**
+   * Thrown when post-restore repair cannot complete (e.g. UUID lookup failure, invalid input).
+   *
+   * <p>Carries a {@link Kind} because callers act on the difference. The repair tool deletes lease
+   * documents, so it may only do so on evidence: a {@link Kind#DEFINITIVE} failure is evidence, a
+   * {@link Kind#LOOKUP_FAILED} one is not. Collapsing the two would either delete a valid lease on
+   * a transient Mongo error or leave a genuinely unusable one unrepairable forever.
+   */
   public static final class LeaseRepairException extends Exception {
-    public LeaseRepairException(String message) {
-      super(message);
+
+    /**
+     * Whether the failure is evidence about the lease, or merely a lookup that did not complete.
+     */
+    public enum Kind {
+      /**
+       * The lease data itself cannot support repair, and re-running would fail the same way. A
+       * re-check may treat this as positive re-rejection.
+       */
+      DEFINITIVE,
+
+      /**
+       * A lookup did not complete, so nothing was learned about the lease and a retry may answer
+       * differently. A re-check must fail closed on this.
+       */
+      LOOKUP_FAILED
     }
 
-    public LeaseRepairException(String message, Throwable cause) {
+    private final Kind kind;
+
+    public LeaseRepairException(Kind kind, String message) {
+      super(message);
+      this.kind = kind;
+    }
+
+    public LeaseRepairException(Kind kind, String message, Throwable cause) {
       super(message, cause);
+      this.kind = kind;
+    }
+
+    public Kind kind() {
+      return this.kind;
     }
   }
 }

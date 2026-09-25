@@ -146,7 +146,8 @@ public class DynamicLeaderLeaseManagerTest {
                 new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
                     HOSTNAME,
                     List.of("69a7ab02ac4c64cd5800caaf-66392faf9727adb4c26e76dc37b98b9f-1"),
-                    Instant.now().minusSeconds(60))));
+                    Instant.now().minusSeconds(60))),
+            Optional.empty());
 
     DynamicLeaderLeaseManager managerWithExpiredOps =
         DynamicLeaderLeaseManager.create(
@@ -167,7 +168,8 @@ public class DynamicLeaderLeaseManagerTest {
         new LeaseManagerOpsCommands(
             Optional.of(
                 new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
-                    HOSTNAME, List.of(), Instant.now().plusSeconds(60))));
+                    HOSTNAME, List.of(), Instant.now().plusSeconds(60))),
+            Optional.empty());
 
     DynamicLeaderLeaseManager manager =
         DynamicLeaderLeaseManager.create(
@@ -189,7 +191,8 @@ public class DynamicLeaderLeaseManagerTest {
                 new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
                     HOSTNAME,
                     List.of("69a7ab02ac4c64cd5800caaf-66392faf9727adb4c26e76dc37b98b9f-1"),
-                    Instant.now().plusSeconds(60))));
+                    Instant.now().plusSeconds(60))),
+            Optional.empty());
 
     DynamicLeaderLeaseManager manager =
         DynamicLeaderLeaseManager.create(
@@ -212,7 +215,8 @@ public class DynamicLeaderLeaseManagerTest {
         new LeaseManagerOpsCommands(
             Optional.of(
                 new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
-                    HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))));
+                    HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))),
+            Optional.empty());
 
     DynamicLeaderLeaseManager managerWithNotExpiredOps =
         DynamicLeaderLeaseManager.create(
@@ -243,7 +247,8 @@ public class DynamicLeaderLeaseManagerTest {
         new LeaseManagerOpsCommands(
             Optional.of(
                 new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
-                    HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))));
+                    HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))),
+            Optional.empty());
 
     MeterAndFtdcRegistry meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithSimpleRegistries();
     String successMeterName =
@@ -283,7 +288,8 @@ public class DynamicLeaderLeaseManagerTest {
         new LeaseManagerOpsCommands(
             Optional.of(
                 new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
-                    HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))));
+                    HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))),
+            Optional.empty());
 
     MeterAndFtdcRegistry meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithSimpleRegistries();
     String successMeterName =
@@ -734,6 +740,705 @@ public class DynamicLeaderLeaseManagerTest {
     this.leaseManager.add(gen);
     this.leaseManager.pollFollowerStatuses();
     return this.leaseManager.getLeases().get(lease.id());
+  }
+
+  // ==================== Corrupt Lease Repair ====================
+
+  @Test
+  public void syncLeasesFromMongod_unparseableLease_recordsUnparseableReason() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+
+    this.leaseManager.syncLeasesFromMongod();
+
+    assertThat(this.leaseManager.getCorruptLeases())
+        .containsEntry(
+            lease.id(),
+            new DynamicLeaderLeaseManager.CorruptLease(
+                DATABASE_NAME, LeaseRepairUtil.CorruptionReason.UNPARSEABLE));
+    assertThat(this.leaseManager.getLeases()).doesNotContainKey(lease.id());
+  }
+
+  @Test
+  public void syncLeasesFromMongod_unresolvableMvUuid_recordsUnresolvableReason() {
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(nilMvUuidLease(NIL_MV_LEASE_ID))));
+    setupEmptyListCollections();
+
+    this.leaseManager.syncLeasesFromMongod();
+
+    // The document parses cleanly. Only the collection lookup fails, so the reason must say so.
+    assertThat(this.leaseManager.getCorruptLeases())
+        .containsEntry(
+            NIL_MV_LEASE_ID,
+            new DynamicLeaderLeaseManager.CorruptLease(
+                DATABASE_NAME, LeaseRepairUtil.CorruptionReason.UNRESOLVABLE_MV_UUID));
+    assertThat(this.leaseManager.getLeases()).doesNotContainKey(NIL_MV_LEASE_ID);
+  }
+
+  @Test
+  public void findGcCandidates_leaseVanishes_prunesRecord() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+    this.leaseManager.findGcCandidates();
+    assertThat(this.leaseManager.getCorruptLeases()).containsKey(lease.id());
+
+    // The document was removed out of band, so the sweep no longer returns it. The GC sweep is the
+    // only path with a complete view of every database, so pruning belongs there.
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>());
+    this.leaseManager.findGcCandidates();
+
+    assertThat(this.leaseManager.getCorruptLeases()).isEmpty();
+  }
+
+  @Test
+  public void findGcCandidates_unparseableLease_recordsItFromALivePath() {
+    // parseLeaseOrThrow is the funnel every live read passes through, so recording there is what
+    // makes rejections visible in production. syncLeasesFromMongod has no production caller.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+
+    this.leaseManager.findGcCandidates();
+
+    assertThat(this.leaseManager.getCorruptLeases())
+        .containsEntry(
+            lease.id(),
+            new DynamicLeaderLeaseManager.CorruptLease(
+                DATABASE_NAME, LeaseRepairUtil.CorruptionReason.UNPARSEABLE));
+  }
+
+  @Test
+  public void findGcCandidates_leaseParsesButStillRejected_keepsRecordAndStaysACandidate() {
+    // A lease with a nil MV UUID whose collection is absent parses fine but the load path still
+    // rejects it. The GC sweep used to clear the rejection on parse success alone, which silently
+    // un-recorded leases an operator still needs to repair.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(nilMvLease)));
+    setupEmptyListCollections();
+    this.leaseManager.syncLeasesFromMongod();
+    assertThat(this.leaseManager.getCorruptLeases()).containsKey(NIL_MV_LEASE_ID);
+
+    var result = this.leaseManager.findGcCandidates();
+
+    assertThat(this.leaseManager.getCorruptLeases()).containsKey(NIL_MV_LEASE_ID);
+    // Still a GC candidate, so gating the record retirement does not change the candidate list.
+    assertThat(result.leases().stream().map(Lease::id)).contains(NIL_MV_LEASE_ID);
+  }
+
+  @Test
+  public void findGcCandidates_leaseWithoutRecord_skipsLoadPathCheck() {
+    // The load-path re-check exists only to retire an existing rejection record. Running it for
+    // every lease on every sweep would issue listCollections per nil-MV lease per sweep and inflate
+    // the post-restore counters, so an unrecorded lease must be parsed and nothing more.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(nilMvLease)));
+
+    var result = this.leaseManager.findGcCandidates();
+
+    verify(this.mockDatabase, never()).listCollections(BsonDocument.class);
+    assertThat(result.leases().stream().map(Lease::id)).contains(NIL_MV_LEASE_ID);
+  }
+
+  @Test
+  public void findGcCandidates_leaseLoadsCleanly_retiresRecord() {
+    // The counterpart: a lease the load path accepts must have its stale rejection retired, which
+    // is what stops the repair command deleting a lease that has recovered.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+    this.leaseManager.findGcCandidates();
+    assertThat(this.leaseManager.getCorruptLeases()).containsKey(lease.id());
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(lease.toBson())));
+
+    this.leaseManager.findGcCandidates();
+
+    assertThat(this.leaseManager.getCorruptLeases()).doesNotContainKey(lease.id());
+  }
+
+  @Test
+  public void syncLeasesFromMongod_mixedBatch_recordsOnlyTheCorruptLease() {
+    MaterializedViewIndexGeneration corruptGen = createTestIndexGeneration();
+    Lease corruptLease =
+        createLease(corruptGen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    MaterializedViewIndexGeneration healthyGen = createTestIndexGeneration();
+    Lease healthyLease =
+        createLease(healthyGen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(corruptLease), healthyLease.toBson())));
+
+    this.leaseManager.syncLeasesFromMongod();
+
+    assertThat(this.leaseManager.getCorruptLeases().keySet()).containsExactly(corruptLease.id());
+    assertThat(this.leaseManager.getLeases()).containsKey(healthyLease.id());
+  }
+
+  @Test
+  public void syncLeasesFromMongod_leaseRecovers_clearsRecord() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+    this.leaseManager.syncLeasesFromMongod();
+    assertThat(this.leaseManager.getCorruptLeases()).containsKey(lease.id());
+
+    // The document is rewritten cleanly, so the next sweep must retire the record.
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(lease.toBson())));
+    this.leaseManager.syncLeasesFromMongod();
+
+    assertThat(this.leaseManager.getCorruptLeases()).isEmpty();
+    assertThat(this.leaseManager.getLeases()).containsKey(lease.id());
+  }
+
+  @Test
+  public void deleteCorruptLease_unparseable_deletesAndClearsRecord() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    // Expired: the runbook has the operator wait for expiry, and deleteCorruptLease enforces it.
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().minusSeconds(60));
+    BsonDocument corrupt = unparseable(lease);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(corrupt)));
+    this.leaseManager.syncLeasesFromMongod();
+    when(this.mockFindIterable.first()).thenReturn(corrupt);
+    setupSuccessfulDelete();
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(lease.id());
+
+    assertThat(deleted).isTrue();
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+    assertThat(this.leaseManager.getCorruptLeases()).isEmpty();
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_DELETED))
+        .isEqualTo(1.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_unresolvableMvUuid_deletes() {
+    // The whole point of the tool: this document parses cleanly and is still unusable, so a
+    // parse-only guard would refuse to delete it and leave the materialized view blocked forever.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(nilMvLease)));
+    setupEmptyListCollections();
+    this.leaseManager.syncLeasesFromMongod();
+    when(this.mockFindIterable.first()).thenReturn(nilMvLease);
+    setupSuccessfulDelete();
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(NIL_MV_LEASE_ID);
+
+    assertThat(deleted).isTrue();
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+    assertThat(this.leaseManager.getCorruptLeases()).isEmpty();
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_DELETED))
+        .isEqualTo(1.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_leaseLoadsCleanly_doesNotDelete() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+    this.leaseManager.syncLeasesFromMongod();
+    // Another mongot rewrote the document cleanly between the sweep and the operator command.
+    // Deleting now would drop a live fencing token.
+    when(this.mockFindIterable.first()).thenReturn(lease.toBson());
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(lease.id());
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+    assertThat(this.leaseManager.getCorruptLeases()).isEmpty();
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_REFUSED_STILL_USABLE))
+        .isEqualTo(1.0);
+    // A refusal is the guard working. It must not land on the counter an operator would alert on.
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ERROR)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_documentAlreadyGone_doesNotDelete() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+    this.leaseManager.syncLeasesFromMongod();
+    when(this.mockFindIterable.first()).thenReturn(null);
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(lease.id());
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void deleteCorruptLease_noDocumentAnywhere_doesNotDelete() {
+    // No prior record and no document in any known database. The delete must not depend on a
+    // background sweep having seen the lease, so this resolves to "already gone" rather than a
+    // refusal.
+    when(this.mockFindIterable.first()).thenReturn(null);
+
+    boolean deleted = this.leaseManager.deleteCorruptLease("never-seen-lease");
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ALREADY_GONE))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ERROR)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_multiTenantWithNoMappings_doesNotReportAlreadyGone() {
+    // The one-shot command fires on the first poll after a restart, which can precede conf-call
+    // index registration. On a multi-tenant cluster that leaves leaseKeyToDatabase empty, so only
+    // the default internal database gets searched and the tenant database holding the corrupt
+    // lease is unreachable. Reporting alreadyGone would burn the one-shot on a false verdict.
+    InternalDatabaseResolver multiTenantResolver =
+        new InternalDatabaseResolver() {
+          @Override
+          public String resolve(String sourceDatabaseName) {
+            return DATABASE_NAME;
+          }
+
+          @Override
+          public String resolveDefault() {
+            return DATABASE_NAME;
+          }
+        };
+    DynamicLeaderLeaseManager manager =
+        new DynamicLeaderLeaseManager(
+            this.mockAutoEmbeddingMongoClient,
+            this.metricsFactory,
+            HOSTNAME,
+            multiTenantResolver,
+            this.mvMetadataCatalog);
+    when(this.mockFindIterable.first()).thenReturn(null);
+
+    boolean deleted = manager.deleteCorruptLease("lease-in-unmapped-tenant-db");
+
+    assertThat(deleted).isFalse();
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_INDETERMINATE))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ALREADY_GONE))
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_everyDatabaseLookupFails_doesNotReportAlreadyGone() {
+    // No prior record, so the search actually runs, and every candidate lookup throws. "Not found"
+    // then proves nothing: reporting alreadyGone here would tell an operator the lease does not
+    // exist on the strength of an outage, and would clear any recorded rejection with it.
+    when(this.mockCollection.find(any(Bson.class)))
+        .thenThrow(new RuntimeException("mongo unreachable"));
+
+    boolean deleted = this.leaseManager.deleteCorruptLease("never-seen-lease");
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_INDETERMINATE))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ALREADY_GONE))
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_onSuccess_dropsCachedLeaseButKeepsDatabaseMapping() {
+    // The generation stays registered after a repair, so the mappings must survive. Without them
+    // getDatabaseForLease throws and the follower poll skips the key on every pass, leaving the
+    // materialized view with no leader instead of unblocking it.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().minusSeconds(60));
+    this.leaseManager.add(gen);
+    when(this.mockFindIterable.first()).thenReturn(unparseable(lease));
+    setupSuccessfulDelete();
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(lease.id());
+
+    assertThat(deleted).isTrue();
+    // The cached lease must not outlive the document.
+    assertThat(this.leaseManager.getLeases()).doesNotContainKey(lease.id());
+    // The mapping must, so the next poll can still resolve the database for this key.
+    assertThat(this.leaseManager.getLeaseKeyToDatabase()).containsKey(lease.id());
+  }
+
+  @Test
+  public void deleteCorruptLease_locateThrowsAssertionError_doesNotEscape() {
+    // deleteCorruptLease runs at the top of pollFollowerStatuses, which is scheduled with
+    // scheduleWithFixedDelay: a throw there cancels every future run, so the host stops refreshing
+    // statuses for all generations until restart. locateLease used to run outside the try, and
+    // Check.instanceOf on this path throws AssertionError, which a plain catch(Exception) misses.
+    when(this.mockCollection.find(any(Bson.class))).thenThrow(new AssertionError("check failed"));
+
+    boolean deleted = this.leaseManager.deleteCorruptLease("never-seen-lease");
+
+    assertThat(deleted).isFalse();
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ERROR)).isEqualTo(1.0);
+  }
+
+  @Test
+  public void pollFollowerStatuses_repairThrows_pollStillCompletes() {
+    // The barrier that matters: whatever the repair does, the poll itself must return normally.
+    DynamicLeaderLeaseManager manager =
+        managerWithRepairCommand(HOSTNAME, List.of("lease-a", "lease-b"));
+    when(this.mockCollection.find(any(Bson.class))).thenThrow(new AssertionError("check failed"));
+
+    manager.pollFollowerStatuses();
+
+    assertThat(manager.pollFollowerStatuses()).isNotNull();
+  }
+
+  @Test
+  public void deleteCorruptLease_neverSweptButDocumentPresent_stillDeletes() {
+    // The conf-call directive names an explicit lease id, so a delete must work even when no sweep
+    // has recorded the lease. This is the regression guard for that independence.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().minusSeconds(60));
+    this.leaseManager.add(gen);
+    when(this.mockFindIterable.first()).thenReturn(unparseable(lease));
+    setupSuccessfulDelete();
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(lease.id());
+
+    assertThat(deleted).isTrue();
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_DELETED))
+        .isEqualTo(1.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_versionBumpedBeforeDelete_doesNotDelete() {
+    // A clean rewrite slips into the window between the re-check and the delete, bumping the
+    // leaseVersion the delete is pinned to. The OCC filter matches nothing, so nothing is dropped.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(nilMvLease)));
+    setupEmptyListCollections();
+    this.leaseManager.syncLeasesFromMongod();
+    when(this.mockFindIterable.first()).thenReturn(nilMvLease);
+    DeleteResult noMatch = mock(DeleteResult.class);
+    when(noMatch.getDeletedCount()).thenReturn(0L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(noMatch);
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(NIL_MV_LEASE_ID);
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_LOST_RACE))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ERROR)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_lookupFailsAtRecheck_doesNotDelete() {
+    // A transient Mongo failure during the re-check must not be read as corruption. The tool
+    // declines rather than delete a possibly-valid lease.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(nilMvLease)));
+    setupEmptyListCollections();
+    this.leaseManager.syncLeasesFromMongod();
+    when(this.mockFindIterable.first()).thenReturn(nilMvLease);
+    // The re-check's collection lookup fails outright rather than returning "collection absent".
+    when(this.mockDatabase.listCollections(BsonDocument.class))
+        .thenThrow(new RuntimeException("transient mongo failure"));
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(NIL_MV_LEASE_ID);
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_INDETERMINATE))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ERROR)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_postRestoreRepairDefinitivelyFails_deletes() {
+    // A migration-shaped lease whose materialized-view collection the resolver positively
+    // establishes is absent. That is the load path re-rejecting the document, not a lookup that
+    // went unanswered, so the tool may clear it under the usual expiry and OCC guards. Without the
+    // DEFINITIVE/LOOKUP_FAILED split this reported indeterminate and the lease stayed unrepairable
+    // while still blocking initialization.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    String liveDb = gen.getDefinition().getDatabase();
+    Lease staleLease =
+        createLeaseWithCommitInfo(
+            gen.getGenerationId(), HOSTNAME, staleCommitInfo(TENANT_ID, liveDb, SOURCE_COLLECTION));
+    BsonDocument expiredRaw = staleLease.toBson();
+    expiredRaw.put(
+        "leaseExpiration", new BsonDateTime(Instant.now().minusSeconds(60).toEpochMilli()));
+    this.leaseManager.add(gen);
+    // The source collection resolves. The internal database lists an unrelated collection, so the
+    // MV lookup answers "definitely not there" rather than failing.
+    setupListCollections(liveDb, SOURCE_COLLECTION, UUID.randomUUID());
+    setupListCollections(DATABASE_NAME, "some-other-collection", UUID.randomUUID());
+    when(this.mockFindIterable.first()).thenReturn(expiredRaw);
+    setupSuccessfulDelete();
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(staleLease.id());
+
+    assertThat(deleted).isTrue();
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_DELETED))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_INDETERMINATE))
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_postRestoreLookupFails_doesNotDelete() {
+    // Same migration shape, but the MV lookup throws instead of answering. Nothing was learned
+    // about the lease, so the tool must fail closed. This is the pair to the test above: the two
+    // differ only in whether the resolver answered, and they must not reach the same verdict.
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    String liveDb = gen.getDefinition().getDatabase();
+    Lease staleLease =
+        createLeaseWithCommitInfo(
+            gen.getGenerationId(), HOSTNAME, staleCommitInfo(TENANT_ID, liveDb, SOURCE_COLLECTION));
+    BsonDocument expiredRaw = staleLease.toBson();
+    expiredRaw.put(
+        "leaseExpiration", new BsonDateTime(Instant.now().minusSeconds(60).toEpochMilli()));
+    this.leaseManager.add(gen);
+    setupListCollections(liveDb, SOURCE_COLLECTION, UUID.randomUUID());
+    when(this.mockDatabase.listCollections(BsonDocument.class))
+        .thenThrow(new RuntimeException("transient mongo failure"));
+    when(this.mockFindIterable.first()).thenReturn(expiredRaw);
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(staleLease.id());
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_INDETERMINATE))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_DELETED))
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void deleteCorruptLease_neverRegisteredLease_recordsRejectionAgainstReadDatabase() {
+    // No sweep and no add() has seen this lease, so leaseKeyToDatabase is empty and the
+    // mapping-based recordCorruptLease overload would silently skip the record. The re-check knows
+    // exactly which database it read, and the record is what lets the operator's next attempt
+    // short-circuit to it, so it must be written with that database.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    nilMvLease.put(
+        "leaseExpiration", new BsonDateTime(Instant.now().plusSeconds(600).toEpochMilli()));
+    setupEmptyListCollections();
+    when(this.mockFindIterable.first()).thenReturn(nilMvLease);
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(NIL_MV_LEASE_ID);
+
+    // Unexpired, so the delete declines after classification, leaving the record observable.
+    assertThat(deleted).isFalse();
+    assertThat(this.leaseManager.getCorruptLeases())
+        .containsEntry(
+            NIL_MV_LEASE_ID,
+            new DynamicLeaderLeaseManager.CorruptLease(
+                DATABASE_NAME, LeaseRepairUtil.CorruptionReason.UNRESOLVABLE_MV_UUID));
+  }
+
+  @Test
+  public void deleteCorruptLease_leaseNotExpired_doesNotDelete() {
+    // The document is genuinely corrupt but has not expired, so another host may still hold it.
+    // Deleting now would let the recreated lease restart at version 1 and defeat fencing.
+    BsonDocument nilMvLease = nilMvUuidLease(NIL_MV_LEASE_ID);
+    nilMvLease.put(
+        "leaseExpiration", new BsonDateTime(Instant.now().plusSeconds(600).toEpochMilli()));
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>(List.of(nilMvLease)));
+    setupEmptyListCollections();
+    this.leaseManager.syncLeasesFromMongod();
+    when(this.mockFindIterable.first()).thenReturn(nilMvLease);
+
+    boolean deleted = this.leaseManager.deleteCorruptLease(NIL_MV_LEASE_ID);
+
+    assertThat(deleted).isFalse();
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_REFUSED_NOT_EXPIRED))
+        .isEqualTo(1.0);
+    assertThat(repairOutcomeCounter(DynamicLeaderLeaseManager.REPAIR_OUTCOME_ERROR)).isEqualTo(0.0);
+  }
+
+  @Test
+  public void pollFollowerStatuses_leaseVanishes_prunesRecordFromAnyDatabase() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease lease = createLease(gen.getGenerationId(), OTHER_HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.into(any()))
+        .thenReturn(new ArrayList<>(List.of(unparseable(lease))));
+    this.leaseManager.syncLeasesFromMongod();
+    assertThat(this.leaseManager.getCorruptLeases()).containsKey(lease.id());
+    this.leaseManager.add(gen);
+
+    // The follower poll asks for this lease by id and gets nothing back, so it no longer exists.
+    when(this.mockFindIterable.into(any())).thenReturn(new ArrayList<>());
+    this.leaseManager.pollFollowerStatuses();
+
+    assertThat(this.leaseManager.getCorruptLeases()).isEmpty();
+  }
+
+  @Test
+  public void pollFollowerStatuses_repairCommandTargetsRejectedLease_deletesIt() {
+    // The wiring guard. The first attempt at this feature hung execution off a method with no
+    // production caller, so every test passed while the command could never fire. This drives the
+    // real periodic entry point, pollFollowerStatuses, rather than calling the applier directly.
+    Lease lease = corruptLeaseInDb();
+    setupSuccessfulDelete();
+    DynamicLeaderLeaseManager manager = managerWithRepairCommand(HOSTNAME, List.of(lease.id()));
+
+    manager.pollFollowerStatuses();
+
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void pollFollowerStatuses_noRegisteredGenerations_stillAppliesRepairCommand() {
+    // A lease that blocks lease creation can leave the host with no registered generation, which
+    // is the early-return path in pollFollowerStatuses. The command must still be applied.
+    Lease lease = corruptLeaseInDb();
+    setupSuccessfulDelete();
+    DynamicLeaderLeaseManager manager = managerWithRepairCommand(HOSTNAME, List.of(lease.id()));
+
+    assertThat(manager.getFollowerGenerationIds()).isEmpty();
+    manager.pollFollowerStatuses();
+
+    verify(this.mockCollection).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void pollFollowerStatuses_repairCommandAppliedOnce_doesNotReapply() {
+    // Bootstrap config cannot be withdrawn while the host runs, so re-attempting every poll would
+    // keep incrementing the repair counter long after the work was done.
+    Lease lease = corruptLeaseInDb();
+    setupSuccessfulDelete();
+    DynamicLeaderLeaseManager manager = managerWithRepairCommand(HOSTNAME, List.of(lease.id()));
+
+    manager.pollFollowerStatuses();
+    manager.pollFollowerStatuses();
+    manager.pollFollowerStatuses();
+
+    verify(this.mockCollection, times(1)).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void pollFollowerStatuses_repairCommandForAnotherInstance_doesNotDelete() {
+    Lease lease = corruptLeaseInDb();
+    DynamicLeaderLeaseManager manager =
+        managerWithRepairCommand(OTHER_HOSTNAME, List.of(lease.id()));
+
+    manager.pollFollowerStatuses();
+
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void pollFollowerStatuses_repairCommandExpired_doesNotDelete() {
+    Lease lease = corruptLeaseInDb();
+    DynamicLeaderLeaseManager manager =
+        managerWithRepairCommand(
+            HOSTNAME, List.of(lease.id()), Instant.now().minusSeconds(60).toString());
+
+    manager.pollFollowerStatuses();
+
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
+  @Test
+  public void pollFollowerStatuses_repairCommandTargetsHealthyLease_doesNotDelete() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    Lease healthy = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().plusSeconds(60));
+    when(this.mockFindIterable.first()).thenReturn(healthy.toBson());
+    DynamicLeaderLeaseManager manager = managerWithRepairCommand(HOSTNAME, List.of(healthy.id()));
+
+    manager.pollFollowerStatuses();
+
+    verify(this.mockCollection, never()).deleteOne(any(Bson.class));
+  }
+
+  /**
+   * Puts a single unparseable lease in the mocked collection and returns the lease it came from.
+   */
+  private Lease corruptLeaseInDb() {
+    MaterializedViewIndexGeneration gen = createTestIndexGeneration();
+    // Expired: deleteCorruptLease only deletes a lease past its expiry, matching the runbook.
+    Lease lease = createLease(gen.getGenerationId(), HOSTNAME, Instant.now().minusSeconds(60));
+    when(this.mockFindIterable.first()).thenReturn(unparseable(lease));
+    return lease;
+  }
+
+  private DynamicLeaderLeaseManager managerWithRepairCommand(
+      String instance, List<String> leaseIds) {
+    return managerWithRepairCommand(instance, leaseIds, Instant.now().plusSeconds(300).toString());
+  }
+
+  private DynamicLeaderLeaseManager managerWithRepairCommand(
+      String instance, List<String> leaseIds, String expiresAt) {
+    LeaseManagerOpsCommands opsCommands =
+        new LeaseManagerOpsCommands(
+            Optional.empty(),
+            LeaseManagerOpsCommands.getOpsRepairLeaseCommand(instance, leaseIds, expiresAt));
+    return DynamicLeaderLeaseManager.create(
+        this.mockAutoEmbeddingMongoClient,
+        MeterAndFtdcRegistry.createWithSimpleRegistries(),
+        HOSTNAME,
+        DB_RESOLVER,
+        this.mvMetadataCatalog,
+        opsCommands);
+  }
+
+  private static final String NIL_MV_LEASE_ID = "nil-mv-uuid-lease";
+
+  /** The lease's BSON with a required field dropped, so {@code Lease.fromBson} throws. */
+  private static BsonDocument unparseable(Lease lease) {
+    BsonDocument raw = lease.toBson();
+    raw.remove("leaseVersion");
+    return raw;
+  }
+
+  /**
+   * A lease document that parses cleanly but carries no materialized-view metadata, so its MV UUID
+   * falls back to nil and has to be resolved against a live collection.
+   */
+  private static BsonDocument nilMvUuidLease(String leaseId) {
+    return BsonDocument.parse(
+        "{\"_id\": \""
+            + leaseId
+            + "\","
+            + "\"schemaVersion\": 1,"
+            + "\"collectionUuid\": \"550e8400-e29b-41d4-a716-446655440000\","
+            + "\"collectionName\": \"source-collection\","
+            + "\"leaseOwner\": \"localhost\","
+            + "\"leaseExpiration\": {\"$date\": \"2024-12-06T00:57:15.661Z\"},"
+            + "\"leaseVersion\": 1,"
+            + "\"commitInfo\": \"\","
+            + "\"latestIndexDefinitionVersion\": \"1\","
+            + "\"indexDefinitionVersionStatusMap\": {"
+            + "  \"1\": {\"isQueryable\": false, \"indexStatusCode\": \"INITIAL_SYNC\"}}}");
+  }
+
+  /** Makes the MV collection lookup find nothing, so normalization cannot resolve the nil UUID. */
+  @SuppressWarnings("unchecked")
+  private void setupEmptyListCollections() {
+    ListCollectionsIterable<BsonDocument> emptyIterable = mock(ListCollectionsIterable.class);
+    MongoCursor<BsonDocument> emptyCursor = mock(MongoCursor.class);
+    when(emptyCursor.hasNext()).thenReturn(false);
+    when(emptyIterable.iterator()).thenReturn(emptyCursor);
+    when(this.mockDatabase.listCollections(BsonDocument.class)).thenReturn(emptyIterable);
+  }
+
+  private double repairOutcomeCounter(String outcome) {
+    return this.metricsFactory
+        .meterRegistry
+        .counter(
+            this.metricsFactory.namespace
+                + "."
+                + DynamicLeaderLeaseManager.OPS_REPAIR_LEASE_COUNTER_NAME,
+            DynamicLeaderLeaseManager.OPS_REPAIR_OUTCOME_TAG,
+            outcome)
+        .count();
+  }
+
+  private void setupSuccessfulDelete() {
+    DeleteResult deleteResult = mock(DeleteResult.class);
+    when(deleteResult.getDeletedCount()).thenReturn(1L);
+    when(this.mockCollection.deleteOne(any(Bson.class))).thenReturn(deleteResult);
   }
 
   private static String staleCommitInfo(String tenantId, String db, String coll) {
@@ -2576,6 +3281,11 @@ public class DynamicLeaderLeaseManagerTest {
                 .count())
         .isEqualTo(1.0);
     assertThat(manager.getLeases()).isEmpty();
+    // No readable string id, so there is no key to record the rejection under. The counter moves
+    // but the map stays empty, which is why parseLeaseOrThrow logs the BSON type of the _id: the
+    // runbook tells operators to read the lease id out of the logs, and this document has none to
+    // give. Documented here rather than fixed, because the map is only a lookup hint.
+    assertThat(manager.getCorruptLeases()).isEmpty();
   }
 
   // ==================== findGcCandidates ====================

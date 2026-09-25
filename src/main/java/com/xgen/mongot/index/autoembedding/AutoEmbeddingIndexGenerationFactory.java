@@ -111,8 +111,8 @@ public class AutoEmbeddingIndexGenerationFactory {
           .setCause(e)
           .addKeyValue("generationId", rawDefinitionGeneration.getGenerationId())
           .log(
-              "Failed to create materialized view index, "
-                  + "creates unresolved index instead, will retry it when sync source is updated.");
+              "Failed to create materialized view index, creating an unresolved index instead;"
+                  + " retried on later config update cycles while the failure stays retryable");
       return createWithGenerationMetrics(
           matViewIndexFactory,
           rawDefinitionGeneration,
