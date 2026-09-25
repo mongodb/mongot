@@ -42,6 +42,13 @@ public class BufferlessCollectionScanner {
 
   private volatile boolean shutdown;
 
+  /**
+   * Whether this scanner has already cancelled its scheduled indexing work. A failed batch leaves
+   * its index's entry in the scheduler queue until the work is cancelled, and a later scan for the
+   * same generation would otherwise queue behind that entry and never run.
+   */
+  private boolean processingCancelled;
+
   private final boolean avoidNaturalOrderScanSyncSourceChangeResync;
 
   protected final InitialSyncContext context;
@@ -77,6 +84,7 @@ public class BufferlessCollectionScanner {
     this.batchPreprocessor = new CollectionScanBatchPreprocessor(context, metricsFactory);
     this.avoidNaturalOrderScanSyncSourceChangeResync = avoidNaturalOrderScanSyncSourceChangeResync;
     this.shutdown = false;
+    this.processingCancelled = false;
   }
 
   /**
@@ -113,11 +121,9 @@ public class BufferlessCollectionScanner {
 
       return new Result(mongoClient.hasNext(), this.lastScannedToken);
     } catch (Exception e) {
-      // On shutdown signal, processing is cancelled and a shutdown exception is thrown, but we also
-      // need to cancel it in case of unexpected error during processing.
-      boolean isShutdownException =
-          e instanceof InitialSyncException && ((InitialSyncException) e).isShutdown();
-      if (!isShutdownException) {
+      // On shutdown signal, handleShutdown() has already cancelled processing. Any other failure,
+      // including a batch that itself failed with a shutdown exception, must cancel it here.
+      if (!this.processingCancelled) {
         this.logger
             .atInfo()
             .addKeyValue("numDocumentsIndexed", this.docsIndexed)
@@ -270,6 +276,7 @@ public class BufferlessCollectionScanner {
   }
 
   private CompletableFuture<Void> cancelProcessing(Throwable reason) {
+    this.processingCancelled = true;
     return this.context.cancel(reason);
   }
 

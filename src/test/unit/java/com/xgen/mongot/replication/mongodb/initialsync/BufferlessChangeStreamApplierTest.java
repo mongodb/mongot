@@ -14,6 +14,8 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -482,6 +484,34 @@ public class BufferlessChangeStreamApplierTest {
           () -> mocks.applier.applyEvents(lastScannedToken(), OP_TIME, false));
 
       assertThat(resumeState.getHighWaterMark()).isEqualTo(INITIAL_HIGH_WATER_MARK);
+    }
+  }
+
+  /**
+   * A batch that fails after the applier has been signalled to shut down, but before the applier
+   * reaches handleShutdown(), must still cancel the generation's scheduling. Otherwise its
+   * scheduler queue entry is left behind and a later sync of the same generation never runs.
+   */
+  @Test
+  public void applyEvents_batchFailsAfterShutdownSignal_cancelsSchedulingOnce() throws Exception {
+    try (Mocks mocks = Mocks.createMocks()) {
+      CompletableFuture<Void> inFlightBatch = new CompletableFuture<>();
+      doReturn(inFlightBatch).when(mocks.context).schedule(any(), any(), any());
+
+      CompletableFuture<InitialSyncException> applying =
+          CompletableFuture.supplyAsync(
+              () ->
+                  Assert.assertThrows(
+                      InitialSyncException.class,
+                      () -> mocks.applier.applyEvents(lastScannedToken(), OP_TIME, false)),
+              mocks.executor);
+
+      verify(mocks.context, timeout(5_000)).schedule(any(), any(), any());
+      mocks.applier.signalShutdown();
+      inFlightBatch.completeExceptionally(InitialSyncException.createShutDown());
+
+      assertThat(applying.get(5, TimeUnit.SECONDS).isShutdown()).isTrue();
+      verify(mocks.context, times(1)).cancel(any());
     }
   }
 

@@ -98,6 +98,15 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
 
   private volatile boolean shutdown;
 
+  /**
+   * Whether this applier has already cancelled its scheduled indexing work. A failed batch leaves
+   * its index's entry in the scheduler queue until the work is cancelled, and a later sync for the
+   * same generation would otherwise queue behind that entry and never run. A shutdown signal alone
+   * does not cancel anything: a batch that fails before the applier reaches handleShutdown() must
+   * still cancel.
+   */
+  private boolean processingCancelled;
+
   private final boolean avoidNaturalOrderScanSyncSourceChangeResync;
   private final boolean splitLargeChangeStreamEvents;
 
@@ -162,6 +171,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
     this.resumeInfo = Optional.empty();
 
     this.shutdown = false;
+    this.processingCancelled = false;
     this.isFreshStart = isFreshStart;
     this.parallelResumeState = parallelResumeState;
 
@@ -582,11 +592,16 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
    * same in the case of an unexpected error during processing.
    */
   private void cancelIndexing(Exception e) {
-    if (!this.shutdown) {
+    if (!this.processingCancelled) {
       FutureUtils.getAndSwallow(
-          this.context.cancel(e),
+          cancelProcessing(e),
           error -> this.logger.error("Failure during indexing cancellation", error));
     }
+  }
+
+  private CompletableFuture<Void> cancelProcessing(Throwable reason) {
+    this.processingCancelled = true;
+    return this.context.cancel(reason);
   }
 
   /**
@@ -596,7 +611,7 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
   private void handleShutdown() throws InitialSyncException {
     InitialSyncException shutdownException = InitialSyncException.createShutDown();
     // Cancel processing for this index, to remove any work in the scheduler's queue.
-    CompletableFuture<Void> cancelFuture = this.context.cancel(shutdownException);
+    CompletableFuture<Void> cancelFuture = cancelProcessing(shutdownException);
     // Wait for all work to be finished.
     InitialSyncException.getOrWrapThrowable(cancelFuture, InitialSyncException.Phase.CHANGE_STREAM);
 

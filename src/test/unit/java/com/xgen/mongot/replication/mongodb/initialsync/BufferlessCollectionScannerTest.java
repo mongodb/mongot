@@ -715,6 +715,23 @@ public class BufferlessCollectionScannerTest {
   }
 
   @Test
+  public void testScanCancelsIndexSchedulingWhenBatchFailsWithShutdownException() throws Exception {
+    // A batch rejected because its generator's lease tenure ended fails with a shutdown exception,
+    // even though the scanner itself was never signalled to shut down.
+    Mocks mocks =
+        Mocks.indexingWorkSchedulerCompletesExceptionally(InitialSyncException.createShutDown());
+
+    InitialSyncException e =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () -> mocks.collectionScanner.scanWithTimeLimit(DEFAULT_SCAN_TIME));
+    Assert.assertTrue(e.isShutdown());
+
+    verify(mocks.indexingWorkScheduler, times(1))
+        .cancel(eq(mocks.indexDefinitionGeneration.getGenerationId()), any(), any());
+  }
+
+  @Test
   public void testScanNeverCancelsIndexSchedulingOnSuccessfulRun() throws Exception {
     Mocks mocks = Mocks.threeDocuments();
     mocks.collectionScanner.scanWithTimeLimit(DEFAULT_SCAN_TIME);
