@@ -74,7 +74,7 @@ maven.install(
         "com.google.flogger:flogger:0.9",
         "com.google.flogger:flogger-slf4j-backend:0.9",
         "com.github.oshi:oshi-core:7.1.0",
-        "com.github.luben:zstd-jni:1.5.5-11",
+        "com.github.luben:zstd-jni:1.5.7-14",
         "org.xerial.snappy:snappy-java:1.1.10.8",
         # Okio is a grpc dependency with CVE-2023-3635 vulnerability,
         # manually pinning to fix version until GRPC integrates it

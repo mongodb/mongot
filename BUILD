@@ -84,9 +84,9 @@ extracted_libraries({
     },
     "zstd": {
         "outputs": {
-            "libzstd-jni-1.5.5-11.so": {
-                "linux_aarch64": "linux/aarch64/libzstd-jni-1.5.5-11.so",
-                "linux_x86_64": "linux/amd64/libzstd-jni-1.5.5-11.so",
+            "libzstd-jni-1.5.7-14.so": {
+                "linux_aarch64": "linux/aarch64/libzstd-jni-1.5.7-14.so",
+                "linux_x86_64": "linux/amd64/libzstd-jni-1.5.7-14.so",
             },
         },
         "src": "@maven//:com_github_luben_zstd_jni",
