@@ -5,6 +5,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater.ReplicationMetricsUpdater.Initi
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
+import com.xgen.mongot.replication.mongodb.common.CollectionSamplingMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
@@ -34,6 +35,9 @@ interface InitialSyncMongoClient {
 
   /** Returns the client issuing the source-side reads used by partition planning. */
   PartitionPlanningMongoClient getPartitionPlanningMongoClient();
+
+  /** Returns the sampling client used by partition planning. */
+  CollectionSamplingMongoClient getCollectionSamplingMongoClient();
 
   /**
    * Retrieves the majority-committed operation time from the mongod. See mongod documentation at

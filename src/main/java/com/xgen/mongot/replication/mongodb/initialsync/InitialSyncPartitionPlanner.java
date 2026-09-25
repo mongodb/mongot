@@ -1,11 +1,19 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
+import static com.xgen.mongot.util.Check.checkState;
+
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Comparators;
+import com.google.common.collect.ImmutableList;
 import com.mongodb.MongoNamespace;
+import com.mongodb.ReadConcern;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.CollectionSamplingMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
 import com.xgen.mongot.replication.mongodb.common.PartitionPlanningMongoClient;
+import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPartitionPlan.PartitionRange;
+import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPartitionPlan.PartitionedResult;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPartitionPlan.SequentialFallback;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPartitionPlan.ShortCircuitReason;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
@@ -15,8 +23,10 @@ import io.micrometer.core.instrument.Tags;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,6 +34,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.IntStream;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
+import org.bson.BsonValue;
+import org.bson.RawBsonDocument;
 
 /**
  * Decides whether an initial sync collection scan can be split across several concurrent {@code
@@ -37,6 +52,30 @@ class InitialSyncPartitionPlanner {
 
   /** The smallest collection worth partitioning. */
   static final long MIN_DOCUMENT_COUNT = 30_000;
+
+  static final int SAMPLE_SIZE = 1000;
+
+  /** Below this many resolved, documents were deleted in between and the sample is redrawn. */
+  static final int MIN_RESOLVED_SAMPLES = 800;
+
+  /**
+   * Draws to take before giving up on a collection that keeps resolving short. The stage budget
+   * cuts planning off before this many sample and resolve round trips can run on a large
+   * collection, so it bounds a churning collection rather than setting the usual cost.
+   */
+  static final int MAX_SAMPLE_ATTEMPTS = 5;
+
+  /** A plan needs at least two ranges to be worth running. */
+  static final int MIN_PARTITION_COUNT = 2;
+
+  /**
+   * TODO(CLOUDP-417359): 32 is unvalidated. Partition imbalance grows with K and nothing rebalances
+   * yet, so this likely wants to track the indexer thread count.
+   */
+  static final int MAX_PARTITION_COUNT = 32;
+
+  private static final String ID_FIELD = "_id";
+  private static final BsonDocument ID_PROJECTION = new BsonDocument(ID_FIELD, new BsonInt32(1));
 
   private static final String OUTCOME_METRIC = "partitionPlanningOutcome";
   private static final String OUTCOME_TAG = "outcome";
@@ -57,6 +96,7 @@ class InitialSyncPartitionPlanner {
   private final InitialSyncContext context;
   private final CollectionStatsMongoClient statsClient;
   private final PartitionPlanningMongoClient planningClient;
+  private final CollectionSamplingMongoClient samplingClient;
   private final Map<ShortCircuitReason, Counter> fallbackCounters;
   private final Counter partitionedCounter;
   private final DistributionSummary planningDurationHistogram;
@@ -67,8 +107,9 @@ class InitialSyncPartitionPlanner {
       InitialSyncContext context,
       CollectionStatsMongoClient statsClient,
       PartitionPlanningMongoClient planningClient,
+      CollectionSamplingMongoClient samplingClient,
       MetricsFactory metricsFactory) {
-    this(clock, context, statsClient, planningClient, metricsFactory, STAGE_BUDGET);
+    this(clock, context, statsClient, planningClient, samplingClient, metricsFactory, STAGE_BUDGET);
   }
 
   @VisibleForTesting
@@ -77,6 +118,7 @@ class InitialSyncPartitionPlanner {
       InitialSyncContext context,
       CollectionStatsMongoClient statsClient,
       PartitionPlanningMongoClient planningClient,
+      CollectionSamplingMongoClient samplingClient,
       MetricsFactory metricsFactory,
       Duration stageBudget) {
     this.stageBudget = stageBudget;
@@ -90,6 +132,7 @@ class InitialSyncPartitionPlanner {
     this.context = context;
     this.statsClient = statsClient;
     this.planningClient = planningClient;
+    this.samplingClient = samplingClient;
     this.fallbackCounters = fallbackCounters(metricsFactory);
     this.partitionedCounter =
         metricsFactory.counter(OUTCOME_METRIC, Tags.of(OUTCOME_TAG, PARTITIONED_OUTCOME));
@@ -157,6 +200,87 @@ class InitialSyncPartitionPlanner {
     }
   }
 
+  /**
+   * Cuts the sorted recordIds into {@code partitionCount} ranges at evenly spaced quantiles. The
+   * first and last ranges are open ended, so they cover the collection whatever the sample hit.
+   */
+  @VisibleForTesting
+  static ImmutableList<PartitionRange> partitionsFrom(List<Long> sorted, int partitionCount) {
+    List<Long> cuts =
+        IntStream.range(1, partitionCount)
+            .mapToObj(i -> sorted.get(i * sorted.size() / partitionCount))
+            .toList();
+
+    // recordIds are unique, and there are far more of them than partitions, so cuts cannot
+    // repeat. The consumer treats a repeat as a breach of this contract and alerts.
+    checkState(
+        cuts.get(0) > 0 && Comparators.isInStrictOrder(cuts, Comparator.naturalOrder()),
+        "partition boundaries must be positive and strictly increasing");
+
+    ImmutableList.Builder<PartitionRange> partitions = ImmutableList.builder();
+    for (int i = 0; i <= cuts.size(); i++) {
+      partitions.add(
+          new PartitionRange(
+              i == 0 ? Optional.empty() : Optional.of(cuts.get(i - 1)),
+              i == cuts.size() ? Optional.empty() : Optional.of(cuts.get(i))));
+    }
+    return partitions.build();
+  }
+
+  /**
+   * Draws samples until enough of them resolve, or the attempt budget runs out.
+   *
+   * @return the resolved recordIds, or empty if no draw resolved {@link #MIN_RESOLVED_SAMPLES}
+   */
+  private Optional<List<Long>> sampleAndResolveWithRedraw() {
+    for (int attempt = 1; attempt <= MAX_SAMPLE_ATTEMPTS; attempt++) {
+      Optional<List<Long>> resolved = sampleAndResolveRecordIds();
+      // A short $sample means the collection is smaller than the estimate, which redrawing
+      // cannot change. Too few resolving means documents went away in between, which it can.
+      if (resolved.isEmpty()) {
+        return Optional.empty();
+      }
+      if (resolved.get().size() >= MIN_RESOLVED_SAMPLES) {
+        return resolved;
+      }
+      this.logger
+          .atInfo()
+          .addKeyValue("resolved", resolved.get().size())
+          .addKeyValue("attempt", attempt)
+          .log("Too few sampled documents resolved, redrawing the sample.");
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Samples {@code _id}s and resolves them to the recordIds the partition boundaries are cut on.
+   *
+   * @return the resolved recordIds, or empty if {@code $sample} itself came back short, which means
+   *     the collection shrank since the size estimate
+   */
+  private Optional<List<Long>> sampleAndResolveRecordIds() {
+    List<RawBsonDocument> sampled =
+        this.samplingClient.getSamples(
+            namespace(),
+            ReadConcern.MAJORITY,
+            SAMPLE_SIZE,
+            Optional.empty(),
+            Optional.of(ID_PROJECTION));
+    if (sampled.size() < SAMPLE_SIZE) {
+      this.logger
+          .atInfo()
+          .addKeyValue("sampled", sampled.size())
+          .addKeyValue("sampleSize", SAMPLE_SIZE)
+          .log("Sample came back short, collection is too small to partition.");
+      return Optional.empty();
+    }
+
+    List<BsonValue> ids = sampled.stream().map(document -> document.get(ID_FIELD)).toList();
+    return Optional.of(
+        this.planningClient.resolveRecordIds(
+            namespace(), ids, this.context.getChangeStreamResumeOperationTime()));
+  }
+
   private InitialSyncPartitionPlan choosePlan(MongoDbCollectionInfo.Collection collectionInfo) {
     try {
       // Step 1: pre-flight. A clustered collection reports $recordId as BinData rather than an
@@ -188,9 +312,21 @@ class InitialSyncPartitionPlanner {
         return new SequentialFallback(ShortCircuitReason.NO_INITIAL_SYNC_ID);
       }
 
-      // TODO(CLOUDP-417359): sample, resolve the sampled ids to recordIds, and emit the boundaries.
-      // Until that lands there is nothing to partition on, so planning declines.
-      return new SequentialFallback(ShortCircuitReason.TOO_FEW_DOCUMENTS);
+      // Steps 4 and 5: sample _ids, then resolve them to the recordIds the cuts are made on.
+      Optional<List<Long>> resolved = sampleAndResolveWithRedraw();
+      if (resolved.isEmpty()) {
+        return new SequentialFallback(ShortCircuitReason.TOO_FEW_DOCUMENTS);
+      }
+      List<Long> recordIds = resolved.get();
+
+      // Step 6: cut at K-1 evenly spaced quantiles of the sorted recordIds.
+      int partitionCount =
+          Math.clamp(
+              this.context.getParallelPartitionCount(), MIN_PARTITION_COUNT, MAX_PARTITION_COUNT);
+
+      return new PartitionedResult(
+          partitionsFrom(recordIds.stream().sorted().toList(), partitionCount),
+          initialSyncId.get());
     } catch (RuntimeException e) {
       // Broad on purpose: this stage is an optimization, so nothing it does may fail the sync. A
       // failed read and a broken assumption both mean the same thing here, scan with one cursor.

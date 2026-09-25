@@ -25,6 +25,7 @@ public class FindCommandProxy implements Bson {
   private static final String MIN_FIELD = "min";
   private static final String FILTER_FIELD = "filter";
   private static final String LIMIT_FIELD = "limit";
+  private static final String BATCH_SIZE_FIELD = "batchSize";
   private static final String REQUEST_RESUME_TOKEN_FIELD = "$_requestResumeToken";
   private static final String SHOW_RECORD_ID_FIELD = "showRecordId";
 
@@ -37,6 +38,7 @@ public class FindCommandProxy implements Bson {
   private final Optional<Bson> min;
   private final Optional<Bson> filter;
   private final Optional<Integer> limit;
+  private final Optional<Integer> batchSize;
   private final Optional<BsonBoolean> requestResumeToken;
   private final Optional<BsonBoolean> showRecordId;
 
@@ -55,6 +57,7 @@ public class FindCommandProxy implements Bson {
       Optional<Bson> filter,
       Optional<BsonDocument> readConcern,
       Optional<Integer> limit,
+      Optional<Integer> batchSize,
       Optional<BsonBoolean> requestResumeToken,
       Optional<BsonBoolean> showRecordId) {
     Check.argNotNull(collection, "collection");
@@ -66,6 +69,7 @@ public class FindCommandProxy implements Bson {
     Check.argNotNull(filter, "filter");
     Check.argNotNull(readConcern, "readConcern");
     Check.argNotNull(limit, "limit");
+    Check.argNotNull(batchSize, "batchSize");
     Check.argNotNull(requestResumeToken, "requestResumeToken");
     Check.argNotNull(showRecordId, "showRecordId");
 
@@ -78,6 +82,7 @@ public class FindCommandProxy implements Bson {
     this.min = min;
     this.filter = filter;
     this.limit = limit;
+    this.batchSize = batchSize;
     this.requestResumeToken = requestResumeToken;
     this.showRecordId = showRecordId;
   }
@@ -101,6 +106,7 @@ public class FindCommandProxy implements Bson {
     this.filter.ifPresent(
         bson -> doc.append(FILTER_FIELD, bson.toBsonDocument(documentClass, codecRegistry)));
     this.limit.ifPresent(value -> doc.append(LIMIT_FIELD, new BsonInt32(value)));
+    this.batchSize.ifPresent(value -> doc.append(BATCH_SIZE_FIELD, new BsonInt32(value)));
     this.readConcern.ifPresent(concern -> doc.append(READ_CONCERN_FIELD, concern));
     this.requestResumeToken.ifPresent(
         bsonBoolean -> doc.append(REQUEST_RESUME_TOKEN_FIELD, bsonBoolean));

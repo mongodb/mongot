@@ -26,6 +26,7 @@ public class CollectionScanFindCommand {
   private final Optional<Bson> filter;
   private final Optional<BsonDocument> readConcernDocument;
   private final Optional<Integer> limit;
+  private final Optional<Integer> batchSize;
   private final Optional<BsonBoolean> requestResumeToken;
   private final Optional<BsonBoolean> showRecordId;
 
@@ -39,6 +40,7 @@ public class CollectionScanFindCommand {
       Optional<Bson> filter,
       Optional<BsonDocument> readConcernDocument,
       Optional<Integer> limit,
+      Optional<Integer> batchSize,
       Optional<BsonBoolean> requestResumeToken,
       Optional<BsonBoolean> showRecordId) {
 
@@ -51,6 +53,7 @@ public class CollectionScanFindCommand {
     this.filter = filter;
     this.readConcernDocument = readConcernDocument;
     this.limit = limit;
+    this.batchSize = batchSize;
     this.requestResumeToken = requestResumeToken;
     this.showRecordId = showRecordId;
   }
@@ -67,6 +70,7 @@ public class CollectionScanFindCommand {
     private Optional<Bson> filter;
     private Optional<BsonDocument> readConcernDocument;
     private Optional<Integer> limit;
+    private Optional<Integer> batchSize;
     private Optional<BsonBoolean> requestResumeToken;
     private Optional<BsonBoolean> showRecordId;
 
@@ -82,6 +86,7 @@ public class CollectionScanFindCommand {
       this.filter = Optional.empty();
       this.readConcernDocument = Optional.empty();
       this.limit = Optional.empty();
+      this.batchSize = Optional.empty();
       this.requestResumeToken = Optional.empty();
       this.showRecordId = Optional.empty();
     }
@@ -107,6 +112,7 @@ public class CollectionScanFindCommand {
           this.filter,
           this.readConcernDocument,
           this.limit,
+          this.batchSize,
           this.requestResumeToken,
           this.showRecordId);
     }
@@ -171,6 +177,16 @@ public class CollectionScanFindCommand {
     }
 
     /**
+     * Sets how many documents the server puts in the first batch. Without it the server sends its
+     * default 101 and holds a cursor open for the rest.
+     */
+    public Builder batchSize(int batchSize) {
+      checkArg(batchSize > 0, "batchSize must be positive");
+      this.batchSize = Optional.of(batchSize);
+      return this;
+    }
+
+    /**
      * Requests a {@code postBatchResumeToken} on the cursor response, which carries the scan's
      * {@code $recordId} and the collection's {@code $initialSyncId}.
      *
@@ -201,6 +217,7 @@ public class CollectionScanFindCommand {
         this.filter,
         this.readConcernDocument,
         this.limit,
+        this.batchSize,
         this.requestResumeToken,
         this.showRecordId);
   }

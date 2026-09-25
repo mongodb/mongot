@@ -8,6 +8,7 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.AggregateCommandCollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
+import com.xgen.mongot.replication.mongodb.common.CollectionSamplingMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanCommandMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionScanMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
@@ -143,6 +144,11 @@ class DefaultInitialSyncMongoClient implements InitialSyncMongoClient {
   @Override
   public PartitionPlanningMongoClient getPartitionPlanningMongoClient() {
     return new PartitionPlanningMongoClient(this.mongoClient);
+  }
+
+  @Override
+  public CollectionSamplingMongoClient getCollectionSamplingMongoClient() {
+    return new CollectionSamplingMongoClient(this.mongoClient);
   }
 
   @Override
