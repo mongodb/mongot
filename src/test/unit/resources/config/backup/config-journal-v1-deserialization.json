@@ -13,7 +13,25 @@
       "description": "with staged index",
       "value": {
         "version": 1,
-        "indexes": [],
+        "indexes": [
+          {
+            "index": {
+              "indexID": "012345678901234567890123",
+              "name": "foo",
+              "database": "bar",
+              "collectionUUID": "00000000-1111-2222-3333-444444444444",
+              "lastObservedCollectionName": "baz",
+              "mappings": {
+                "dynamic": true
+              }
+            },
+            "analyzers": [],
+            "generation": {
+              "userVersion": 0,
+              "formatVersion": 2
+            }
+          }
+        ],
         "stagedIndexes": [
           {
             "index": {
@@ -346,7 +364,33 @@
             }
           }
         ],
-        "vectorIndexes": [],
+        "vectorIndexes": [
+          {
+            "type": "vectorSearch",
+            "indexID": "507f191e810c19729de860ea",
+            "name": "myVectorIndex",
+            "database": "myDatabase",
+            "lastObservedCollectionName": "myCollection",
+            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "fields": [
+              {
+                "type": "filter",
+                "path": "filter.path"
+              },
+              {
+                "type": "vector",
+                "path": "vector.path",
+                "numDimensions": 3,
+                "similarity": "cosine",
+                "quantization": "none"
+              }
+            ],
+            "generation": {
+              "userVersion": 0,
+              "formatVersion": 5
+            }
+          }
+        ],
         "deletedVectorIndexes": []
       }
     },
@@ -471,7 +515,7 @@
               }
             ],
             "generation": {
-              "userVersion": 0,
+              "userVersion": 1,
               "formatVersion": 5
             }
           }
@@ -531,4 +575,3 @@
     }
   ]
 }
-

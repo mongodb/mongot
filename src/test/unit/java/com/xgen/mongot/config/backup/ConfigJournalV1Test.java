@@ -2,6 +2,7 @@ package com.xgen.mongot.config.backup;
 
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 
+import com.xgen.mongot.config.util.Invariants;
 import com.xgen.mongot.index.definition.AnalyzerBoundSearchIndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinitionGeneration;
@@ -10,9 +11,11 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.util.FileUtils;
 import com.xgen.mongot.util.bson.JsonCodec;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
+import com.xgen.testing.JsonTestSuite;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.config.backup.ConfigJournalV1Builder;
 import com.xgen.testing.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitionBuilder;
@@ -47,6 +50,7 @@ import org.junit.runners.Suite;
 @Suite.SuiteClasses(
     value = {
       ConfigJournalV1Test.DeserializationTest.class,
+      ConfigJournalV1Test.InvariantTest.class,
       ConfigJournalV1Test.SerializationTest.class,
       ConfigJournalV1Test.ClassTest.class,
     })
@@ -165,6 +169,7 @@ public class ConfigJournalV1Test {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "with staged index",
           ConfigJournalV1Builder.builder()
+              .liveIndex(searchDefinition("012345678901234567890123", "foo", 0, 2))
               .stagedIndex(searchDefinition("012345678901234567890123", "foo", 1, 2))
               .build());
     }
@@ -173,6 +178,12 @@ public class ConfigJournalV1Test {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "with staged vector index",
           ConfigJournalV1Builder.builder()
+              .liveIndex(
+                  new VectorIndexDefinitionGeneration(
+                      VectorIndexDefinitionBuilder.builder()
+                          .setFields(VectorIndex.MOCK_VECTOR_DEFINITION.getFields())
+                          .build(),
+                      Generation.FIRST))
               .stagedIndex(
                   new VectorIndexDefinitionGeneration(
                       VectorIndexDefinitionBuilder.builder()
@@ -242,7 +253,7 @@ public class ConfigJournalV1Test {
                       VectorIndexDefinitionBuilder.builder()
                           .setFields(VectorIndex.MOCK_VECTOR_DEFINITION.getFields())
                           .build(),
-                      Generation.FIRST))
+                      Generation.FIRST.incrementUser()))
               .build());
     }
   }
@@ -416,6 +427,23 @@ public class ConfigJournalV1Test {
                       Generation.FIRST))
               .build();
       return BsonSerializationTestSuite.TestSpec.create("multiple vector values", expected);
+    }
+  }
+
+  public static class InvariantTest {
+    @Test
+    public void validateInvariantsTest() throws Exception {
+      JsonTestSuite json =
+          JsonTestSuite.load(
+              "src/test/unit/resources/config/backup/", "config-journal-v1-deserialization");
+      for (var testCase : json.getValid()) {
+        try (var parser =
+            BsonDocumentParser.fromRoot(testCase.getValueAsBsonValue().asDocument()).build()) {
+          ConfigJournalV1 journal = ConfigJournalV1.fromBson(parser);
+          Invariants.validateGenerationalInvariants(
+              journal.getStagedIndexes(), journal.getLiveIndexes(), journal.getDeletedIndexes());
+        }
+      }
     }
   }
 
