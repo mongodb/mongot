@@ -6,7 +6,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 
-import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
@@ -54,7 +53,6 @@ public class LuceneVectorIndexTest {
             indexPath,
             metadataPath,
             LuceneConfigBuilder.builder().dataPath(indexPath).build(),
-            FeatureFlags.getDefault(),
             new InstrumentedConcurrentMergeScheduler(meterRegistry),
             new TieredMergePolicy(),
             new QueryCacheProvider.DefaultQueryCacheProvider(),
@@ -147,7 +145,6 @@ public class LuceneVectorIndexTest {
             indexPath,
             metadataPath,
             LuceneConfigBuilder.builder().dataPath(indexPath).build(),
-            FeatureFlags.getDefault(),
             new InstrumentedConcurrentMergeScheduler(meterRegistry),
             new TieredMergePolicy(),
             new QueryCacheProvider.DefaultQueryCacheProvider(),
@@ -225,7 +222,6 @@ public class LuceneVectorIndexTest {
         indexPath,
         metadataPath,
         config,
-        FeatureFlags.getDefault(),
         new InstrumentedConcurrentMergeScheduler(meterRegistry),
         new TieredMergePolicy(),
         new QueryCacheProvider.DefaultQueryCacheProvider(),

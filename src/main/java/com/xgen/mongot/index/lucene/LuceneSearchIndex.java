@@ -222,9 +222,7 @@ public class LuceneSearchIndex implements SearchIndex {
         concurrentSearchExecutor,
         concurrentVectorRescoringExecutor,
         metricRefreshExecutor,
-        featureFlags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN)
-            ? IndexStatus.unknown()
-            : IndexStatus.notStarted());
+        IndexStatus.unknown());
   }
 
   private static void checkOverriddenAnalyzersSatisfied(

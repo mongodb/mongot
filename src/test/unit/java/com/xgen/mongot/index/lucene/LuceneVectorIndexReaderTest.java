@@ -132,7 +132,6 @@ public class LuceneVectorIndexReaderTest {
               indexPath,
               metadataPath,
               luceneConfig,
-              FeatureFlags.getDefault(),
               new InstrumentedConcurrentMergeScheduler(meterRegistry),
               new TieredMergePolicy(),
               new QueryCacheProvider.DefaultQueryCacheProvider(),

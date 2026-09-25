@@ -82,10 +82,6 @@ class StagedIndexesSwapper {
                     }
                   }
 
-                  IndexStatus.StatusCode transientStatusCode =
-                      featureFlags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN)
-                          ? IndexStatus.StatusCode.UNKNOWN
-                          : IndexStatus.StatusCode.NOT_STARTED;
                   // or non-ready staged indexes which have a corresponding live index in any
                   // non-queryable status (case when live index has failed, got corrupted or in
                   // INITIAL_SYNC and we need to prematurely swap it with the staged one to avoid
@@ -95,15 +91,14 @@ class StagedIndexesSwapper {
                   // Allow premature swap only if the main index
                   // (1) cannot serve queries
                   // (2) cannot be recovered (due to initialization error)
-                  // (3) is not transient (UNKNOWN || NOT_STARTED depends on the feature flag) -
-                  //     the corresponding index may transition to a queryable status after
-                  //     resolving commit token.
+                  // (3) is not transient (UNKNOWN) - the corresponding index may transition to a
+                  //     queryable status after resolving commit token.
                   // (4) is not DOES_NOT_EXIST due to collection not found - this check is added
                   // to prevent premature swap when feature flag
                   // shutDownReplicationWhenCollectionNotFound is disabled
                   return !(mainIndexStatus.canServiceQueries()
                       || mainIndexStatus.canBeRecovered()
-                      || mainIndexStatus.getStatusCode().equals(transientStatusCode)
+                      || mainIndexStatus.getStatusCode().equals(IndexStatus.StatusCode.UNKNOWN)
                       || mainIndexStatus.isCollectionNotFound());
                 })
             .collect(Collectors.toList());

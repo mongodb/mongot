@@ -408,7 +408,6 @@ public class StagedIndexesSwapperTest {
     var featureFlags =
         FeatureFlags.withDefaults()
             .enable(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)
-            .enable(Feature.INITIAL_INDEX_STATUS_UNKNOWN)
             .enable(Feature.INDEX_FEATURE_VERSION_FOUR)
             .build();
     StagedIndexesSwapper.swapReady(mocks.configState, featureFlags, mocks.metricsFactory);

@@ -255,7 +255,6 @@ public class VectorIndexingAndQueryingTestHarness implements AutoCloseable {
             indexPath,
             metadataPath,
             luceneConfig,
-            FeatureFlags.getDefault(),
             mergeScheduler,
             new TieredMergePolicy(),
             new QueryCacheProvider.DefaultQueryCacheProvider(),

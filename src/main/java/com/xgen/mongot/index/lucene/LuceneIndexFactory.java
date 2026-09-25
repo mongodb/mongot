@@ -576,7 +576,6 @@ public class LuceneIndexFactory implements IndexFactory {
           this.indexDirectoryHelper.getIndexDirectoryPath(definitionGeneration),
           this.indexDirectoryHelper.getIndexMetadataPath(definitionGeneration),
           this.config,
-          this.featureFlags,
           this.mergeScheduler,
           this.vectorMergePolicy.orElse(this.mergePolicy),
           this.queryCacheProvider,

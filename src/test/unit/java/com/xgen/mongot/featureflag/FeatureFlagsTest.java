@@ -76,7 +76,7 @@ public class FeatureFlagsTest {
         enabledDefaultOverriddenToDisabled() {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "Enabled default overridden to disabled",
-          FeatureFlags.withDefaults().disable(Feature.INITIAL_INDEX_STATUS_UNKNOWN).build());
+          FeatureFlags.withDefaults().disable(Feature.VECTOR_STORED_SOURCE).build());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<FeatureFlags> allFeaturesEnabled() {
@@ -168,8 +168,8 @@ public class FeatureFlagsTest {
     @Test
     public void builder_disable_disablesFeature() {
       FeatureFlags flags =
-          FeatureFlags.withDefaults().disable(Feature.INITIAL_INDEX_STATUS_UNKNOWN).build();
-      assertFalse(flags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
+          FeatureFlags.withDefaults().disable(Feature.VECTOR_STORED_SOURCE).build();
+      assertFalse(flags.isEnabled(Feature.VECTOR_STORED_SOURCE));
     }
 
     @Test
@@ -179,7 +179,7 @@ public class FeatureFlagsTest {
       // Other disabled-by-default features remain disabled
       assertFalse(flags.isEnabled(Feature.FACETING_OVER_TOKEN_FIELDS));
       // Other enabled-by-default features remain enabled
-      assertTrue(flags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
+      assertTrue(flags.isEnabled(Feature.VECTOR_STORED_SOURCE));
     }
 
     @Test
@@ -190,7 +190,6 @@ public class FeatureFlagsTest {
 
     @Test
     public void isEnabled_defaultEnabledFeature_returnsTrue() {
-      assertTrue(FeatureFlags.getDefault().isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
       assertTrue(
           FeatureFlags.getDefault().isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
       assertTrue(FeatureFlags.getDefault().isEnabled(Feature.VECTOR_STORED_SOURCE));
@@ -215,7 +214,6 @@ public class FeatureFlagsTest {
       // Other disabled-by-default features remain disabled
       assertFalse(flags.isEnabled(Feature.STALE_STATE_TRANSITION));
       // Enabled-by-default features remain enabled
-      assertTrue(flags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
       assertTrue(flags.isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
       assertTrue(flags.isEnabled(Feature.VECTOR_STORED_SOURCE));
     }
@@ -243,7 +241,6 @@ public class FeatureFlagsTest {
       // Other disabled-by-default features remain disabled
       assertFalse(flags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
       // Enabled-by-default features remain enabled
-      assertTrue(flags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
       assertTrue(flags.isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
       assertTrue(flags.isEnabled(Feature.VECTOR_STORED_SOURCE));
       assertTrue(flags.isEnabled(Feature.NESTED_VECTOR));
@@ -272,7 +269,6 @@ public class FeatureFlagsTest {
       // Other disabled-by-default features remain disabled
       assertFalse(flags.isEnabled(Feature.OVERLOAD_RETRY_SIGNAL));
       // Enabled-by-default features remain enabled
-      assertTrue(flags.isEnabled(Feature.INITIAL_INDEX_STATUS_UNKNOWN));
       assertTrue(flags.isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
       assertTrue(flags.isEnabled(Feature.VECTOR_STORED_SOURCE));
       assertTrue(flags.isEnabled(Feature.NESTED_VECTOR));

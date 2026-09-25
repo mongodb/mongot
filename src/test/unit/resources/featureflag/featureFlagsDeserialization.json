@@ -13,7 +13,7 @@
     {
       "description": "Enabled default overridden to disabled",
       "value": {
-        "initialIndexStatusUnknown": false
+        "vectorStoredSource": false
       }
     },
     {
@@ -28,7 +28,6 @@
         "enableIndexOrDocValuesQueryForInOperator": true,
         "enableNewEmbeddedSearchCapabilities": true,
         "shutDownReplicationWhenCollectionNotFound": true,
-        "initialIndexStatusUnknown": true,
         "enableMaasMetrics": true,
         "enableInternalMaasMetrics": true,
         "enableAccurateNumEmbeddedRootDocsMetric": true,
@@ -86,7 +85,6 @@
         "enableIndexOrDocValuesQueryForInOperator": false,
         "enableNewEmbeddedSearchCapabilities": false,
         "shutDownReplicationWhenCollectionNotFound": false,
-        "initialIndexStatusUnknown": false,
         "enableMaasMetrics": false,
         "enableInternalMaasMetrics": false,
         "enableAccurateNumEmbeddedRootDocsMetric": false,
