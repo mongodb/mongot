@@ -46,6 +46,7 @@ java_library(
         "MeteredBatchProducer.java",
         "MeteredIndexWriter.java",
         "MeteredSearchIndexReader.java",
+        "MeteredStagingIndexWriter.java",
         "MeteredVectorIndexReader.java",
         "MicrometerSearchAggregationMetricsReporter.java",
         "QuarantinedIndexException.java",
