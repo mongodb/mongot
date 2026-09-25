@@ -28,6 +28,7 @@ public class Errors {
   public static final Error INDEX_NOT_FOUND = new Error(27, "IndexNotFound");
 
   public static final Error CURSOR_NOT_FOUND = new Error(43, "CursorNotFound");
+  public static final Error NAMESPACE_EXISTS = new Error(48, "NamespaceExists");
 
   public static final Error MAX_TIME_MS_EXPIRED = new Error(50, "MaxTimeMSExpired");
 
