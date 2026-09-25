@@ -1124,5 +1124,32 @@ public class CommunityConfigTest {
           TracingConfig.SamplingStrategy.HEAD,
           parsed.config().tracingConfig().orElseThrow().searchSamplingStrategy());
     }
+
+    @Test
+    public void readFromFile_withLoggingOtlp_parsesLoggingOtlpBlock()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of(
+              "src/test/unit/resources/config/provider/community/"
+                  + "communityConfigLoggingOtlp.yaml");
+      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+
+      LoggingConfig logging = result.loggingConfig().orElseThrow();
+      assertEquals("DEBUG", logging.verbosity());
+      assertEquals("https://collector.example.com:4317", logging.otlp().orElseThrow().endpoint());
+      assertTrue(result.tracingConfig().isEmpty());
+    }
+
+    @Test
+    public void readFromFile_withUnknownLoggingOtlpField_failsFast() {
+      // A misspelled caCertificateFile under logging.otlp must fail startup, not warn, or the
+      // exporter would silently fall back to the JVM trust store.
+      Path configPath =
+          Path.of(
+              "src/test/unit/resources/config/provider/community/"
+                  + "communityConfigLoggingOtlpUnknownField.yaml");
+
+      assertThrows(BsonParseException.class, () -> CommunityConfig.readFromFile(configPath));
+    }
   }
 }

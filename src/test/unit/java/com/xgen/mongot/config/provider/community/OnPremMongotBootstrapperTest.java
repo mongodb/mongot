@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.Appender;
 import com.google.common.base.Supplier;
 import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
@@ -556,6 +557,16 @@ public class OnPremMongotBootstrapperTest {
     OnPremMongotBootstrapper.composeWithOtlp(logSink, otlp).export(List.of());
 
     assertTrue(logCalled.get());
+  }
+
+  @Test
+  public void logAppender_buildsUnstartedOtlpLogAppender() {
+    Appender<ILoggingEvent> appender =
+        OnPremMongotBootstrapper.logAppender(
+            new OtlpTracingConfig("https://localhost:4317", Optional.empty()));
+
+    assertTrue(appender instanceof OtlpLogAppender);
+    assertFalse(appender.isStarted());
   }
 
   private static TracingConfig disabledTracingConfig() {

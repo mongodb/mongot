@@ -55,6 +55,13 @@ public class SafeKeyValuePairsJsonProviderTest {
   }
 
   @Test
+  public void testEmptyStringValueOmitted() throws IOException {
+    this.event.addKeyValuePair(new KeyValuePair("key", ""));
+    this.formatter.writeEvent(this.event, this.resultStream);
+    assertThat(this.resultStream.toString()).isEqualTo("{}");
+  }
+
+  @Test
   public void testOverrideExistingKeyValue() throws IOException {
     this.event.addKeyValuePair(new KeyValuePair("key", "value1"));
     this.event.addKeyValuePair(new KeyValuePair("key", "value2"));

@@ -3,6 +3,8 @@ package com.xgen.mongot.config.provider.community;
 import static com.xgen.mongot.cursor.CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT;
 import static com.xgen.mongot.cursor.CursorConfig.DEFAULT_MESSAGE_SIZE_LIMIT;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.Appender;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -175,6 +177,17 @@ public class OnPremMongotBootstrapper {
                             .addKeyValue("logPath", logPath)
                             .log("Configuring logging to file");
                         Logging.enableFileAppender(logPath);
+                      });
+              // Attached after enableFileAppender: that call detaches every root appender and
+              // expects the async console appender to be first, so the OTLP sink must come last.
+              loggingConfig
+                  .otlp()
+                  .ifPresent(
+                      otlp -> {
+                        Logging.attachRootAppender(logAppender(otlp));
+                        LOG.atInfo()
+                            .addKeyValue("endpoint", otlp.endpoint())
+                            .log("Shipping logs to OTLP collector");
                       });
             });
 
@@ -544,6 +557,15 @@ public class OnPremMongotBootstrapper {
   @VisibleForTesting
   static SpanExporter composeWithOtlp(SpanExporter logExporter, SpanExporter otlpExporter) {
     return new AllowlistSpanExporter(SpanExporter.composite(logExporter, otlpExporter));
+  }
+
+  /**
+   * Builds the OTLP log appender for a {@code logging.otlp} block, reusing the same exporter
+   * settings as the trace sink. The caller attaches it to the root logger.
+   */
+  @VisibleForTesting
+  static Appender<ILoggingEvent> logAppender(OtlpTracingConfig otlp) {
+    return OtlpLogAppender.create(OtlpExporterFactory.createLogRecordExporter(otlp));
   }
 
   /**

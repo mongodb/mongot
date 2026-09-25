@@ -1,8 +1,11 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.util.security.PemCertificateBundle;
+import io.opentelemetry.exporter.otlp.logs.OtlpGrpcLogRecordExporter;
+import io.opentelemetry.exporter.otlp.logs.OtlpGrpcLogRecordExporterBuilder;
 import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
 import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporterBuilder;
+import io.opentelemetry.sdk.logs.export.LogRecordExporter;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -38,6 +41,29 @@ public final class OtlpExporterFactory {
     } catch (RuntimeException e) {
       throw new OtlpConfigException(
           "failed to construct the OTLP exporter for endpoint "
+              + config.endpoint()
+              + ": "
+              + e.getMessage(),
+          e);
+    }
+  }
+
+  /** Builds the OTLP log-record exporter for a validated {@code logging.otlp} block. */
+  public static LogRecordExporter createLogRecordExporter(OtlpTracingConfig config) {
+    try {
+      OtlpGrpcLogRecordExporterBuilder builder =
+          OtlpGrpcLogRecordExporter.builder()
+              .setEndpoint(canonicalEndpoint(config.endpoint()))
+              .setTimeout(EXPORT_TIMEOUT)
+              // The pinned RetryPolicy cannot express a single attempt, so retries are disabled.
+              .setRetryPolicy(null);
+      config
+          .caCertificateFile()
+          .ifPresent(path -> builder.setTrustedCertificates(readCaBundle(path)));
+      return builder.build();
+    } catch (RuntimeException e) {
+      throw new OtlpConfigException(
+          "failed to construct the OTLP log exporter for endpoint "
               + config.endpoint()
               + ": "
               + e.getMessage(),

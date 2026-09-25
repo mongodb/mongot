@@ -1,7 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
-import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
@@ -9,7 +8,6 @@ import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
 import org.apache.commons.lang3.Range;
 import org.bson.BsonDocument;
-import org.bson.BsonValue;
 
 /**
  * The self-managed {@code tracing} block of the Community mongot config file. Controls enablement
@@ -99,30 +97,11 @@ public record TracingConfig(
   }
 
   /**
-   * Fails startup when the optional {@code tracing.otlp} block contains an unknown field. This
-   * block is parsed strictly, unlike the local-only blocks: it's an outbound sink whose optional
-   * {@code caCertificateFile} is security-relevant, so a misspelled key would silently fall back to
-   * the JVM trust store.
-   *
-   * <p>This only detects unknown fields: the two known field names are read as raw values so that
-   * closing the strict parser throws on any other key. Endpoint and CA validation already ran once
-   * during the permissive parse (their validators throw regardless of the permissive context), so
-   * they are deliberately not re-run here.
+   * Delegates to {@link OtlpTracingConfig#validateStrict(BsonDocument, String)} for {@code
+   * tracing}.
    */
   public static void validateStrictOtlp(BsonDocument root) throws BsonParseException {
-    BsonValue tracing = root.get("tracing");
-    if (tracing == null || !tracing.isDocument()) {
-      return;
-    }
-    BsonValue otlp = tracing.asDocument().get("otlp");
-    if (otlp == null || !otlp.isDocument()) {
-      return;
-    }
-    try (BsonDocumentParser strict = BsonDocumentParser.fromRoot(otlp.asDocument()).build()) {
-      strict.getField(Field.builder("endpoint").unparsedValueField().required());
-      strict.getField(
-          Field.builder("caCertificateFile").unparsedValueField().optional().noDefault());
-    }
+    OtlpTracingConfig.validateStrict(root, "tracing");
   }
 
   @Override

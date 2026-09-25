@@ -11,13 +11,26 @@ import org.bson.BsonDocument;
 import org.slf4j.event.Level;
 import picocli.CommandLine;
 
-public record LoggingConfig(String verbosity, Optional<String> logPath)
+public record LoggingConfig(
+    String verbosity, Optional<String> logPath, Optional<OtlpTracingConfig> otlp)
     implements DocumentEncodable {
+
   private static class Fields {
     public static final Field.WithDefault<String> VERBOSITY =
         Field.builder("verbosity").stringField().optional().withDefault(Level.INFO.toString());
     public static final Field.Optional<String> LOG_PATH =
         Field.builder("logPath").stringField().optional().noDefault();
+    public static final Field.Optional<OtlpTracingConfig> OTLP =
+        Field.builder("otlp")
+            .classField(OtlpTracingConfig::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
+  }
+
+  /** Convenience for callers that do not configure an OTLP log sink. */
+  public LoggingConfig(String verbosity, Optional<String> logPath) {
+    this(verbosity, logPath, Optional.empty());
   }
 
   public static final class LoggingConfigCliOptionRegistry extends CliOptionRegistry {
@@ -38,7 +51,9 @@ public record LoggingConfig(String verbosity, Optional<String> logPath)
 
   public static LoggingConfig fromBson(DocumentParser parser) throws BsonParseException {
     return new LoggingConfig(
-        parser.getField(Fields.VERBOSITY).unwrap(), parser.getField(Fields.LOG_PATH).unwrap());
+        parser.getField(Fields.VERBOSITY).unwrap(),
+        parser.getField(Fields.LOG_PATH).unwrap(),
+        parser.getField(Fields.OTLP).unwrap());
   }
 
   @Override
@@ -46,6 +61,7 @@ public record LoggingConfig(String verbosity, Optional<String> logPath)
     return BsonDocumentBuilder.builder()
         .field(Fields.VERBOSITY, this.verbosity)
         .field(Fields.LOG_PATH, this.logPath)
+        .field(Fields.OTLP, this.otlp)
         .build();
   }
 }

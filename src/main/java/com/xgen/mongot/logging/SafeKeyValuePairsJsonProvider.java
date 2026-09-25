@@ -29,6 +29,7 @@ public class SafeKeyValuePairsJsonProvider extends AbstractJsonProvider<ILogging
    * <ul>
    *   <li>If the key is null or blank
    *   <li>If the value is an empty {@link Optional}
+   *   <li>If the value is an empty string (matching {@code OmitEmptyFieldJsonDecorator})
    *   <li>If the key has been overridden by a subsequent key value pair
    * </ul>
    *
@@ -37,39 +38,52 @@ public class SafeKeyValuePairsJsonProvider extends AbstractJsonProvider<ILogging
    */
   @Override
   public void writeTo(JsonGenerator generator, ILoggingEvent event) throws IOException {
+    for (KeyValuePair keyValuePair : printableKeyValuePairs(event)) {
+      generator.writeFieldName(keyValuePair.key);
+      generator.writeObject(keyValuePair.value);
+    }
+  }
+
+  /**
+   * Returns the key-value pairs the local JSON encoder prints, with values already coerced to
+   * JSON-safe types, applying the same rules as {@link #writeTo}: non-null, non-blank keys,
+   * non-empty {@link Optional} values, non-empty string values, and last duplicate key wins. Shared
+   * with consumers that must not ship more than the local sink writes.
+   */
+  public static List<KeyValuePair> printableKeyValuePairs(ILoggingEvent event) {
     List<KeyValuePair> keyValuePairs = event.getKeyValuePairs();
     if (keyValuePairs == null || keyValuePairs.isEmpty()) {
-      return;
+      return List.of();
     }
-
-    List<KeyValuePair> keyValuePairsWithoutDuplicates = handleDuplicates(keyValuePairs);
-
-    for (KeyValuePair keyValuePair : keyValuePairsWithoutDuplicates) {
-      if (keyValuePair.key != null
-          && !keyValuePair.key.isBlank()
-          && shouldPrintValue(keyValuePair.value)) {
-        generator.writeFieldName(keyValuePair.key);
-        generator.writeObject(toSafeObject(keyValuePair.value));
-      }
-    }
+    return handleDuplicates(keyValuePairs).stream()
+        .filter(
+            keyValuePair ->
+                keyValuePair.key != null
+                    && !keyValuePair.key.isBlank()
+                    // Must run before coercion: String.valueOf(Optional.empty()) is non-empty.
+                    && !Optional.empty().equals(keyValuePair.value))
+        .map(keyValuePair -> new KeyValuePair(keyValuePair.key, toSafeObject(keyValuePair.value)))
+        .filter(keyValuePair -> !String.valueOf(keyValuePair.value).isEmpty())
+        .toList();
   }
 
-  // Returns a list of key value pairs with key value pairs removed when there is a subsequent
-  // duplicate key.
-  private List<KeyValuePair> handleDuplicates(List<KeyValuePair> keyValuePairs) {
-    Set<String> keysSeen = new HashSet<>();
-    return keyValuePairs.reversed().stream().filter(e -> keysSeen.add(e.key)).toList().reversed();
-  }
-
-  private boolean shouldPrintValue(Object value) {
-    return !Optional.empty().equals(value);
-  }
-
-  private Object toSafeObject(@Nullable Object value) {
+  /**
+   * Coerces a value to a JSON-safe type: {@code String}/{@code Number}/{@code Boolean} as-is, and
+   * {@link String#valueOf} for anything else so no nested object representation leaks. Coercion
+   * happens exactly once, inside {@link #printableKeyValuePairs}.
+   */
+  private static Object toSafeObject(@Nullable Object value) {
     // Return value as-is for primitive types.
     if (value instanceof String || value instanceof Number || value instanceof Boolean) {
       return value;
     }
     return String.valueOf(value);
+  }
+
+  // Returns a list of key value pairs with key value pairs removed when there is a subsequent
+  // duplicate key.
+  private static List<KeyValuePair> handleDuplicates(List<KeyValuePair> keyValuePairs) {
+    Set<String> keysSeen = new HashSet<>();
+    return keyValuePairs.reversed().stream().filter(e -> keysSeen.add(e.key)).toList().reversed();
   }
 }

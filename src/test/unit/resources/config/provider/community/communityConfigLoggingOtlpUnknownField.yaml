@@ -1,0 +1,15 @@
+syncSource:
+  replicaSet:
+    hostAndPort: "mongod:27017"
+    scramAuth:
+      username: user
+      passwordFile: "replicaSet.passwd"
+storage:
+  dataPath: "data/mongot"
+server:
+  grpc:
+    address: "localhost:27028"
+logging:
+  otlp:
+    endpoint: https://collector.example.com:4317
+    caCertificateFil: /etc/mongot/ca.pem
