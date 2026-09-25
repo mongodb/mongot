@@ -78,6 +78,8 @@ public enum Feature {
   CANCEL_MERGE("enableCancelMerge", State.DISABLED),
   KNN_FULL_SCAN_HEURISTIC("enableKnnFullScanHeuristic", State.DISABLED),
   VECTORX_INDEX_CREATION_ALLOWED("vectorxIndexCreationAllowed", State.DISABLED),
+  // Gates automatic derivation of $vectorSearch numCandidates when the request omits it.
+  AUTO_NUM_CANDIDATES("enableAutoNumCandidates", State.DISABLED),
   OVERLOAD_RETRY_SIGNAL("overloadRetrySignal", State.DISABLED),
   NESTED_VECTOR("nestedVector", State.ENABLED),
   QUERY_MEMORY_ATTRIBUTION_METRICS("queryMemoryAttributionMetrics", State.ENABLED),
