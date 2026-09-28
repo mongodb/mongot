@@ -77,7 +77,8 @@ public class MongoDbReplicationConfigTest {
               Optional.of(1800),
               Optional.of(3600),
               Optional.of(SteadyStateSchedulingMethod.OPTIME_LAG),
-              Optional.of(3)));
+              Optional.of(3),
+              Optional.of(4)));
     }
 
     @Test
@@ -515,6 +516,35 @@ public class MongoDbReplicationConfigTest {
       Assert.assertEquals(
           MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_RATIO,
           config.steadyStatePriorityRatio);
+    }
+
+    @Test
+    public void testNumParallelChangeStreamReadersExplicit() {
+      // Shouldn't throw
+      MongoDbReplicationConfigBuilder.builder()
+          .optionalNumParallelChangeStreamReaders(Optional.of(1))
+          .build();
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalNumParallelChangeStreamReaders(Optional.of(0))
+                  .build());
+
+      assertThrowsIllegalArgumentException(
+          () ->
+              MongoDbReplicationConfigBuilder.builder()
+                  .optionalNumParallelChangeStreamReaders(Optional.of(-1))
+                  .build());
+    }
+
+    @Test
+    public void testNumParallelChangeStreamReadersDefault() {
+      MongoDbReplicationConfig config = MongoDbReplicationConfigBuilder.builder().build();
+
+      Assert.assertEquals(
+          MongoDbReplicationConfig.DEFAULT_NUM_PARALLEL_CHANGE_STREAM_READERS,
+          config.numParallelChangeStreamReaders);
     }
 
     @Test

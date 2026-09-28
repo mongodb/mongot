@@ -34,6 +34,7 @@ public class MongoDbReplicationConfigBuilder {
   private Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod =
       Optional.empty();
   private Optional<Integer> optionalSteadyStatePriorityRatio = Optional.empty();
+  private Optional<Integer> optionalNumParallelChangeStreamReaders = Optional.empty();
 
   public static MongoDbReplicationConfigBuilder builder() {
     return new MongoDbReplicationConfigBuilder();
@@ -153,6 +154,12 @@ public class MongoDbReplicationConfigBuilder {
     return this;
   }
 
+  public MongoDbReplicationConfigBuilder optionalNumParallelChangeStreamReaders(
+      Optional<Integer> optionalNumParallelChangeStreamReaders) {
+    this.optionalNumParallelChangeStreamReaders = optionalNumParallelChangeStreamReaders;
+    return this;
+  }
+
   public MongoDbReplicationConfig build() {
     return MongoDbReplicationConfig.create(
         this.runtime,
@@ -179,6 +186,7 @@ public class MongoDbReplicationConfigBuilder {
         this.optionalChangeStreamInactivityThresholdSec,
         this.optionalChangeStreamKeepAliveIntervalSec,
         this.optionalSteadyStateSchedulingMethod,
-        this.optionalSteadyStatePriorityRatio);
+        this.optionalSteadyStatePriorityRatio,
+        this.optionalNumParallelChangeStreamReaders);
   }
 }

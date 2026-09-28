@@ -79,6 +79,7 @@ public final class MongoDbReplicationConfigMapper {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 }

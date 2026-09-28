@@ -95,6 +95,7 @@ public enum Feature {
   RESET_STALE_INTERNAL_SEARCH_CHECKPOINT("resetStaleInternalSearchCheckpoint", State.ENABLED),
   CHANGE_STREAM_PRIORITY_SCHEDULING("enableChangeStreamPriorityScheduling", State.DISABLED),
   CHANGE_STREAM_ACTIVITY_OBSERVER("changeStreamActivityObserver", State.DISABLED),
+  PARALLEL_CHANGE_STREAM_READERS("enableParallelChangeStreamReaders", State.DISABLED),
   // Retries a steady-state getMore rejected by Mongotune ingress rate limiting (code 462).
   RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR("retryThrottledGetMoreOnSameCursor", State.DISABLED),
   // Kill-switch for the CLOUDP-429731 mmap bloom read path. Disabled by default, so bloom bitsets

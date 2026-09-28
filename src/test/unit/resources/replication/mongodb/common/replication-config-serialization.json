@@ -30,7 +30,8 @@
         "changeStreamInactivityThresholdSec": 1800,
         "changeStreamKeepAliveIntervalSec": 3600,
         "steadyStateSchedulingMethod": "OPTIME_LAG",
-        "steadyStatePriorityRatio": 3
+        "steadyStatePriorityRatio": 3,
+        "numParallelChangeStreamReaders": 4
       },
       "bson": {
         "numConcurrentInitialSyncs": 1,
@@ -64,7 +65,8 @@
         "changeStreamInactivityThresholdSec": 1800,
         "changeStreamKeepAliveIntervalSec": 3600,
         "steadyStateSchedulingMethod": "OPTIME_LAG",
-        "steadyStatePriorityRatio": 3
+        "steadyStatePriorityRatio": 3,
+        "numParallelChangeStreamReaders": 4
       }
     }
   ]

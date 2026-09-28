@@ -62,6 +62,12 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
   public static final SteadyStateSchedulingMethod DEFAULT_STEADY_STATE_SCHEDULING_METHOD =
       SteadyStateSchedulingMethod.TOP_K_WORST_LAG;
 
+  /**
+   * Default number of parallel readers per change stream, used only when {@code
+   * Feature.PARALLEL_CHANGE_STREAM_READERS} is enabled.
+   */
+  public static final int DEFAULT_NUM_PARALLEL_CHANGE_STREAM_READERS = 3;
+
   /** The number of initial syncs that are allowed to be run concurrently. */
   public final int numConcurrentInitialSyncs;
 
@@ -156,6 +162,12 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
    */
   public final int changeStreamKeepAliveIntervalSec;
 
+  /**
+   * The number of parallel readers to open per change stream, used only when {@code
+   * Feature.PARALLEL_CHANGE_STREAM_READERS} is enabled.
+   */
+  public final int numParallelChangeStreamReaders;
+
   private MongoDbReplicationConfig(
       int numConcurrentInitialSyncs,
       int numConcurrentChangeStreams,
@@ -180,7 +192,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
       int changeStreamInactivityThresholdSec,
       int changeStreamKeepAliveIntervalSec,
       SteadyStateSchedulingMethod steadyStateSchedulingMethod,
-      int steadyStatePriorityRatio) {
+      int steadyStatePriorityRatio,
+      int numParallelChangeStreamReaders) {
     super(
         pauseAllInitialSyncs,
         pauseInitialSyncOnIndexIds,
@@ -205,6 +218,7 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
     this.changeStreamKeepAliveIntervalSec = changeStreamKeepAliveIntervalSec;
     this.steadyStateSchedulingMethod = steadyStateSchedulingMethod;
     this.steadyStatePriorityRatio = steadyStatePriorityRatio;
+    this.numParallelChangeStreamReaders = numParallelChangeStreamReaders;
   }
 
   /**
@@ -230,7 +244,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
       Optional<Integer> optionalChangeStreamInactivityThresholdSec,
       Optional<Integer> optionalChangeStreamKeepAliveIntervalSec,
       Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod,
-      Optional<Integer> optionalSteadyStatePriorityRatio) {
+      Optional<Integer> optionalSteadyStatePriorityRatio,
+      Optional<Integer> optionalNumParallelChangeStreamReaders) {
     return create(
         Runtime.INSTANCE,
         globalReplicationConfig,
@@ -250,7 +265,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         optionalChangeStreamInactivityThresholdSec,
         optionalChangeStreamKeepAliveIntervalSec,
         optionalSteadyStateSchedulingMethod,
-        optionalSteadyStatePriorityRatio);
+        optionalSteadyStatePriorityRatio,
+        optionalNumParallelChangeStreamReaders);
   }
 
   /** Used for testing. The above create() method should be called instead. */
@@ -274,7 +290,8 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
       Optional<Integer> optionalChangeStreamInactivityThresholdSec,
       Optional<Integer> optionalChangeStreamKeepAliveIntervalSec,
       Optional<SteadyStateSchedulingMethod> optionalSteadyStateSchedulingMethod,
-      Optional<Integer> optionalSteadyStatePriorityRatio) {
+      Optional<Integer> optionalSteadyStatePriorityRatio,
+      Optional<Integer> optionalNumParallelChangeStreamReaders) {
     int numConcurrentInitialSyncs =
         getNumConcurrentInitialSyncsWithDefault(runtime, optionalNumConcurrentInitialSyncs);
     Check.argIsPositive(numConcurrentInitialSyncs, "numConcurrentInitialSyncs");
@@ -342,6 +359,10 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         optionalSteadyStatePriorityRatio.orElse(DEFAULT_STEADY_STATE_PRIORITY_RATIO);
     Check.argIsPositive(steadyStatePriorityRatio, "steadyStatePriorityRatio");
 
+    int numParallelChangeStreamReaders =
+        optionalNumParallelChangeStreamReaders.orElse(DEFAULT_NUM_PARALLEL_CHANGE_STREAM_READERS);
+    Check.argIsPositive(numParallelChangeStreamReaders, "numParallelChangeStreamReaders");
+
     return new MongoDbReplicationConfig(
         numConcurrentInitialSyncs,
         numConcurrentChangeStreams,
@@ -365,13 +386,15 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
         changeStreamInactivityThresholdSec,
         changeStreamKeepAliveIntervalSec,
         steadyStateSchedulingMethod,
-        steadyStatePriorityRatio);
+        steadyStatePriorityRatio,
+        numParallelChangeStreamReaders);
   }
 
   /** Creates a new MongoDbReplicationConfig, defaulting to empty options for everything. */
   public static MongoDbReplicationConfig getDefault() {
     return create(
         defaultGlobalReplicationConfig(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -526,6 +549,9 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
             Optional.of(this.changeStreamKeepAliveIntervalSec))
         .field(Fields.STEADY_STATE_SCHEDULING_METHOD, Optional.of(this.steadyStateSchedulingMethod))
         .field(Fields.STEADY_STATE_PRIORITY_RATIO, Optional.of(this.steadyStatePriorityRatio))
+        .field(
+            Fields.NUM_PARALLEL_CHANGE_STREAM_READERS,
+            Optional.of(this.numParallelChangeStreamReaders))
         .build();
   }
 
@@ -587,6 +613,10 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
 
   public int getSteadyStatePriorityRatio() {
     return this.steadyStatePriorityRatio;
+  }
+
+  public int getNumParallelChangeStreamReaders() {
+    return this.numParallelChangeStreamReaders;
   }
 
   private static class Fields {
@@ -699,6 +729,13 @@ public final class MongoDbReplicationConfig extends CommonReplicationConfig
 
     private static final Field.Optional<Integer> STEADY_STATE_PRIORITY_RATIO =
         Field.builder("steadyStatePriorityRatio")
+            .intField()
+            .mustBePositive()
+            .optional()
+            .noDefault();
+
+    private static final Field.Optional<Integer> NUM_PARALLEL_CHANGE_STREAM_READERS =
+        Field.builder("numParallelChangeStreamReaders")
             .intField()
             .mustBePositive()
             .optional()
