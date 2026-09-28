@@ -8,6 +8,7 @@ import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionG
 import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_INDEX_GENERATION_ID;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -91,6 +92,7 @@ import com.xgen.testing.mongot.mock.index.VectorSearchResultBatch;
 import com.xgen.testing.mongot.server.command.search.definition.request.CursorOptionsDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.search.definition.request.ExplainDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.search.definition.request.VectorSearchCommandDefinitionBuilder;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
@@ -716,6 +718,50 @@ public class VectorSearchCommandTest {
     when(initializedIndexCatalog.getIndex(indexGeneration.getGenerationId()))
         .thenReturn(Optional.empty());
 
+    var registry = new SimpleMeterRegistry();
+    var result = runAgainstCatalog(catalog, initializedIndexCatalog, registry);
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(result.containsKey("errmsg"));
+    Assert.assertEquals(
+        String.format("Index %s not initialized", INDEX_NAME),
+        result.getString("errmsg").getValue());
+    // Verify that throwIfUnavailableForQuerying() was called before the initialization check
+    verify(mockVectorIndex).throwIfUnavailableForQuerying();
+    Assert.assertEquals(1.0, unavailableIndexCount(registry, "LUCENE"), 0);
+    Assert.assertEquals(0.0, unavailableIndexCount(registry, "VECTORLITE"), 0);
+  }
+
+  @Test
+  public void testIndexUnavailableForQueryingRecordsUnavailableIndexByEngine() throws Exception {
+    var catalog = Mockito.mock(IndexCatalog.class);
+    var initializedIndexCatalog = Mockito.mock(InitializedIndexCatalog.class);
+
+    var vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .name(INDEX_NAME)
+            .withCustomEngineVectorField(PATH.toString(), 1024)
+            .build();
+    var definitionGeneration = mockDefinitionGeneration(vectorIndexDefinition);
+    com.xgen.mongot.index.VectorIndex mockVectorIndex = VectorIndex.mockIndex(definitionGeneration);
+    doThrow(new IndexUnavailableException("unavailable"))
+        .when(mockVectorIndex)
+        .throwIfUnavailableForQuerying();
+
+    IndexGeneration indexGeneration = new IndexGeneration(mockVectorIndex, definitionGeneration);
+    when(catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
+        .thenReturn(Optional.of(indexGeneration));
+
+    var registry = new SimpleMeterRegistry();
+    var result = runAgainstCatalog(catalog, initializedIndexCatalog, registry);
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertEquals("unavailable", result.getString("errmsg").getValue());
+    Assert.assertEquals(0.0, unavailableIndexCount(registry, "LUCENE"), 0);
+    Assert.assertEquals(1.0, unavailableIndexCount(registry, "VECTORLITE"), 0);
+  }
+
+  private BsonDocument runAgainstCatalog(
+      IndexCatalog catalog, InitializedIndexCatalog initializedIndexCatalog, MeterRegistry registry)
+      throws Exception {
     var mocks = new Mocks();
     var command =
         new VectorSearchCommand(
@@ -741,18 +787,18 @@ public class VectorSearchCommandTest {
             new IncompatibleIndexes(),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
-            new VectorSearchCommand.Metrics(mockMetricsFactory()),
+            new VectorSearchCommand.Metrics(new MetricsFactory("search_metrics", registry)),
             mocks.cursorManager,
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+    return command.run();
+  }
 
-    var result = command.run();
-    Assert.assertEquals(0, result.getInt32("ok").getValue());
-    Assert.assertTrue(result.containsKey("errmsg"));
-    Assert.assertEquals(
-        String.format("Index %s not initialized", INDEX_NAME),
-        result.getString("errmsg").getValue());
-    // Verify that throwIfUnavailableForQuerying() was called before the initialization check
-    verify(mockVectorIndex).throwIfUnavailableForQuerying();
+  private static double unavailableIndexCount(MeterRegistry registry, String indexEngine) {
+    return registry
+        .get("search_metrics.vectorSearchCommandUnavailableIndex")
+        .tag("indexEngine", indexEngine)
+        .counter()
+        .count();
   }
 
   @Test

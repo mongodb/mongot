@@ -49,6 +49,7 @@ import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.IndexNamespaceFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
@@ -76,8 +77,10 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -633,15 +636,22 @@ public class VectorSearchCommand implements Command {
       return Optional.empty();
     }
     var index = indexGeneration.get();
-    index.getIndex().throwIfUnavailableForQuerying();
+
+    try {
+      index.getIndex().throwIfUnavailableForQuerying();
+    } catch (IndexUnavailableException e) {
+      this.metrics.recordUnavailableIndex(index.getDefinition().engine());
+      throw e;
+    }
     InitializedIndex initializedIndex =
         this.initializedIndexCatalog
             .getIndex(index.getGenerationId())
             .orElseThrow(
-                () ->
-                    new IndexUnavailableException(
-                        String.format(
-                            "Index %s not initialized", index.getDefinition().getName())));
+                () -> {
+                  this.metrics.recordUnavailableIndex(index.getDefinition().engine());
+                  return new IndexUnavailableException(
+                      String.format("Index %s not initialized", index.getDefinition().getName()));
+                });
     if (initializedIndex.getDefinition().getView().isPresent()) {
       if (this.definition.viewName().isPresent()) {
         this.metrics.queriesAgainstView.increment(); // GA version
@@ -975,6 +985,14 @@ public class VectorSearchCommand implements Command {
           this.cursorManager,
           this.bsonSizeSoftLimit);
     }
+
+    /**
+     * Counts a query rejected because its index is defined but unavailable, for callers that reject
+     * it before a {@link VectorSearchCommand} is created.
+     */
+    void recordUnavailableIndex(IndexEngine engine) {
+      this.metrics.recordUnavailableIndex(engine);
+    }
   }
 
   /**
@@ -1004,6 +1022,7 @@ public class VectorSearchCommand implements Command {
     private final AtomicLong concurrentExactQueries;
     private final AtomicLong concurrentApproximateQueries;
     private final AtomicLong concurrentAutoEmbeddingQueries;
+    private final Map<IndexEngine, Counter> unavailableIndexQueries;
     private final MetricsFactory metricsFactory;
 
     Metrics(MetricsFactory metricsFactory) {
@@ -1038,7 +1057,21 @@ public class VectorSearchCommand implements Command {
       this.concurrentApproximateQueries = metricsFactory.numGauge("concurrentApproximateQueries");
       this.concurrentAutoEmbeddingQueries =
           metricsFactory.numGauge("concurrentAutoEmbeddingQueries");
+      // Registered for every engine up front so each series exists from process start; increase()
+      // over a series that first appears mid-range undercounts.
+      this.unavailableIndexQueries = new EnumMap<>(IndexEngine.class);
+      for (IndexEngine engine : IndexEngine.values()) {
+        this.unavailableIndexQueries.put(
+            engine,
+            metricsFactory.counter(
+                "vectorSearchCommandUnavailableIndex", Tags.of("indexEngine", engine.name())));
+      }
       this.metricsFactory = metricsFactory;
+    }
+
+    /** Counts a query rejected because its index is defined but not available for querying. */
+    void recordUnavailableIndex(IndexEngine engine) {
+      this.unavailableIndexQueries.get(engine).increment();
     }
 
     /** Emit failure metrics with the same set of label keys. */

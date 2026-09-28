@@ -125,6 +125,7 @@ public class DeprecatedVectorSearchCommand implements Command {
                   this.initializedIndexCatalog.getIndex(indexGeneration.getGenerationId()));
 
       if (index.isPresent() && initializedIndex.isEmpty()) {
+        this.vectorCommandFactory.recordUnavailableIndex(index.get().getDefinition().engine());
         throw new IndexUnavailableException(
             String.format("Index %s not initialized", index.get().getDefinition().getName()));
       }

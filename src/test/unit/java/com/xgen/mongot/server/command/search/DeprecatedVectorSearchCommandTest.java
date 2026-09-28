@@ -41,6 +41,7 @@ import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
 import com.xgen.mongot.index.lucene.explain.information.MetadataExplainInformation;
 import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformation;
@@ -51,6 +52,7 @@ import com.xgen.mongot.index.query.operators.VectorSearchFilter;
 import com.xgen.mongot.index.query.operators.mql.Clause;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
@@ -660,14 +662,48 @@ public class DeprecatedVectorSearchCommandTest {
 
   @Test
   public void testIndexNotInitializedReturnsErrorResponse() throws Exception {
+    var factory = mock(VectorSearchCommand.Factory.class);
+    BsonDocument result =
+        runAgainstUninitializedIndex(
+            VectorIndexDefinitionBuilder.builder()
+                .name(INDEX_NAME)
+                .withDotProductVectorField(PATH.toString(), 1024)
+                .build(),
+            factory);
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(result.containsKey("errmsg"));
+    Assert.assertEquals(
+        String.format("Index %s not initialized", INDEX_NAME),
+        result.getString("errmsg").getValue());
+    verify(factory).recordUnavailableIndex(IndexEngine.LUCENE);
+    verify(factory, never()).recordUnavailableIndex(IndexEngine.VECTORLITE);
+  }
+
+  @Test
+  public void testVectorliteIndexNotInitializedRecordsUnavailableIndex() throws Exception {
+    var factory = mock(VectorSearchCommand.Factory.class);
+    BsonDocument result =
+        runAgainstUninitializedIndex(
+            VectorIndexDefinitionBuilder.builder()
+                .name(INDEX_NAME)
+                .withCustomEngineVectorField(PATH.toString(), 1024)
+                .build(),
+            factory);
+
+    Assert.assertEquals(
+        String.format("Index %s not initialized", INDEX_NAME),
+        result.getString("errmsg").getValue());
+    verify(factory).recordUnavailableIndex(IndexEngine.VECTORLITE);
+    verify(factory, never()).recordUnavailableIndex(IndexEngine.LUCENE);
+  }
+
+  private BsonDocument runAgainstUninitializedIndex(
+      VectorIndexDefinition vectorIndexDefinition, VectorSearchCommand.Factory factory)
+      throws Exception {
     var catalog = Mockito.mock(IndexCatalog.class);
     var initializedIndexCatalog = Mockito.mock(InitializedIndexCatalog.class);
 
-    var vectorIndexDefinition =
-        VectorIndexDefinitionBuilder.builder()
-            .name(INDEX_NAME)
-            .withDotProductVectorField(PATH.toString(), 1024)
-            .build();
     var definitionGeneration = mockDefinitionGeneration(vectorIndexDefinition);
     com.xgen.mongot.index.VectorIndex mockVectorIndex = VectorIndex.mockIndex(definitionGeneration);
     // Set status to STEADY so throwIfUnavailableForQuerying() won't throw
@@ -707,15 +743,10 @@ public class DeprecatedVectorSearchCommandTest {
             catalog,
             initializedIndexCatalog,
             new IncompatibleIndexes(),
-            mock(VectorSearchCommand.Factory.class),
+            factory,
             BOOTSTRAPPER_METADATA);
 
-    BsonDocument result = command.run();
-    Assert.assertEquals(0, result.getInt32("ok").getValue());
-    Assert.assertTrue(result.containsKey("errmsg"));
-    Assert.assertEquals(
-        String.format("Index %s not initialized", INDEX_NAME),
-        result.getString("errmsg").getValue());
+    return command.run();
   }
 
   /**
