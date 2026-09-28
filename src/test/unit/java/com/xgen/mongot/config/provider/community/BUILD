@@ -48,6 +48,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/catalogservice/schema",
         "//src/main/java/com/xgen/mongot/config/manager",
         "//src/main/java/com/xgen/mongot/config/provider",
+        "//src/main/java/com/xgen/mongot/config/provider/cli",
         "//src/main/java/com/xgen/mongot/config/provider/community",
         "//src/main/java/com/xgen/mongot/config/provider/community/embedding",
         "//src/main/java/com/xgen/mongot/config/util",
