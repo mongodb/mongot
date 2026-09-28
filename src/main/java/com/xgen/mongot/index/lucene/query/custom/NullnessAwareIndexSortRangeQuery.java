@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.lucene.query.custom;
 
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import java.io.IOException;
 import java.util.Arrays;
@@ -8,6 +9,7 @@ import org.apache.lucene.index.FilterLeafReader;
 import org.apache.lucene.index.LeafMetaData;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.FilterWeight;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.IndexSortSortedNumericDocValuesRangeQuery;
@@ -53,8 +55,26 @@ public final class NullnessAwareIndexSortRangeQuery extends Query {
 
   private final IndexSortSortedNumericDocValuesRangeQuery delegate;
 
+  /**
+   * Whether the sorted index was detected speeding up the range query on at least one segment. It
+   * is written only when Explain is active.
+   *
+   * <p>Asymmetric, and deliberately best-effort: {@code true} means the fast path definitely ran,
+   * while {@code false} only means it was not detected and is not proof that it did not run. Lucene
+   * exposes no direct signal, so detection infers it from the optimized scorer's cost differing
+   * from the fallback's. Known false negatives: the two costs coincide (a range spanning a whole
+   * segment yields {@code maxDoc} from both the dense iterator and the fallback's estimate), no
+   * fallback supplier exists to compare against, and count-only queries that never call {@code
+   * scorerSupplier}.
+   *
+   * <p>This is a mutable state which can be modified from concurrent segments query execution so
+   * marking it volatile for thread safety.
+   */
+  private volatile boolean useIndexSort;
+
   public NullnessAwareIndexSortRangeQuery(IndexSortSortedNumericDocValuesRangeQuery delegate) {
     this.delegate = Objects.requireNonNull(delegate, "delegate");
+    this.useIndexSort = false;
   }
 
   @Override
@@ -77,6 +97,39 @@ public final class NullnessAwareIndexSortRangeQuery extends Query {
   public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
       throws IOException {
     Weight realWeight = this.delegate.createWeight(searcher, scoreMode, boost);
+    if (Explain.getQueryInfo().isEmpty()) {
+      return this.nullnessDroppingWeight(realWeight);
+    }
+
+    // Whether IndexSortSortedNumericDocValuesRangeQuery took its fast path is hidden inside a
+    // private method, so infer it from the optimized scorer's cost differing from the fallback's.
+    // Detection is one-directional: a mismatch proves the fast path ran, a match proves nothing.
+    // See useIndexSort for the known false negatives.
+    Weight fallbackWeight =
+        this.delegate.getFallbackQuery().createWeight(searcher, scoreMode, boost);
+    return new FilterWeight(realWeight) {
+      @Override
+      @Nullable
+      public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
+        LeafReader wrapped = new NullnessDroppingLeafReader(context.reader());
+        ScorerSupplier realScorerSupplier = realWeight.scorerSupplier(wrapped.getContext());
+        if (realScorerSupplier == null) {
+          return null;
+        }
+
+        // The fallback deliberately gets the unmodified context: it is a plain range query with no
+        // index sort dependency, so its cost estimate stays honest.
+        ScorerSupplier fallbackScorerSupplier = fallbackWeight.scorerSupplier(context);
+        if (fallbackScorerSupplier != null
+            && realScorerSupplier.cost() != fallbackScorerSupplier.cost()) {
+          NullnessAwareIndexSortRangeQuery.this.useIndexSort = true;
+        }
+        return realScorerSupplier;
+      }
+    };
+  }
+
+  private Weight nullnessDroppingWeight(Weight realWeight) {
     return new FilterWeight(realWeight) {
       @Override
       @Nullable
@@ -94,7 +147,10 @@ public final class NullnessAwareIndexSortRangeQuery extends Query {
 
   @Override
   public void visit(QueryVisitor visitor) {
-    this.delegate.visit(visitor);
+    // getSubVisitor is required to register THIS query as a node in the Explain tree.
+    // This will enable LuceneQuerySpecificationCreator dispatch to this query's own spec so
+    // useIndexSort can be emitted.
+    this.delegate.visit(visitor.getSubVisitor(BooleanClause.Occur.MUST, this));
   }
 
   @Override
@@ -106,6 +162,15 @@ public final class NullnessAwareIndexSortRangeQuery extends Query {
   @Override
   public int hashCode() {
     return 31 * classHash() + this.delegate.hashCode();
+  }
+
+  /**
+   * Whether the sorted index was detected speeding up the range query on at least one segment. Only
+   * meaningful when Explain is active. {@code true} is definitive; {@code false} means "not
+   * detected" and can be a false negative -- see {@link #useIndexSort}.
+   */
+  public boolean useIndexSort() {
+    return this.useIndexSort;
   }
 
   /**

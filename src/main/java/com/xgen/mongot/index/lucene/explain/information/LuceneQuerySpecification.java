@@ -59,6 +59,8 @@ public interface LuceneQuerySpecification extends DocumentEncodable {
     WRAPPED_KNN_QUERY("WrappedKnnQuery"),
     WRAPPED_TO_PARENT_BLOCK_JOIN_QUERY("WrappedToParentBlockJoinQuery"),
     WRAPPED_TO_CHILD_BLOCK_JOIN_QUERY(WrappedToChildBlockJoinQuery.class.getSimpleName()),
+    NULLNESS_AWARE_INDEX_SORT_RANGE_QUERY("NullnessAwareIndexSortRangeQuery"),
+    INDEX_SORT_SORTED_NUMERIC_DOC_VALUES_RANGE_QUERY("IndexSortSortedNumericDocValuesRangeQuery"),
     ;
 
     private final Optional<String> simpleClassName;
@@ -181,6 +183,10 @@ public interface LuceneQuerySpecification extends DocumentEncodable {
       case WRAPPED_TO_CHILD_BLOCK_JOIN_QUERY ->
           builder.classField(WrappedToChildBlockJoinQuerySpec::fromBson);
       case DEFAULT_QUERY -> builder.classField(DefaultQuerySpec::fromBson);
+      case NULLNESS_AWARE_INDEX_SORT_RANGE_QUERY ->
+          builder.classField(NullnessAwareIndexSortRangeQuerySpec::fromBson);
+      case INDEX_SORT_SORTED_NUMERIC_DOC_VALUES_RANGE_QUERY ->
+          builder.classField(IndexSortSortedNumericDocValuesRangeQuerySpec::fromBson);
     };
   }
 }

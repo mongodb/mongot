@@ -19,6 +19,7 @@ import com.xgen.mongot.index.lucene.explain.query.QueryExecutionContextNode;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.custom.ExactVectorSearchQuery;
+import com.xgen.mongot.index.lucene.query.custom.NullnessAwareIndexSortRangeQuery;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.WrappedToChildBlockJoinQuery;
@@ -31,6 +32,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.lucene.search.FuzzyQuery;
+import org.apache.lucene.search.IndexSortSortedNumericDocValuesRangeQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
@@ -161,6 +163,15 @@ public class LuceneQuerySpecificationCreator {
                   q ->
                       WrappedToChildBlockJoinQuerySpecCreator.fromQuery(
                           getOnlyChild(children), verbosity));
+      case NULLNESS_AWARE_INDEX_SORT_RANGE_QUERY ->
+          tryCast(query, NullnessAwareIndexSortRangeQuery.class)
+              .map(
+                  q ->
+                      NullnessAwareIndexSortRangeQuerySpecCreator.fromQuery(
+                          children, q.useIndexSort(), verbosity));
+      case INDEX_SORT_SORTED_NUMERIC_DOC_VALUES_RANGE_QUERY ->
+          tryCast(query, IndexSortSortedNumericDocValuesRangeQuery.class)
+              .map(IndexSortSortedNumericDocValuesRangeQuerySpecCreator::fromQuery);
     };
   }
 

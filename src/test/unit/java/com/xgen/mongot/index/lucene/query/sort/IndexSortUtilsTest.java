@@ -6,13 +6,27 @@ import static org.junit.Assert.assertFalse;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
+import com.xgen.mongot.index.lucene.explain.ProfilingIndexSearcher;
+import com.xgen.mongot.index.lucene.explain.explainers.CollectorTimingFeatureExplainer;
+import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
+import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
+import com.xgen.mongot.index.lucene.explain.information.NullnessAwareIndexSortRangeQuerySpec;
+import com.xgen.mongot.index.lucene.explain.information.QueryExplainInformation;
+import com.xgen.mongot.index.lucene.explain.profiler.QueryProfiler;
+import com.xgen.mongot.index.lucene.explain.profiler.QueryProfilerFeatureExplainer;
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.custom.NullnessAwareIndexSortRangeQuery;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
+import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
+import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
@@ -25,6 +39,7 @@ import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
@@ -36,11 +51,15 @@ import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.search.SortedNumericSortField;
 import org.apache.lucene.search.SortedSetSelector;
 import org.apache.lucene.search.SortedSetSortField;
+import org.apache.lucene.search.TopScoreDocCollectorManager;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.junit.Test;
 
 public class IndexSortUtilsTest {
+
+  private static final IndexMetricsUpdater.QueryingMetricsUpdater METRICS =
+      new IndexMetricsUpdater.QueryingMetricsUpdater(SearchIndex.mockMetricsFactory());
 
   @Test
   public void testExtractFirstIndexSort_WithSort() throws IOException {
@@ -812,6 +831,129 @@ public class IndexSortUtilsTest {
 
       Set<String> ids = NullnessPrefixedIndexTestUtils.idsOf(searcher, query);
       assertThat(ids).isEqualTo(NullnessPrefixedIndexTestUtils.expectedMatchingIds());
+    }
+  }
+
+  /**
+   * Runs {@code query} through a real {@link ProfilingIndexSearcher} inside the ambient explain
+   * scope and returns the {@code useIndexSort} value as it would appear in the explain output -
+   * i.e. read off the emitted {@link NullnessAwareIndexSortRangeQuerySpec} rather than off the
+   * query object, so this exercises the whole 7c path: query -> profiler node -> spec creator.
+   */
+  private static boolean useIndexSortFromExplainOutput(IndexReader reader, Query query)
+      throws IOException {
+    var queryProfilerExplainer =
+        Explain.getExplainQueryState()
+            .orElseThrow()
+            .getQueryInfo()
+            .getFeatureExplainer(
+                QueryProfilerFeatureExplainer.class,
+                () -> new QueryProfilerFeatureExplainer(METRICS));
+    // No createQueryExecutionContext() here: ProfilingIndexSearcher.search does it, and
+    // explainInformation requires every execution context to have a root node.
+    QueryProfiler profiler = queryProfilerExplainer.getQueryProfiler();
+
+    var profilingSearcher =
+        new ProfilingIndexSearcher(
+            LuceneIndexSearcher.create(
+                reader,
+                new QueryCacheProvider.DefaultQueryCacheProvider(),
+                Optional.empty(),
+                Optional.empty(),
+                false,
+                false,
+                Optional.empty()),
+            profiler,
+            new CollectorTimingFeatureExplainer(),
+            new MetadataFeatureExplainer());
+    profilingSearcher.search(
+        query,
+        new TopScoreDocCollectorManager(
+            NullnessPrefixedIndexTestUtils.NUM_PRESENT_DOCS
+                + NullnessPrefixedIndexTestUtils.NUM_MISSING_DOCS
+                + 1,
+            0));
+
+    List<QueryExplainInformation> explainInfos =
+        profiler.explainInformation(Explain.Verbosity.EXECUTION_STATS);
+    QueryExplainInformation rangeQueryInfo =
+        explainInfos.stream()
+            .filter(
+                info ->
+                    info.type()
+                        == LuceneQuerySpecification.Type.NULLNESS_AWARE_INDEX_SORT_RANGE_QUERY)
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new AssertionError(
+                        "no NullnessAwareIndexSortRangeQuery node in explain output; got "
+                            + explainInfos.stream().map(QueryExplainInformation::type).toList()));
+
+    return ((NullnessAwareIndexSortRangeQuerySpec) rangeQueryInfo.args()).useIndexSort();
+  }
+
+  @Test
+  public void rangeQuery_explainModeAndFieldMatchesIndexSort_explainReportsUseIndexSortTrue()
+      throws IOException {
+    try (var unusedExplainScope =
+            Explain.setup(
+                Optional.of(Explain.Verbosity.EXECUTION_STATS),
+                Optional.of(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue()));
+        Directory directory = NullnessPrefixedIndexTestUtils.buildNullnessPrefixedIndex();
+        DirectoryReader reader = DirectoryReader.open(directory)) {
+      Counter counter = new SimpleMeterRegistry().counter("testCounter");
+
+      Query query =
+          IndexSortUtils.rangeQuery(
+              FieldPath.newRoot(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              Optional.empty(),
+              NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+              NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+              NullnessPrefixedIndexTestUtils.QUERY_UPPER,
+              mongotSortSpec(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              /* optimizationEnabled= */ true,
+              counter,
+              () ->
+                  fallbackQuery(
+                      NullnessPrefixedIndexTestUtils.VALUE_FIELD,
+                      NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+                      NullnessPrefixedIndexTestUtils.QUERY_UPPER));
+
+      assertThat(useIndexSortFromExplainOutput(reader, query)).isTrue();
+    }
+  }
+
+  @Test
+  public void rangeQuery_explainModeButFieldIsNotTheIndexSortField_explainReportsUseIndexSortFalse()
+      throws IOException {
+    try (var unusedExplainScope =
+            Explain.setup(
+                Optional.of(Explain.Verbosity.EXECUTION_STATS),
+                Optional.of(IndexDefinition.Fields.NUM_PARTITIONS.getDefaultValue()));
+        Directory directory = NullnessPrefixedIndexTestUtils.buildNullnessPrefixedIndex();
+        DirectoryReader reader = DirectoryReader.open(directory)) {
+      Counter counter = new SimpleMeterRegistry().counter("testCounter");
+
+      // The physical index sort is [$meta/nullness/value, value]. LEGACY_VALUE_FIELD carries the
+      // same values on the same documents but is not part of the index sort at all, so the fast
+      // path's field-name check cannot match and Lucene silently falls back - even in explain mode.
+      Query query =
+          IndexSortUtils.rangeQuery(
+              FieldPath.newRoot(NullnessPrefixedIndexTestUtils.LEGACY_VALUE_FIELD),
+              Optional.empty(),
+              NullnessPrefixedIndexTestUtils.LEGACY_VALUE_FIELD,
+              NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+              NullnessPrefixedIndexTestUtils.QUERY_UPPER,
+              mongotSortSpec(NullnessPrefixedIndexTestUtils.VALUE_FIELD),
+              /* optimizationEnabled= */ true,
+              counter,
+              () ->
+                  fallbackQuery(
+                      NullnessPrefixedIndexTestUtils.LEGACY_VALUE_FIELD,
+                      NullnessPrefixedIndexTestUtils.QUERY_LOWER,
+                      NullnessPrefixedIndexTestUtils.QUERY_UPPER));
+
+      assertThat(useIndexSortFromExplainOutput(reader, query)).isFalse();
     }
   }
 }
