@@ -3,11 +3,13 @@ package com.xgen.mongot.server.grpc;
 import static com.xgen.mongot.server.command.CommandFactoryMarker.Type.COMMAND_FACTORY;
 import static com.xgen.mongot.util.Check.checkArg;
 
+import com.google.common.base.Stopwatch;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.ParsedCommand;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
+import com.xgen.mongot.server.executors.CancelledStreamSkipException;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.FutureUtils;
@@ -23,6 +25,10 @@ import org.slf4j.LoggerFactory;
  * Unary handler for {@code mongodb.BsonCommandService/manageSearchIndex}. Unlike the bidi streaming
  * {@code search}/{@code vectorSearch} methods, this is a plain single request/single response call
  * with no cursor or stream state to track.
+ *
+ * <p>Records the same per-command metrics as the streaming and TCP paths: {@code
+ * command.manageSearchIndexCommandTotalLatency} on success and {@code
+ * command.manageSearchIndexCommandFailure} on failure.
  */
 public class ManageSearchIndexUnaryCallHandler
     implements ServerCalls.UnaryMethod<RawBsonDocument, RawBsonDocument> {
@@ -50,11 +56,21 @@ public class ManageSearchIndexUnaryCallHandler
       return;
     }
 
+    Stopwatch totalTime = Stopwatch.createStarted();
+    ParsedCommand parsedCommand;
+    CommandRegistry.CommandRegistration registration;
     try {
       // The first key is the command name, same convention as BsonMessageCallHandler.
-      ParsedCommand parsedCommand = new ParsedCommand(request.getFirstKey(), request);
-      CommandRegistry.CommandRegistration registration =
-          this.commandRegistry.getCommandRegistration(parsedCommand.name());
+      parsedCommand = new ParsedCommand(request.getFirstKey(), request);
+      registration = this.commandRegistry.getCommandRegistration(parsedCommand.name());
+    } catch (Throwable t) {
+      // No registration was resolved, so there are no per-command metrics to record.
+      LOG.error("Got exception. ", t);
+      respondWithError(responseObserver, t);
+      return;
+    }
+
+    try {
       // manageSearchIndex must resolve to a plain command factory; session-command factories are
       // not valid on this path and have no meaning here.
       checkArg(
@@ -71,14 +87,26 @@ public class ManageSearchIndexUnaryCallHandler
           .whenComplete(
               (response, cause) -> {
                 if (cause != null) {
+                  recordFailure(registration, cause);
                   respondWithError(responseObserver, cause);
                 } else {
                   respond(responseObserver, response);
+                  registration.totalTimer.record(totalTime.elapsed());
                 }
               });
     } catch (Throwable t) {
       LOG.error("Got exception. ", t);
+      recordFailure(registration, t);
       respondWithError(responseObserver, t);
+    }
+  }
+
+  private static void recordFailure(
+      CommandRegistry.CommandRegistration registration, Throwable cause) {
+    Throwable unwrapped = FutureUtils.unwrapCause(cause);
+    if (!(unwrapped instanceof InterruptedException)
+        && !(unwrapped instanceof CancelledStreamSkipException)) {
+      registration.recordFailure(unwrapped);
     }
   }
 

@@ -11,9 +11,13 @@ import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
+import com.xgen.mongot.util.ErrorType;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
@@ -26,7 +30,33 @@ import org.mockito.ArgumentCaptor;
 
 public class ManageSearchIndexUnaryCallHandlerTest {
 
+  private static final String TOTAL_LATENCY_METRIC = "command.manageSearchIndexCommandTotalLatency";
+  private static final String FAILURE_METRIC = "command.manageSearchIndexCommandFailure";
+
   private interface RawBsonDocumentStreamObserver extends StreamObserver<RawBsonDocument> {}
+
+  private static CommandFactory commandFactory(boolean throwsOnRun) {
+    return args ->
+        new Command() {
+          @Override
+          public String name() {
+            return "manageSearchIndex";
+          }
+
+          @Override
+          public BsonDocument run() {
+            if (throwsOnRun) {
+              throw new RuntimeException("boom");
+            }
+            return args;
+          }
+
+          @Override
+          public ExecutionPolicy getExecutionPolicy() {
+            return ExecutionPolicy.SYNC;
+          }
+        };
+  }
 
   private static RawBsonDocument toRaw(BsonDocument doc) {
     return new RawBsonDocument(doc, new BsonDocumentCodec());
@@ -45,27 +75,7 @@ public class ManageSearchIndexUnaryCallHandlerTest {
     BulkheadCommandExecutor commandExecutor =
         new BulkheadCommandExecutor(new SimpleMeterRegistry());
     try {
-      commandRegistry.registerCommand(
-          "manageSearchIndex",
-          (CommandFactory)
-              args ->
-                  new Command() {
-                    @Override
-                    public String name() {
-                      return "manageSearchIndex";
-                    }
-
-                    @Override
-                    public BsonDocument run() {
-                      return args;
-                    }
-
-                    @Override
-                    public ExecutionPolicy getExecutionPolicy() {
-                      return ExecutionPolicy.SYNC;
-                    }
-                  },
-          true);
+      commandRegistry.registerCommand("manageSearchIndex", commandFactory(false), true);
       ManageSearchIndexUnaryCallHandler handler = createHandler(commandRegistry, commandExecutor);
       StreamObserver<RawBsonDocument> responseObserver = mock(RawBsonDocumentStreamObserver.class);
       RawBsonDocument request = toRaw(new BsonDocument("manageSearchIndex", new BsonInt32(1)));
@@ -113,27 +123,7 @@ public class ManageSearchIndexUnaryCallHandlerTest {
     BulkheadCommandExecutor commandExecutor =
         new BulkheadCommandExecutor(new SimpleMeterRegistry());
     try {
-      commandRegistry.registerCommand(
-          "manageSearchIndex",
-          (CommandFactory)
-              args ->
-                  new Command() {
-                    @Override
-                    public String name() {
-                      return "manageSearchIndex";
-                    }
-
-                    @Override
-                    public BsonDocument run() {
-                      throw new RuntimeException("boom");
-                    }
-
-                    @Override
-                    public ExecutionPolicy getExecutionPolicy() {
-                      return ExecutionPolicy.SYNC;
-                    }
-                  },
-          true);
+      commandRegistry.registerCommand("manageSearchIndex", commandFactory(true), true);
       ManageSearchIndexUnaryCallHandler handler = createHandler(commandRegistry, commandExecutor);
       StreamObserver<RawBsonDocument> responseObserver = mock(RawBsonDocumentStreamObserver.class);
       RawBsonDocument request = toRaw(new BsonDocument("manageSearchIndex", BsonBoolean.TRUE));
@@ -174,6 +164,93 @@ public class ManageSearchIndexUnaryCallHandlerTest {
       Assert.assertEquals(
           Status.Code.UNAVAILABLE,
           ((StatusRuntimeException) captor.getValue()).getStatus().getCode());
+    } finally {
+      commandExecutor.close();
+    }
+  }
+
+  @Test
+  public void invoke_success_recordsTotalLatency() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    CommandRegistry commandRegistry = CommandRegistry.create(meterRegistry);
+    BulkheadCommandExecutor commandExecutor =
+        new BulkheadCommandExecutor(new SimpleMeterRegistry());
+    try {
+      // Registered without detailed stats, same as SearchCommandsRegister.
+      commandRegistry.registerCommand("manageSearchIndex", commandFactory(false), false);
+      ManageSearchIndexUnaryCallHandler handler = createHandler(commandRegistry, commandExecutor);
+      StreamObserver<RawBsonDocument> responseObserver = mock(RawBsonDocumentStreamObserver.class);
+
+      handler.invoke(
+          toRaw(new BsonDocument("manageSearchIndex", BsonBoolean.TRUE)), responseObserver);
+
+      verify(responseObserver, timeout(5000)).onCompleted();
+      Timer totalTimer = meterRegistry.find(TOTAL_LATENCY_METRIC).timer();
+      Assert.assertNotNull(totalTimer);
+      Assert.assertEquals(1, totalTimer.count());
+      Assert.assertNull(meterRegistry.find(FAILURE_METRIC).counter());
+    } finally {
+      commandExecutor.close();
+    }
+  }
+
+  @Test
+  public void invoke_commandThrows_recordsFailure() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    CommandRegistry commandRegistry = CommandRegistry.create(meterRegistry);
+    BulkheadCommandExecutor commandExecutor =
+        new BulkheadCommandExecutor(new SimpleMeterRegistry());
+    try {
+      commandRegistry.registerCommand("manageSearchIndex", commandFactory(true), false);
+      ManageSearchIndexUnaryCallHandler handler = createHandler(commandRegistry, commandExecutor);
+      StreamObserver<RawBsonDocument> responseObserver = mock(RawBsonDocumentStreamObserver.class);
+
+      handler.invoke(
+          toRaw(new BsonDocument("manageSearchIndex", BsonBoolean.TRUE)), responseObserver);
+
+      verify(responseObserver, timeout(5000)).onCompleted();
+      Counter failureCounter =
+          meterRegistry
+              .find(FAILURE_METRIC)
+              .tag("exceptionName", "RuntimeException")
+              .tag(ErrorType.METRIC_TAG_KEY, ErrorType.INTERNAL_ERROR.toString())
+              .counter();
+      Assert.assertNotNull(failureCounter);
+      Assert.assertEquals(1.0, failureCounter.count(), 0.0);
+      Assert.assertEquals(0, meterRegistry.find(TOTAL_LATENCY_METRIC).timer().count());
+    } finally {
+      commandExecutor.close();
+    }
+  }
+
+  @Test
+  public void invoke_commandCreationThrows_recordsFailure() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    CommandRegistry commandRegistry = CommandRegistry.create(meterRegistry);
+    BulkheadCommandExecutor commandExecutor =
+        new BulkheadCommandExecutor(new SimpleMeterRegistry());
+    try {
+      commandRegistry.registerCommand(
+          "manageSearchIndex",
+          (CommandFactory)
+              args -> {
+                throw new IllegalArgumentException("bad request");
+              },
+          false);
+      ManageSearchIndexUnaryCallHandler handler = createHandler(commandRegistry, commandExecutor);
+      StreamObserver<RawBsonDocument> responseObserver = mock(RawBsonDocumentStreamObserver.class);
+
+      handler.invoke(
+          toRaw(new BsonDocument("manageSearchIndex", BsonBoolean.TRUE)), responseObserver);
+
+      verify(responseObserver, timeout(5000)).onCompleted();
+      Counter failureCounter =
+          meterRegistry
+              .find(FAILURE_METRIC)
+              .tag("exceptionName", "IllegalArgumentException")
+              .counter();
+      Assert.assertNotNull(failureCounter);
+      Assert.assertEquals(1.0, failureCounter.count(), 0.0);
     } finally {
       commandExecutor.close();
     }
