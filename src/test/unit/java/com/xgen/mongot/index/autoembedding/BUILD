@@ -9,6 +9,7 @@ java_test_suite(
         "AutoEmbeddingIndexGenerationFactoryTest.java",
         "AutoEmbeddingIndexGenerationTest.java",
         "AutoEmbeddingOfflineQueryTest.java",
+        "AutoEmbeddingResyncHashJoinClassifierTest.java",
         "InitializedMaterializedViewIndexTest.java",
         "MaterializedViewGenerationIdTest.java",
         "MaterializedViewIndexFactoryTest.java",
