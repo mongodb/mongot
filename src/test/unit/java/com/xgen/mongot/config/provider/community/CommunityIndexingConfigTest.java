@@ -3,15 +3,45 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
+import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonValue;
 import org.junit.Test;
 
 public class CommunityIndexingConfigTest {
+
+  private static final Field.Optional<String> ADVANCED_CONFIGS_FIELD =
+      Field.builder("advancedConfigs").stringField().optional().noDefault();
+  private static final Field.Optional<String> INDEXING_FIELD =
+      Field.builder("indexing").stringField().optional().noDefault();
+
+  /**
+   * Registries that mount the indexing block under {@code advancedConfigs.indexing}, as the
+   * Community config root does, so traversal emits the absolute YAML paths.
+   */
+  private static final class AdvancedConfigsTestRegistry extends CliOptionRegistry {
+    final CommunityIndexingConfig.CommunityIndexingConfigCliOptionRegistry indexing =
+        new CommunityIndexingConfig.CommunityIndexingConfigCliOptionRegistry();
+
+    AdvancedConfigsTestRegistry() {
+      addChildRegistry(INDEXING_FIELD, this.indexing);
+    }
+  }
+
+  private static final class RootConfigTestRegistry extends CliOptionRegistry {
+    final AdvancedConfigsTestRegistry advancedConfigs = new AdvancedConfigsTestRegistry();
+
+    RootConfigTestRegistry() {
+      addChildRegistry(ADVANCED_CONFIGS_FIELD, this.advancedConfigs);
+    }
+  }
 
   private static CommunityIndexingConfig fullConfig() {
     var vector =
@@ -89,5 +119,50 @@ public class CommunityIndexingConfigTest {
             .append("notARealField", new BsonInt32(1));
     CommunityIndexingConfig parsed = parse(new BsonDocument("lucene", lucene));
     assertEquals(Optional.of(500), parsed.luceneConfig().get().fieldLimit());
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_withAllOptions_returnsYamlPaths() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    var lucene = rootRegistry.advancedConfigs.indexing.luceneConfigCliOptionRegistry;
+    lucene.fieldLimit = Optional.of(500);
+    lucene.refreshConfigCliOptionRegistry.intervalMs = Optional.of(2000);
+    lucene
+            .mergePolicyConfigCliOptionRegistry
+            .tieredMergePolicyConfigCliOptionRegistry
+            .vectorMergePolicyConfigCliOptionRegistry
+            .mergeBudgetMb =
+        Optional.of(512);
+    lucene
+            .mergeSchedulerConfigCliOptionRegistry
+            .concurrentMergeSchedulerConfigCliOptionRegistry
+            .maxThreadCount =
+        Optional.of(6);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(4, cliValues.size());
+    assertEquals(new BsonInt32(500), cliValues.get("advancedConfigs.indexing.lucene.fieldLimit"));
+    assertEquals(
+        new BsonInt32(2000), cliValues.get("advancedConfigs.indexing.lucene.refresh.intervalMs"));
+    assertEquals(
+        new BsonInt32(512),
+        cliValues.get(
+            "advancedConfigs.indexing.lucene.mergePolicy.tiered.vectorMergePolicy.mergeBudgetMb"));
+    assertEquals(
+        new BsonInt32(6),
+        cliValues.get("advancedConfigs.indexing.lucene.mergeScheduler.concurrent.maxThreadCount"));
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_unsetOptionsAreOmitted() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    rootRegistry.advancedConfigs.indexing.luceneConfigCliOptionRegistry.fieldLimit =
+        Optional.of(500);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(1, cliValues.size());
+    assertEquals(new BsonInt32(500), cliValues.get("advancedConfigs.indexing.lucene.fieldLimit"));
   }
 }
