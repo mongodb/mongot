@@ -61,6 +61,7 @@ java_library(
         "PartialEmbedMetricCounters.java",
         "PartitionPlanningMongoClient.java",
         "PartitionResumeInfo.java",
+        "PartitionedChangeStreamClient.java",
         "PauseInitialSyncException.java",
         "PeriodicIndexCommitter.java",
         "Projection.java",

@@ -37,6 +37,7 @@ java_test_suite(
         "OverloadRejectionMetricsTest.java",
         "PartitionPlanningMongoClientTest.java",
         "PartitionResumeInfoTest.java",
+        "PartitionedChangeStreamClientTest.java",
         "PeriodicIndexCommitterTest.java",
         "ProjectionTest.java",
         "QueryRejectedBySettingsExceptionUtilsTest.java",
