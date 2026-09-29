@@ -164,6 +164,17 @@ public abstract class InitialSyncResumeInfo implements DocumentEncodable {
     return this instanceof BufferlessParallelNaturalOrderInitialSyncResumeInfo;
   }
 
+  /**
+   * Whether this position only means something on the node that produced it. Natural-order scans,
+   * sequential and parallel alike, resume from record ids, which are node-local; _id-order scans
+   * resume from _id values, which are the same everywhere. Resuming a node-local position against a
+   * different sync source fails the $initialSyncId check and costs a full resync.
+   */
+  public boolean hasNodeLocalResumePosition() {
+    return isBufferlessNaturalOrderInitialSyncResumeInfo()
+        || isBufferlessParallelNaturalOrderInitialSyncResumeInfo();
+  }
+
   /** Returns the opTime of the change stream high watermark. */
   public abstract BsonTimestamp getResumeOperationTime();
 

@@ -1,14 +1,20 @@
 package com.xgen.mongot.replication.mongodb.initialsync;
 
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.uniqueMockGenerationDefinition;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.IGNORE_METRICS;
+import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
+import static com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer.mockDocumentIndexer;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableList;
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
@@ -16,7 +22,6 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ToggleGate;
-import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
@@ -24,18 +29,31 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.PartitionResumeInfo;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonDocument;
-import org.bson.BsonInt64;
 import org.bson.BsonTimestamp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 public class BufferlessInitialSyncManagerTest {
+
+  private static final BsonTimestamp HIGH_WATER_MARK = new BsonTimestamp(1_700_000_000, 7);
+
+  /** Stands in for what namespace resolution returns, which the planner reads its options from. */
+  private static final MongoDbCollectionInfo.Collection COLLECTION_INFO =
+      new MongoDbCollectionInfo.Collection(
+          "mockCollection",
+          new MongoDbCollectionInfo.Collection.Info(
+              UUID.fromString("1d69f3f2-3ca4-4bb0-bd5a-7c3b1e36a9d2")));
 
   @Test
   public void testGetSizeBucketLessThan100MB() {
@@ -99,7 +117,7 @@ public class BufferlessInitialSyncManagerTest {
 
     BufferlessChangeStreamApplierFactory changeStreamApplierFactory =
         mock(BufferlessChangeStreamApplierFactory.class);
-    when(changeStreamApplierFactory.create(any(), anyBoolean()))
+    when(changeStreamApplierFactory.create(any(), anyBoolean(), any()))
         .thenReturn(mock(BufferlessChangeStreamApplier.class));
 
     BufferlessInitialSyncManager manager =
@@ -107,6 +125,9 @@ public class BufferlessInitialSyncManagerTest {
             context,
             mock(BufferlessCollectionScannerFactory.class),
             changeStreamApplierFactory,
+            mock(ParallelCollectionScanSessionFactory.class),
+            mock(InitialSyncPartitionPlannerFactory.class),
+            COLLECTION_INFO,
             clusterTimeProvider,
             Duration.ofMinutes(5),
             Optional.empty(),
@@ -161,7 +182,7 @@ public class BufferlessInitialSyncManagerTest {
 
     BufferlessChangeStreamApplierFactory changeStreamApplierFactory =
         mock(BufferlessChangeStreamApplierFactory.class);
-    when(changeStreamApplierFactory.create(any(), anyBoolean()))
+    when(changeStreamApplierFactory.create(any(), anyBoolean(), any()))
         .thenReturn(mock(BufferlessChangeStreamApplier.class));
 
     BufferlessInitialSyncManager manager =
@@ -169,6 +190,9 @@ public class BufferlessInitialSyncManagerTest {
             context,
             mock(BufferlessCollectionScannerFactory.class),
             changeStreamApplierFactory,
+            mock(ParallelCollectionScanSessionFactory.class),
+            mock(InitialSyncPartitionPlannerFactory.class),
+            COLLECTION_INFO,
             clusterTimeProvider,
             Duration.ofMinutes(5),
             Optional.empty(),
@@ -208,58 +232,246 @@ public class BufferlessInitialSyncManagerTest {
             .count());
   }
 
+  /**
+   * A blob the feature already wrote is unreadable with either switch off: only a natural-order
+   * parallel run can scan its partitions, and it holds no single token to fall back on.
+   */
   @Test
-  public void testParallelResumeInfoRequiresResync() throws Exception {
-    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+  public void testParallelResumeInfoRequiresResyncWhenEitherSwitchIsOff() throws Exception {
+    assertParallelResumeRequiresResync(
+        /* useNaturalOrderScan= */ true, /* parallelScanEnabled= */ false);
+    assertParallelResumeRequiresResync(
+        /* useNaturalOrderScan= */ false, /* parallelScanEnabled= */ true);
+  }
+
+  /** The core of the branch: a partitioned plan runs its windows through the session. */
+  @Test
+  public void testPartitionedPlanDrivesScanWindowsInsteadOfTheSingleCursorScan() throws Exception {
+    ParallelCollectionScanSession session = mock(ParallelCollectionScanSession.class);
+    when(session.scanWindow()).thenReturn(true, false);
+    BufferlessCollectionScannerFactory collectionScannerFactory =
+        mock(BufferlessCollectionScannerFactory.class);
+
     BufferlessInitialSyncManager manager =
-        managerResumingFrom(parallelResumeInfo(), /* useNaturalOrderScan= */ true, mongoClient);
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            plannerReturning(partitionedPlan()),
+            resumeState -> session,
+            collectionScannerFactory,
+            applierFactory());
 
-    InitialSyncException thrown = Assert.assertThrows(InitialSyncException.class, manager::sync);
+    syncIgnoringTheTail(manager);
 
-    // Without the guard this would be an UnsupportedOperationException from getResumeToken().
-    Assert.assertEquals(InitialSyncException.Type.REQUIRES_RESYNC, thrown.getType());
-    // The sync bails before doing any work on the sync source.
-    verify(mongoClient, never()).fsync();
+    verify(session, times(2)).scanWindow();
+    verify(session).close();
+    verify(collectionScannerFactory, never()).create(any(), any());
   }
 
   /**
-   * InitialSyncQueue discards a sequential natural-order blob when the scan is disabled but has no
-   * case for a parallel one, so this pairing does reach the manager. The guard cannot key off the
-   * scan setting, or the blob would fall through to a resume token it does not have.
+   * The applier and the session have to share one state object. On two copies, the windows would
+   * never see the high water mark the applier advances.
    */
   @Test
-  public void testParallelResumeInfoRequiresResyncWithNaturalOrderScanDisabled() throws Exception {
-    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+  public void testPartitionedPlanHandsOneResumeStateToBothTheApplierAndTheSession()
+      throws Exception {
+    List<ParallelCollectionScanResumeState> sessionSaw = new ArrayList<>();
+    BufferlessChangeStreamApplierFactory applierFactory = applierFactory();
+
     BufferlessInitialSyncManager manager =
-        managerResumingFrom(parallelResumeInfo(), /* useNaturalOrderScan= */ false, mongoClient);
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            plannerReturning(partitionedPlan()),
+            resumeState -> {
+              sessionSaw.add(resumeState);
+              return mock(ParallelCollectionScanSession.class);
+            },
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory);
 
-    InitialSyncException thrown = Assert.assertThrows(InitialSyncException.class, manager::sync);
+    syncIgnoringTheTail(manager);
 
-    Assert.assertEquals(InitialSyncException.Type.REQUIRES_RESYNC, thrown.getType());
-    verify(mongoClient, never()).fsync();
+    ArgumentCaptor<Optional<ParallelCollectionScanResumeState>> applierSaw =
+        ArgumentCaptor.captor();
+    verify(applierFactory).create(any(), anyBoolean(), applierSaw.capture());
+
+    Assert.assertEquals(1, sessionSaw.size());
+    Assert.assertEquals(Optional.of(sessionSaw.getFirst()), applierSaw.getValue());
+    Assert.assertEquals(2, sessionSaw.getFirst().getPartitions().size());
   }
 
   /**
-   * The guard has to catch only the parallel blob. Widening it to every resume info would turn each
-   * resume into a full rescan, which no other assertion here would notice. Reaching fsync is the
-   * cheapest evidence that a sequential blob still gets through.
+   * The boundaries are committed before the first window, and after the session, which installs
+   * what a commit reads.
    */
   @Test
-  public void testSequentialResumeInfoIsNotCaughtByTheParallelGuard() throws Exception {
-    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
-    when(mongoClient.fsync()).thenReturn(new BsonDocument());
+  public void testPartitionedPlanCommitsTheBoundariesBeforeTheFirstWindow() throws Exception {
+    DocumentIndexer documentIndexer = mockDocumentIndexer();
+    ParallelCollectionScanSession session = mock(ParallelCollectionScanSession.class);
 
     BufferlessInitialSyncManager manager =
-        managerResumingFrom(sequentialResumeInfo(), /* useNaturalOrderScan= */ true, mongoClient);
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            plannerReturning(partitionedPlan()),
+            resumeState -> session,
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory(),
+            documentIndexer);
 
-    // Gets past the guard and then fails on the incomplete mocks; only how far it got matters.
-    try {
-      manager.sync();
-    } catch (Exception ignored) {
-      // Expected.
-    }
+    syncIgnoringTheTail(manager);
 
-    verify(mongoClient).fsync();
+    InOrder ordered = inOrder(documentIndexer, session);
+    ordered.verify(documentIndexer).commit();
+    ordered.verify(session).scanWindow();
+  }
+
+  /** A commit that fails costs only the boundaries, so the scan has to carry on. */
+  @Test
+  public void testPartitionedPlanScansOnWhenCommittingTheBoundariesFails() throws Exception {
+    DocumentIndexer documentIndexer = mockDocumentIndexer();
+    doThrow(new IOException("no space left on device")).doNothing().when(documentIndexer).commit();
+    ParallelCollectionScanSession session = mock(ParallelCollectionScanSession.class);
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            plannerReturning(partitionedPlan()),
+            resumeState -> session,
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory(),
+            documentIndexer);
+
+    syncIgnoringTheTail(manager);
+
+    verify(session).scanWindow();
+  }
+
+  /**
+   * What the commit buys: a restart rebuilds the partitions from the blob and picks each one up
+   * from the record id it reached, with no planning and nothing to write again.
+   */
+  @Test
+  public void testParallelResumeRebuildsTheSessionFromTheCommittedPartitions() throws Exception {
+    InitialSyncPartitionPlanner planner = mock(InitialSyncPartitionPlanner.class);
+    List<ParallelCollectionScanResumeState> sessionSaw = new ArrayList<>();
+    DocumentIndexer documentIndexer = mockDocumentIndexer();
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            contextWithProgress -> planner,
+            resumeState -> {
+              sessionSaw.add(resumeState);
+              return mock(ParallelCollectionScanSession.class);
+            },
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory(),
+            documentIndexer,
+            Optional.of(parallelResumeInfo()));
+
+    syncIgnoringTheTail(manager);
+
+    verify(planner, never()).plan(any());
+    Assert.assertEquals(1, sessionSaw.size());
+    ParallelCollectionScanResumeState resumed = sessionSaw.getFirst();
+    Assert.assertEquals(parallelResumeInfo().getInitialSyncId(), resumed.getInitialSyncId());
+    Assert.assertEquals(
+        List.of(Optional.of(250L), Optional.empty()),
+        resumed.getPartitions().stream()
+            .map(ParallelCollectionScanPartitionState::getResumeRecordId)
+            .toList());
+    // The boundaries came off disk, so a resume must not pay to write them again.
+    verify(documentIndexer, never()).commit();
+  }
+
+  /** A window that throws still has to give the partition pool back. */
+  @Test
+  public void testPartitionedPlanClosesTheSessionWhenAWindowFails() throws Exception {
+    ParallelCollectionScanSession session = mock(ParallelCollectionScanSession.class);
+    when(session.scanWindow()).thenThrow(InitialSyncException.createShutDown());
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            plannerReturning(partitionedPlan()),
+            resumeState -> session,
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory());
+
+    syncIgnoringTheTail(manager);
+
+    verify(session).close();
+  }
+
+  /** Declining to partition has to leave the existing single-cursor scan untouched. */
+  @Test
+  public void testSequentialFallbackKeepsTheSingleCursorScan() throws Exception {
+    ParallelCollectionScanSessionFactory sessionFactory =
+        mock(ParallelCollectionScanSessionFactory.class);
+    BufferlessCollectionScannerFactory collectionScannerFactory =
+        mock(BufferlessCollectionScannerFactory.class);
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            plannerReturning(
+                new InitialSyncPartitionPlan.SequentialFallback(
+                    InitialSyncPartitionPlan.ShortCircuitReason.TOO_FEW_DOCUMENTS)),
+            sessionFactory,
+            collectionScannerFactory,
+            applierFactory());
+
+    syncIgnoringTheTail(manager);
+
+    verify(sessionFactory, never()).create(any());
+    verify(collectionScannerFactory).create(any(), any());
+  }
+
+  /**
+   * The planner needs the resolved collection and a context carrying the high water mark. Without
+   * that progress it raises internally, turns the failure into a fallback, and quietly scans with
+   * one cursor.
+   */
+  @Test
+  public void testPartitionedPlanPlansTheResolvedCollectionAtTheHighWaterMark() throws Exception {
+    InitialSyncPartitionPlanner planner = mock(InitialSyncPartitionPlanner.class);
+    when(planner.plan(any())).thenReturn(partitionedPlan());
+    List<InitialSyncContext> plannerSaw = new ArrayList<>();
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            contextWithProgress -> {
+              plannerSaw.add(contextWithProgress);
+              return planner;
+            },
+            resumeState -> mock(ParallelCollectionScanSession.class),
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory());
+
+    syncIgnoringTheTail(manager);
+
+    Assert.assertEquals(1, plannerSaw.size());
+    Assert.assertEquals(
+        HIGH_WATER_MARK, plannerSaw.getFirst().getChangeStreamResumeOperationTime());
+    verify(planner).plan(COLLECTION_INFO);
+  }
+
+  /** Planning costs a round trip, so a disabled feature must not reach the planner at all. */
+  @Test
+  public void testParallelScanDisabledNeverConsultsThePlanner() throws Exception {
+    InitialSyncPartitionPlanner planner = mock(InitialSyncPartitionPlanner.class);
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ false,
+            contextWithProgress -> planner,
+            mock(ParallelCollectionScanSessionFactory.class),
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory());
+
+    syncIgnoringTheTail(manager);
+
+    verify(planner, never()).plan(any());
   }
 
   @Test
@@ -276,6 +488,9 @@ public class BufferlessInitialSyncManagerTest {
         context,
         mock(BufferlessCollectionScannerFactory.class),
         mock(BufferlessChangeStreamApplierFactory.class),
+        mock(ParallelCollectionScanSessionFactory.class),
+        mock(InitialSyncPartitionPlannerFactory.class),
+        COLLECTION_INFO,
         mock(ServerClusterTimeProvider.class),
         Duration.ofMinutes(5),
         Optional.empty(),
@@ -395,6 +610,9 @@ public class BufferlessInitialSyncManagerTest {
         context,
         mock(BufferlessCollectionScannerFactory.class),
         mock(BufferlessChangeStreamApplierFactory.class),
+        mock(ParallelCollectionScanSessionFactory.class),
+        mock(InitialSyncPartitionPlannerFactory.class),
+        COLLECTION_INFO,
         mock(ServerClusterTimeProvider.class),
         Duration.ofMinutes(5),
         Optional.empty(),
@@ -402,35 +620,162 @@ public class BufferlessInitialSyncManagerTest {
         mock(InitialSyncMongoClient.class));
   }
 
+  private static void assertParallelResumeRequiresResync(
+      boolean useNaturalOrderScan, boolean parallelScanEnabled) throws Exception {
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+    BufferlessInitialSyncManager manager =
+        managerResumingFrom(
+            parallelResumeInfo(), useNaturalOrderScan, parallelScanEnabled, mongoClient);
+
+    InitialSyncException thrown = Assert.assertThrows(InitialSyncException.class, manager::sync);
+
+    // Without the guard this would be an UnsupportedOperationException from getResumeToken().
+    Assert.assertEquals(InitialSyncException.Type.REQUIRES_RESYNC, thrown.getType());
+    // The sync bails before doing any work on the sync source.
+    verify(mongoClient, never()).fsync();
+  }
+
+  /**
+   * Runs sync() through the scan loop and swallows what follows: these mocks cannot carry a sync to
+   * its first commit, and only the branch the loop took is under test.
+   */
+  private static void syncIgnoringTheTail(BufferlessInitialSyncManager manager) {
+    try {
+      manager.sync();
+    } catch (Exception ignored) {
+      // Expected.
+    }
+  }
+
+  private static BufferlessChangeStreamApplierFactory applierFactory() throws InitialSyncException {
+    BufferlessChangeStreamApplierFactory factory = mock(BufferlessChangeStreamApplierFactory.class);
+    when(factory.create(any(), anyBoolean(), any()))
+        .thenReturn(mock(BufferlessChangeStreamApplier.class));
+    return factory;
+  }
+
+  /** A planner factory whose planner answers with {@code plan}, whatever it is handed. */
+  private static InitialSyncPartitionPlannerFactory plannerReturning(
+      InitialSyncPartitionPlan plan) {
+    InitialSyncPartitionPlanner planner = mock(InitialSyncPartitionPlanner.class);
+    when(planner.plan(any())).thenReturn(plan);
+    return contextWithProgress -> planner;
+  }
+
+  private static InitialSyncPartitionPlan.PartitionedResult partitionedPlan() {
+    return new InitialSyncPartitionPlan.PartitionedResult(
+        ImmutableList.of(
+            new InitialSyncPartitionPlan.PartitionRange(Optional.empty(), Optional.of(500L)),
+            new InitialSyncPartitionPlan.PartitionRange(Optional.of(500L), Optional.empty())),
+        UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"));
+  }
+
+  private static BufferlessInitialSyncManager parallelManager(
+      boolean parallelScanEnabled,
+      InitialSyncPartitionPlannerFactory partitionPlannerFactory,
+      ParallelCollectionScanSessionFactory parallelSessionFactory,
+      BufferlessCollectionScannerFactory collectionScannerFactory,
+      BufferlessChangeStreamApplierFactory changeStreamApplierFactory)
+      throws Exception {
+    return parallelManager(
+        parallelScanEnabled,
+        partitionPlannerFactory,
+        parallelSessionFactory,
+        collectionScannerFactory,
+        changeStreamApplierFactory,
+        mockDocumentIndexer());
+  }
+
+  private static BufferlessInitialSyncManager parallelManager(
+      boolean parallelScanEnabled,
+      InitialSyncPartitionPlannerFactory partitionPlannerFactory,
+      ParallelCollectionScanSessionFactory parallelSessionFactory,
+      BufferlessCollectionScannerFactory collectionScannerFactory,
+      BufferlessChangeStreamApplierFactory changeStreamApplierFactory,
+      DocumentIndexer documentIndexer)
+      throws Exception {
+    return parallelManager(
+        parallelScanEnabled,
+        partitionPlannerFactory,
+        parallelSessionFactory,
+        collectionScannerFactory,
+        changeStreamApplierFactory,
+        documentIndexer,
+        Optional.empty());
+  }
+
+  private static BufferlessInitialSyncManager parallelManager(
+      boolean parallelScanEnabled,
+      InitialSyncPartitionPlannerFactory partitionPlannerFactory,
+      ParallelCollectionScanSessionFactory parallelSessionFactory,
+      BufferlessCollectionScannerFactory collectionScannerFactory,
+      BufferlessChangeStreamApplierFactory changeStreamApplierFactory,
+      DocumentIndexer documentIndexer,
+      Optional<InitialSyncResumeInfo> resumeInfo)
+      throws Exception {
+    // A real context rather than a mock: the scan paths read indexDefinitionGeneration, a public
+    // field that a mock leaves null.
+    InitialSyncContext context =
+        InitialSyncContext.create(
+            MOCK_INDEX_DEFINITION_GENERATION,
+            mock(IndexingWorkScheduler.class),
+            documentIndexer,
+            IGNORE_METRICS,
+            Optional.empty(),
+            /* removeMatchCollectionUuid= */ false,
+            /* useNaturalOrderScan= */ true,
+            parallelScanEnabled,
+            /* parallelPartitionCount= */ 2,
+            ToggleGate.opened());
+
+    InitialSyncMongoClient mongoClient = mock(InitialSyncMongoClient.class);
+    when(mongoClient.fsync()).thenReturn(new BsonDocument());
+    when(mongoClient.getSyncSourceHost()).thenReturn("testHost");
+
+    ServerClusterTimeProvider clusterTimeProvider = mock(ServerClusterTimeProvider.class);
+    when(clusterTimeProvider.getCurrentClusterTime()).thenReturn(HIGH_WATER_MARK);
+
+    return new BufferlessInitialSyncManager(
+        context,
+        collectionScannerFactory,
+        changeStreamApplierFactory,
+        parallelSessionFactory,
+        partitionPlannerFactory,
+        COLLECTION_INFO,
+        clusterTimeProvider,
+        Duration.ofMinutes(5),
+        resumeInfo,
+        new MetricsFactory("initialSyncManager", new SimpleMeterRegistry()),
+        mongoClient);
+  }
+
   private static BufferlessInitialSyncManager managerResumingFrom(
       InitialSyncResumeInfo resumeInfo,
       boolean useNaturalOrderScan,
+      boolean parallelScanEnabled,
       InitialSyncMongoClient mongoClient)
       throws InitialSyncException {
     InitialSyncContext context = mock(InitialSyncContext.class);
     when(context.useNaturalOrderScan()).thenReturn(useNaturalOrderScan);
+    when(context.isParallelNaturalOrderScanEnabled()).thenReturn(parallelScanEnabled);
 
     BufferlessChangeStreamApplierFactory changeStreamApplierFactory =
         mock(BufferlessChangeStreamApplierFactory.class);
-    when(changeStreamApplierFactory.create(any(), anyBoolean()))
+    when(changeStreamApplierFactory.create(any(), anyBoolean(), any()))
         .thenReturn(mock(BufferlessChangeStreamApplier.class));
 
     return new BufferlessInitialSyncManager(
         context,
         mock(BufferlessCollectionScannerFactory.class),
         changeStreamApplierFactory,
+        mock(ParallelCollectionScanSessionFactory.class),
+        mock(InitialSyncPartitionPlannerFactory.class),
+        COLLECTION_INFO,
         mock(ServerClusterTimeProvider.class),
         Duration.ofMinutes(5),
         Optional.of(resumeInfo),
         new MetricsFactory("initialSyncManager", new SimpleMeterRegistry()),
         mongoClient);
-  }
-
-  private static BufferlessNaturalOrderInitialSyncResumeInfo sequentialResumeInfo() {
-    return new BufferlessNaturalOrderInitialSyncResumeInfo(
-        new BsonTimestamp(1_000, 1),
-        new BsonDocument("$recordId", new BsonInt64(250)),
-        Optional.empty());
   }
 
   private static BufferlessParallelNaturalOrderInitialSyncResumeInfo parallelResumeInfo() {

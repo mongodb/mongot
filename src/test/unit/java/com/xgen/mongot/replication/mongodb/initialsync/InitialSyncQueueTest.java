@@ -41,16 +41,19 @@ import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.replication.mongodb.common.BufferlessIdOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.common.PartitionResumeInfo;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.ControlledBlockingQueue;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionGenerationBuilder;
@@ -66,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -505,6 +509,58 @@ public class InitialSyncQueueTest {
     // Complete the remaining initial syncs.
     mocks.mockInitialSyncManagerFactory.completeSync(index1);
     FutureUtils.swallowedFuture(future1).get(5, TimeUnit.SECONDS);
+  }
+
+  /**
+   * A partition's bounds are record ids belonging to the node that planned them, so a parallel
+   * resume that lands on another node fails on the $initialSyncId and costs a full resync.
+   */
+  @Test
+  public void testBufferlessInitialSyncsQueue_ParallelResumeKeepsItsSyncSource() throws Exception {
+    IndexDefinitionGeneration definition = uniqueMockGenerationDefinition();
+    GenerationId index = definition.getGenerationId();
+
+    String defaultHost = DEFAULT_MONGO_HOST_NAME;
+    InitialSyncMongoClient defaultClient = mock(InitialSyncMongoClient.class);
+    when(defaultClient.resolveAndUpdateCollectionName(any()))
+        .thenReturn(MOCK_INDEX_COLLECTION_INFO);
+
+    String plannedOnHost = "anotherTestHost";
+    InitialSyncMongoClient plannedOnClient = mock(InitialSyncMongoClient.class);
+    when(plannedOnClient.resolveAndUpdateCollectionName(any()))
+        .thenReturn(MOCK_INDEX_COLLECTION_INFO);
+
+    Mocks mocks =
+        Mocks.create(
+            Map.of(index, () -> RESUME_INFO),
+            new InitialSyncConfig(true),
+            defaultHost,
+            Map.of(defaultHost, defaultClient, plannedOnHost, plannedOnClient));
+
+    CountDownLatch startedLatch = new CountDownLatch(1);
+    CompletableFuture<ChangeStreamResumeInfo> future =
+        mocks.initialSyncQueue.enqueueResume(
+            DOCUMENT_INDEXER,
+            definition,
+            startedLatch::countDown,
+            new BufferlessParallelNaturalOrderInitialSyncResumeInfo(
+                new BsonTimestamp(),
+                UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee"),
+                List.of(
+                    new PartitionResumeInfo(
+                        0, Optional.empty(), Optional.empty(), Optional.of(250L), false)),
+                Optional.of(plannedOnHost)),
+            IGNORE_METRICS,
+            false,
+            true);
+
+    startedLatch.await(5, TimeUnit.SECONDS);
+    verify(mocks.mockInitialSyncManagerFactory.getManager(index), timeout(1000)).sync();
+
+    assertEquals(plannedOnClient, mocks.mockInitialSyncManagerFactory.getClient(index));
+
+    mocks.mockInitialSyncManagerFactory.completeSync(index);
+    FutureUtils.swallowedFuture(future).get(5, TimeUnit.SECONDS);
   }
 
   @Test
@@ -1777,6 +1833,7 @@ public class InitialSyncQueueTest {
           InitialSyncContext context,
           InitialSyncMongoClient mongoClient,
           MongoNamespace namespace,
+          MongoDbCollectionInfo collectionInfo,
           Optional<InitialSyncResumeInfo> resumeInfo) {
         this.context = context;
         this.mongoClients.put(context.getGenerationId(), mongoClient);

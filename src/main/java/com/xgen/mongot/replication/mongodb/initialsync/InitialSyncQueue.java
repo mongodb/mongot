@@ -262,7 +262,8 @@ public class InitialSyncQueue {
             initialSyncConfig,
             replicationConfig,
             materializedViewCollectionMetadataCatalog,
-            metricsFactory);
+            metricsFactory,
+            meterRegistry);
 
     return create(
         meterRegistry,
@@ -927,10 +928,10 @@ public class InitialSyncQueue {
             .addKeyValue("host", InitialSyncQueue.this.syncSourceHost)
             .log("using default mongoClient");
 
-        // Checking whether natural order scan is being resumed
+        // Checking whether a scan that can only resume against its original node is being resumed
         if (InitialSyncQueue.this.initialSyncConfig.avoidNaturalOrderScanSyncSourceChangeResync()
             && request.getResumeInfo().isPresent()
-            && request.getResumeInfo().get().isBufferlessNaturalOrderInitialSyncResumeInfo()) {
+            && request.getResumeInfo().get().hasNodeLocalResumePosition()) {
           var resumeInfo = request.getResumeInfo().get();
           // check resumeInfo.getSyncSourceHost() is in connection string mappings and is different
           // from the default one
@@ -992,6 +993,7 @@ public class InitialSyncQueue {
                 mongoClient,
                 new MongoNamespace(
                     syncContext.getIndexDefinition().getDatabase(), collectionInfo.name()),
+                collectionInfo,
                 request.getResumeInfo());
 
         // Here the index's status is updated to INITIAL_SYNC, and only executes if namespace

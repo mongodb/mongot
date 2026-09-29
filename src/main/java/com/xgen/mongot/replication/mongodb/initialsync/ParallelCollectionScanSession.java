@@ -53,7 +53,7 @@ class ParallelCollectionScanSession implements Closeable {
 
   /**
    * Assembles a session for the given state, whether it was just planned or rebuilt from a commit
-   * blob, and makes that state the index's durable position.
+   * blob, and installs it as the state every later commit reads its position from.
    */
   static ParallelCollectionScanSession create(
       Clock clock,

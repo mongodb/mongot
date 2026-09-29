@@ -12,6 +12,7 @@ import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.OneShotSingleThreadExecutor;
 import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
 import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -48,7 +49,8 @@ interface InitialSyncManager {
       InitialSyncConfig bufferlessConfig,
       CommonReplicationConfig replicationConfig,
       Optional<MaterializedViewCollectionMetadataCatalog> mvMetadataCatalog,
-      MetricsFactory metricsFactory) {
+      MetricsFactory metricsFactory,
+      MeterRegistry meterRegistry) {
     return BufferlessInitialSyncManager.factory(
         bufferlessConfig.collectionScanTime(),
         bufferlessConfig.changeStreamCatchupTimeout(),
@@ -58,7 +60,8 @@ interface InitialSyncManager {
         replicationConfig.getMatchCollectionUuidForUpdateLookup(),
         replicationConfig.getSplitLargeChangeStreamEventsForInitialSync(),
         mvMetadataCatalog,
-        metricsFactory);
+        metricsFactory,
+        meterRegistry);
   }
 
   /** Awaits shutdown using the default SHUTDOWN_TIMEOUT. */

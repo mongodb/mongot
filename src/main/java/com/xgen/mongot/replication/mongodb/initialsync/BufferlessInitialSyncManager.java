@@ -15,6 +15,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalo
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
@@ -22,8 +23,11 @@ import com.xgen.mongot.replication.mongodb.common.InitialSyncResumeInfo;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.HashMap;
@@ -40,6 +44,9 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
   private final InitialSyncContext context;
   private final BufferlessCollectionScannerFactory collectionScannerFactory;
   private final BufferlessChangeStreamApplierFactory changeStreamApplierFactory;
+  private final ParallelCollectionScanSessionFactory parallelSessionFactory;
+  private final InitialSyncPartitionPlannerFactory partitionPlannerFactory;
+  private final MongoDbCollectionInfo collectionInfo;
   private final ServerClusterTimeProvider clusterTimeProvider;
   private final Duration collectionScanTime;
   private final Optional<InitialSyncResumeInfo> resumeInfo;
@@ -63,6 +70,9 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
       InitialSyncContext context,
       BufferlessCollectionScannerFactory collectionScannerFactory,
       BufferlessChangeStreamApplierFactory changeStreamApplierFactory,
+      ParallelCollectionScanSessionFactory parallelSessionFactory,
+      InitialSyncPartitionPlannerFactory partitionPlannerFactory,
+      MongoDbCollectionInfo collectionInfo,
       ServerClusterTimeProvider clusterTimeProvider,
       Duration collectionScanTime,
       Optional<InitialSyncResumeInfo> resumeInfo,
@@ -77,6 +87,9 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     this.context = context;
     this.collectionScannerFactory = collectionScannerFactory;
     this.changeStreamApplierFactory = changeStreamApplierFactory;
+    this.parallelSessionFactory = parallelSessionFactory;
+    this.partitionPlannerFactory = partitionPlannerFactory;
+    this.collectionInfo = collectionInfo;
     this.clusterTimeProvider = clusterTimeProvider;
     this.collectionScanTime = collectionScanTime;
     this.resumeInfo = resumeInfo;
@@ -99,12 +112,14 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
       boolean matchCollectionUuidForUpdateLookup,
       boolean splitLargeChangeStreamEvents,
       Optional<MaterializedViewCollectionMetadataCatalog> mvMetadataCatalog,
-      MetricsFactory metricsFactory) {
-    return (initialSyncContext, mongoClient, namespace, resumeInfo) ->
+      MetricsFactory metricsFactory,
+      MeterRegistry meterRegistry) {
+    return (initialSyncContext, mongoClient, namespace, collectionInfo, resumeInfo) ->
         create(
             initialSyncContext,
             mongoClient,
             namespace,
+            collectionInfo,
             collectionScanTime,
             changeStreamCatchupTimeout,
             changeStreamLagTime,
@@ -114,6 +129,7 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
             resumeInfo,
             mvMetadataCatalog,
             metricsFactory,
+            meterRegistry,
             avoidNaturalOrderScanSyncSourceChangeResync);
   }
 
@@ -135,6 +151,7 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
       InitialSyncContext initialSyncContext,
       InitialSyncMongoClient mongoClient,
       MongoNamespace namespace,
+      MongoDbCollectionInfo collectionInfo,
       Duration collectionScanTime,
       Duration changeStreamCatchupTimeout,
       Duration changeStreamLagTime,
@@ -144,6 +161,7 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
       Optional<InitialSyncResumeInfo> resumeInfo,
       Optional<MaterializedViewCollectionMetadataCatalog> mvMetadataCatalog,
       MetricsFactory metricsFactory,
+      MeterRegistry meterRegistry,
       boolean avoidNaturalOrderScanSyncSourceChangeResync) {
     BufferlessCollectionScannerFactory collectionScannerFactory =
         (context, lastId) -> {
@@ -167,7 +185,9 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
           }
         };
     BufferlessChangeStreamApplierFactory changeStreamApplierFactory =
-        (BsonTimestamp highWaterMark, boolean isFreshStart) ->
+        (BsonTimestamp highWaterMark,
+            boolean isFreshStart,
+            Optional<ParallelCollectionScanResumeState> parallelResumeState) ->
             new BufferlessChangeStreamApplier(
                 Clock.systemUTC(),
                 changeStreamCatchupTimeout,
@@ -182,13 +202,36 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
                 metricsFactory,
                 avoidNaturalOrderScanSyncSourceChangeResync,
                 isFreshStart,
-                // Wired up once the manager runs parallel scans.
-                Optional.empty());
+                parallelResumeState);
+
+    ParallelCollectionScanSessionFactory parallelSessionFactory =
+        resumeState ->
+            ParallelCollectionScanSession.create(
+                Clock.systemUTC(),
+                initialSyncContext,
+                mongoClient,
+                resumeState,
+                collectionScanTime,
+                metricsFactory,
+                meterRegistry);
+
+    InitialSyncPartitionPlannerFactory partitionPlannerFactory =
+        contextWithProgress ->
+            new InitialSyncPartitionPlanner(
+                Clock.systemUTC(),
+                contextWithProgress,
+                mongoClient.getCollectionStatsMongoClient(),
+                mongoClient.getPartitionPlanningMongoClient(),
+                mongoClient.getCollectionSamplingMongoClient(),
+                metricsFactory);
 
     return new BufferlessInitialSyncManager(
         initialSyncContext,
         collectionScannerFactory,
         changeStreamApplierFactory,
+        parallelSessionFactory,
+        partitionPlannerFactory,
+        collectionInfo,
         mongoClient::getMaxValidMajorityReadOptime,
         collectionScanTime,
         resumeInfo,
@@ -207,18 +250,31 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     // indexed during collection scan from the resume info.
     @Var BsonTimestamp highWaterMark;
     @Var BsonValue lastScannedToken;
-    if (this.resumeInfo.isPresent()) {
-      // Nothing rebuilds the K-partition run state yet, and a parallel blob has no single resume
-      // token to fall back on, so start the sync over instead of reading a token that does not
-      // exist. Resuming here requires a fresh scan.
-      if (this.resumeInfo.get().isBufferlessParallelNaturalOrderInitialSyncResumeInfo()) {
+    if (parallelResumeInfo().isPresent()) {
+      BufferlessParallelNaturalOrderInitialSyncResumeInfo parallel = parallelResumeInfo().get();
+      // The partitions are only scannable by a parallel run, and the blob holds no single token to
+      // fall back on, so with either switch off the sync starts over rather than reading a token
+      // that does not exist.
+      if (!this.context.useNaturalOrderScan()
+          || !this.context.isParallelNaturalOrderScanEnabled()) {
         this.logger
             .atWarn()
-            .addKeyValue("resumeOpTime", this.resumeInfo.get().getResumeOperationTime())
+            .addKeyValue("useNaturalOrderScan", this.context.useNaturalOrderScan())
+            .addKeyValue("parallelScanEnabled", this.context.isParallelNaturalOrderScanEnabled())
+            .addKeyValue("resumeOpTime", parallel.getResumeOperationTime())
             .log("Cannot resume a parallel natural-order scan, restarting the initial sync");
         throw InitialSyncException.createRequiresResync(
             "cannot resume a parallel natural-order collection scan");
       }
+      highWaterMark = parallel.getResumeOperationTime();
+      // Each partition carries its own position, so there is nothing to thread through the loop.
+      lastScannedToken = new BsonDocument();
+      this.logger
+          .atInfo()
+          .addKeyValue("resumeOpTime", highWaterMark)
+          .addKeyValue("numPartitions", parallel.getPartitions().size())
+          .log("Collection scan will resume from the partitions the last attempt committed.");
+    } else if (this.resumeInfo.isPresent()) {
       // This should never happen because useNaturalOrderScan should be set properly when requests
       // are enqueued into initial sync queue.
       if ((this.resumeInfo.get().isBufferlessIdOrderInitialSyncResumeInfo()
@@ -247,19 +303,19 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
     // captured everything at highWaterMark. For resumes, we must use highWaterMark (inclusive)
     // to avoid missing events from multi-document transactions.
     boolean isFreshStart = this.resumeInfo.isEmpty();
-    BufferlessChangeStreamApplier changeStreamApplier =
-        this.changeStreamApplierFactory.create(highWaterMark, isFreshStart);
 
     Stopwatch stopwatch = Stopwatch.createStarted();
     this.logger
         .atInfo()
         .addKeyValue("useNaturalOrderScan", this.context.useNaturalOrderScan())
+        .addKeyValue("parallelScanEnabled", this.context.isParallelNaturalOrderScanEnabled())
         .addKeyValue("startOpTime", highWaterMark)
         .addKeyValue(
             "resumeOpTime", this.resumeInfo.map(InitialSyncResumeInfo::getResumeOperationTime))
         .addKeyValue("indexId", this.context.getIndexId())
         .addKeyValue("generationId", this.context.getGenerationId())
-        .addKeyValue("lastScannedToken", this.resumeInfo.map(InitialSyncResumeInfo::getResumeToken))
+        // The token in use rather than the blob's: a parallel resume has none to read.
+        .addKeyValue("lastScannedToken", lastScannedToken)
         .addKeyValue("hostName", this.resumeInfo.map(InitialSyncResumeInfo::getSyncSourceHost))
         .log("Beginning initial sync.");
 
@@ -302,30 +358,58 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
           }
         });
 
+    // A resume rebuilds its partitions from the blob it was handed. Planning fresh ones reads
+    // $recordId boundaries off the sync source, so it runs after the fsync above, which is what
+    // makes those ids stable for a natural-order scan.
+    Optional<ParallelCollectionScanResumeState> parallelResumeState =
+        resolveParallelScan(highWaterMark);
+
+    BufferlessChangeStreamApplier changeStreamApplier =
+        this.changeStreamApplierFactory.create(highWaterMark, isFreshStart, parallelResumeState);
+
     double bytesBeforeSync =
         this.context.getInitialSyncMetricsUpdater().getTotalApplicableBytes().count();
 
     try (changeStreamApplier) {
+      Optional<ParallelCollectionScanSession> parallelSession =
+          parallelResumeState.map(this.parallelSessionFactory::create);
+
       // Continue the initial sync until the entire collection has been scanned.
       @Var boolean continueSync = true;
-      while (continueSync) {
-        // Update the last scanned id and whether we need to continue scanning. If we're done
-        // scanning, catch up with the change stream one last time before finishing the initial
-        // sync.
+      try {
+        // Only a freshly planned scan has boundaries that are not durable yet. Ordered after the
+        // session, which installs the supplier a commit reads.
+        if (parallelSession.isPresent() && parallelResumeInfo().isEmpty()) {
+          commitPartitionPlan();
+        }
 
-        var collectionScanTimer = Stopwatch.createStarted();
-        BufferlessCollectionScanner.Result scanResult =
-            scanCollection(highWaterMark, lastScannedToken);
-        this.collectionScanTimer.record(collectionScanTimer.stop().elapsed());
+        while (continueSync) {
+          // Update the last scanned id and whether we need to continue scanning. If we're done
+          // scanning, catch up with the change stream one last time before finishing the initial
+          // sync.
 
-        continueSync = scanResult.getContinueSync();
-        lastScannedToken = scanResult.getLastScannedToken();
+          var collectionScanTimer = Stopwatch.createStarted();
+          if (parallelSession.isPresent()) {
+            // Partitions carry their own positions in the session state, so there is no token to
+            // thread from one window to the next.
+            continueSync = scanPartitions(parallelSession.get());
+          } else {
+            BufferlessCollectionScanner.Result scanResult =
+                scanCollection(highWaterMark, lastScannedToken);
+            continueSync = scanResult.getContinueSync();
+            lastScannedToken = scanResult.getLastScannedToken();
+          }
+          this.collectionScanTimer.record(collectionScanTimer.stop().elapsed());
 
-        // Apply change stream events and update the high water mark.
-        var changeStreamTimer = Stopwatch.createStarted();
-        highWaterMark =
-            applyChangeStreamEvents(changeStreamApplier, lastScannedToken, continueSync);
-        this.changeStreamTimer.record(changeStreamTimer.stop().elapsed());
+          // Apply change stream events and update the high water mark. On the parallel path the
+          // applier advances the session's mark instead, and ignores the token.
+          var changeStreamTimer = Stopwatch.createStarted();
+          highWaterMark =
+              applyChangeStreamEvents(changeStreamApplier, lastScannedToken, continueSync);
+          this.changeStreamTimer.record(changeStreamTimer.stop().elapsed());
+        }
+      } finally {
+        parallelSession.ifPresent(ParallelCollectionScanSession::close);
       }
     }
 
@@ -421,6 +505,134 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
         };
 
     return getResultOrThrow(scanFuture, "waiting for collection scan", shutDown, this.logger);
+  }
+
+  /** The parallel scan this sync resumes, if it was handed a blob describing one. */
+  private Optional<BufferlessParallelNaturalOrderInitialSyncResumeInfo> parallelResumeInfo() {
+    return this.resumeInfo.flatMap(
+        info ->
+            info instanceof BufferlessParallelNaturalOrderInitialSyncResumeInfo parallel
+                ? Optional.of(parallel)
+                : Optional.empty());
+  }
+
+  /**
+   * The parallel scan this sync will run, or empty to scan the collection with a single cursor.
+   *
+   * <p>A resume rebuilds the partitions the last attempt committed, so each picks up from the
+   * record id it had reached and the ones that finished are not read again. Every other sync asks
+   * the planner whether this collection can be split at all.
+   *
+   * <p>Empty covers every route to the sequential scan: natural order is off, the parallel feature
+   * is off, or the planner declined to partition this collection.
+   */
+  private Optional<ParallelCollectionScanResumeState> resolveParallelScan(
+      BsonTimestamp highWaterMark) {
+    // Either switch off means no partitions are scanned, whether they were planned here or read
+    // back from a blob. sync() turns a resume away before this, so the sequential scan reached
+    // from here always has a token to start from.
+    if (!this.context.useNaturalOrderScan() || !this.context.isParallelNaturalOrderScanEnabled()) {
+      return Optional.empty();
+    }
+
+    checkState(
+        !isMaterializedViewBasedIndex(this.context.indexDefinitionGeneration.getIndexDefinition()),
+        "parallel natural-order scan does not support materialized-view based indexes");
+
+    // The scanners send the plan's $initialSyncId with every window, so a sync source that
+    // reincarnated its data since the blob was written fails the first window rather than
+    // scanning rewritten record ids.
+    Optional<BufferlessParallelNaturalOrderInitialSyncResumeInfo> resumed = parallelResumeInfo();
+    if (resumed.isPresent()) {
+      return Optional.of(
+          ParallelCollectionScanResumeState.fromPersisted(
+              this.context.getGenerationId().generation.formatVersion.versionNumber(),
+              resumed.get()));
+    }
+
+    // Namespace resolution matches on info.uuid, which only collections report, so a view cannot
+    // reach here. Declining rather than casting keeps planning from failing a sync if that changes.
+    if (!(this.collectionInfo instanceof MongoDbCollectionInfo.Collection collection)) {
+      return Optional.empty();
+    }
+
+    // The planner reads the sync source as of the high water mark, the same snapshot the first
+    // scan window reads, so the record ids it returns belong to the data that will be scanned.
+    InitialSyncPartitionPlan plan =
+        this.partitionPlannerFactory
+            .create(this.context.withProgress(highWaterMark))
+            .plan(collection);
+    if (plan
+        instanceof
+        InitialSyncPartitionPlan.SequentialFallback(
+            InitialSyncPartitionPlan.ShortCircuitReason reason)) {
+      this.logger
+          .atInfo()
+          .addKeyValue("reason", reason)
+          .log("Not partitioning the collection scan, falling back to a single cursor.");
+      return Optional.empty();
+    }
+
+    var partitioned = (InitialSyncPartitionPlan.PartitionedResult) plan;
+    return Optional.of(
+        ParallelCollectionScanResumeState.fromPlan(
+            this.context.getGenerationId().generation.formatVersion.versionNumber(),
+            partitioned,
+            highWaterMark,
+            Optional.of(this.mongoClient.getSyncSourceHost())));
+  }
+
+  /**
+   * Publishes the partition boundaries before the first window runs. The periodic committer is on a
+   * fixed delay, so without this a restart in the window before its first run would plan again.
+   *
+   * <p>Runs on its own thread, like the first commit does, because interrupting a commit closes the
+   * index writer. A failure is logged rather than thrown: the commit only saves the planner's
+   * reads, and without it the next attempt plans afresh, which is what it would have done anyway.
+   */
+  private void commitPartitionPlan() throws InitialSyncException {
+    CompletableFuture<Void> commitFuture =
+        InitialSyncManager.runAsync(
+            () -> {
+              try {
+                this.context.indexer.commit();
+              } catch (IOException e) {
+                this.logger
+                    .atWarn()
+                    .setCause(e)
+                    .log("Could not commit the partition plan, continuing with the scan.");
+              }
+            },
+            String.format("%s %s", this.context.uniqueString(), "PartitionPlanCommit"));
+
+    Duration shutdownTimeout = getShutdownTimeout();
+
+    Runnable shutDown = () -> awaitShutdown(shutdownTimeout, commitFuture);
+
+    getResultOrThrow(commitFuture, "waiting for the partition plan commit", shutDown, this.logger);
+  }
+
+  /**
+   * Scans every unfinished partition for one window. Mirrors {@link #scanCollection}: the work runs
+   * off this thread so that a shutdown can stop it and still be waited on.
+   */
+  private boolean scanPartitions(ParallelCollectionScanSession session)
+      throws InitialSyncException {
+    CompletableFuture<Boolean> scanFuture =
+        supplyAsync(
+            session::scanWindow,
+            String.format("%s %s", this.context.uniqueString(), "ParallelCollectionScan"));
+
+    Duration shutdownTimeout = getShutdownTimeout();
+
+    Runnable shutDown =
+        () -> {
+          session.signalShutdown();
+          awaitShutdown(shutdownTimeout, scanFuture);
+        };
+
+    return getResultOrThrow(
+        scanFuture, "waiting for parallel collection scan", shutDown, this.logger);
   }
 
   /**
