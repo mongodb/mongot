@@ -44,7 +44,7 @@ public class VectorSearchOperatorTest {
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<VectorSearchOperator>>
         data() {
-      return TEST_SUITE.withExamples(simple(), filter(), exact());
+      return TEST_SUITE.withExamples(simple(), filter(), exact(), autoNumCandidates());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<VectorSearchOperator> simple() {
@@ -95,6 +95,22 @@ public class VectorSearchOperatorTest {
                       .filter(
                           new VectorSearchFilter.OperatorFilter(
                               OperatorBuilder.equals().path("flag").value(true).build()))
+                      .limit(5)
+                      .build())
+              .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchOperator>
+        autoNumCandidates() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "auto-numCandidates",
+          OperatorBuilder.vectorSearch()
+              .criteria(
+                  ApproximateVectorQueryCriteriaBuilder.builder()
+                      .path("description")
+                      .queryVector(
+                          Vector.fromFloats(
+                              new float[] {2f, 2f, 2f}, FloatVector.OriginalType.BSON))
                       .limit(5)
                       .build())
               .build());

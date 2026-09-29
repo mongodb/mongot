@@ -10,6 +10,7 @@ import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
+import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.ExactVectorCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
@@ -64,7 +65,9 @@ public class ExactVectorSearchQueryTest {
           simpleAutoEmbeddingQuery(),
           simpleAutoEmbeddingQueryWithMultiModalFormat(),
           withSearchNodePreference(),
-          autoEmbeddingQueryWithModel());
+          autoEmbeddingQueryWithModel(),
+          exactFalseAutoNumCandidates(),
+          exactOmittedAutoNumCandidates());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery> simple() {
@@ -256,6 +259,36 @@ public class ExactVectorSearchQueryTest {
                       .query(
                           new VectorSearchQueryInput.Text(
                               "test query", Optional.of("voyage-3-large")))
+                      .limit(5)
+                      .build())
+              .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery>
+        exactFalseAutoNumCandidates() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "exact-false-auto-numCandidates",
+          VectorQueryBuilder.builder()
+              .index("myVectorIndex")
+              .criteria(
+                  ApproximateVectorQueryCriteriaBuilder.builder()
+                      .path(FieldPath.newRoot("description"))
+                      .queryVector(Vector.fromFloats(new float[] {2f, 2f, 2f}, NATIVE))
+                      .limit(5)
+                      .build())
+              .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery>
+        exactOmittedAutoNumCandidates() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "exact-omitted-auto-numCandidates",
+          VectorQueryBuilder.builder()
+              .index("myVectorIndex")
+              .criteria(
+                  ApproximateVectorQueryCriteriaBuilder.builder()
+                      .path(FieldPath.newRoot("description"))
+                      .queryVector(Vector.fromFloats(new float[] {2f, 2f, 2f}, NATIVE))
                       .limit(5)
                       .build())
               .build());

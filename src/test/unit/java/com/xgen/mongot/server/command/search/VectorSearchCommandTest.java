@@ -158,6 +158,16 @@ public class VectorSearchCommandTest {
         dynamicFeatureFlagRegistry);
   }
 
+  private SearchCommandsRegister.BootstrapperMetadata bootstrapperMetadata(
+      FeatureFlags featureFlags) {
+    return new SearchCommandsRegister.BootstrapperMetadata(
+        "testVersion",
+        "localhost",
+        () -> new MongoDbServerInfo(Optional.of(this.mongoDbVersion), Optional.of("testRs")),
+        featureFlags,
+        registryWithVectorSearchTimeoutEnabled());
+  }
+
   private static DynamicFeatureFlagRegistry registryWithVectorSearchTimeoutEnabled() {
     return new DynamicFeatureFlagRegistry(
         Optional.of(
@@ -326,7 +336,7 @@ public class VectorSearchCommandTest {
     var result = command.run();
 
     // ensure that reader is being called with the exact same query as in command
-    Mockito.verify(mocks.reader, times(1))
+    verify(mocks.reader, times(1))
         .query(
             new MaterializedVectorSearchQuery(query, query.criteria().queryVector().get()),
             QueryExecutionContext.empty());
@@ -337,6 +347,92 @@ public class VectorSearchCommandTest {
     Assert.assertTrue(command.getCreatedCursorIds().isEmpty());
     Assert.assertEquals(
         1, mocks.metricsUpdater.getQueryingMetricsUpdater().getVectorCommandCounter().count(), 0);
+  }
+
+  @Test
+  public void omittedNumCandidatesWithoutAutoFeatureFlag_returnsUserError() throws Exception {
+    var mocks = new Mocks();
+    var query =
+        VectorQueryBuilder.builder()
+            .index(INDEX_NAME)
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .limit(LIMIT)
+                    .queryVector(QUERY_VECTOR)
+                    .path(PATH)
+                    .build())
+            .build();
+    var command =
+        new VectorSearchCommand(
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(query)
+                .build(),
+            mocks.catalog,
+            mocks.initializedIndexCatalog,
+            (database, collectionUuid, indexName) -> {},
+            bootstrapperMetadata(
+                FeatureFlags.withDefaults().disable(Feature.AUTO_NUM_CANDIDATES).build()),
+            MOCK_EMBEDDING_SERVICE,
+            new VectorSearchCommand.Metrics(mockMetricsFactory()),
+            mocks.cursorManager,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    var result = command.run();
+
+    Assert.assertEquals(
+        new BsonDocument()
+            .append("ok", new BsonInt32(0))
+            .append(
+                "errmsg",
+                new BsonString("numCandidates is required for approximate vector search")),
+        result);
+    verify(mocks.reader, times(0)).query(any(), any());
+  }
+
+  @Test
+  public void omittedNumCandidatesWithAutoFeatureFlag_queriesIndex() throws Exception {
+    var mocks = new Mocks();
+    var query =
+        VectorQueryBuilder.builder()
+            .index(INDEX_NAME)
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .limit(LIMIT)
+                    .queryVector(QUERY_VECTOR)
+                    .path(PATH)
+                    .build())
+            .build();
+    var command =
+        new VectorSearchCommand(
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(query)
+                .build(),
+            mocks.catalog,
+            mocks.initializedIndexCatalog,
+            (database, collectionUuid, indexName) -> {},
+            bootstrapperMetadata(
+                FeatureFlags.withDefaults().enable(Feature.AUTO_NUM_CANDIDATES).build()),
+            MOCK_EMBEDDING_SERVICE,
+            new VectorSearchCommand.Metrics(mockMetricsFactory()),
+            mocks.cursorManager,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    var result = command.run();
+
+    verify(mocks.reader, times(1))
+        .query(
+            new MaterializedVectorSearchQuery(query, query.criteria().queryVector().get()),
+            QueryExecutionContext.empty());
+    var expected =
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson();
+    Assert.assertEquals(expected, result);
   }
 
   @Test

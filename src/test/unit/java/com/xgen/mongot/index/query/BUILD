@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "query",
     srcs = [
+        "ApproximateVectorSearchCriteriaTest.java",
         "ApproximateVectorSearchQueryTest.java",
         "AutoEmbedQueryVectorReconcilerTest.java",
         "CollectorQueryTest.java",

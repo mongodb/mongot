@@ -59,7 +59,7 @@ public class LuceneVectorSearchManager implements LuceneSearchManager<QueryInfo>
     int hitsToCollect =
         requiresAnyRescoring
             // rescoring needs to operate on the full set of candidates
-            ? ((ApproximateVectorSearchCriteria) this.criteria).numCandidates()
+            ? ((ApproximateVectorSearchCriteria) this.criteria).getNumCandidates()
             : this.criteria.limit();
 
     LuceneIndexSearcher indexSearcher = searcherReference.getIndexSearcher();

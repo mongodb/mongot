@@ -33,7 +33,7 @@ public class ApproximateVectorQueryCriteriaBuilder {
         new ApproximateVectorQueryCriteriaBuilder()
             .path(criteria.path())
             .queryVector(criteria.queryVector().orElse(null))
-            .numCandidates(criteria.numCandidates())
+            .numCandidates(criteria.getNumCandidates())
             .limit(criteria.limit())
             .returnStoredSource(criteria.returnStoredSource());
 
@@ -99,7 +99,6 @@ public class ApproximateVectorQueryCriteriaBuilder {
     Check.checkArg(
         this.queryVector.isPresent() != this.query.isPresent(),
         "one of queryVector and query must be present");
-    Check.isPresent(this.numCandidates, "numCandidates");
     Check.isPresent(this.limit, "limit");
     Check.isPresent(this.path, "path");
 
@@ -110,7 +109,7 @@ public class ApproximateVectorQueryCriteriaBuilder {
         this.filter,
         this.parentFilter,
         this.limit.get(),
-        this.numCandidates.get(),
+        this.numCandidates,
         this.explainOptions,
         this.returnStoredSource.orElse(false),
         this.embeddedOptions);

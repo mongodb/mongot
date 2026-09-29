@@ -77,6 +77,24 @@
           }
         }
       }
+    },
+    {
+      "description": "auto-numCandidates",
+      "value": {
+        "score": {
+          "boost": {
+            "value": 1.0
+          }
+        },
+        "path": "description",
+        "limit": 5,
+        "exact": false,
+        "queryVector": [
+          2.0,
+          2.0,
+          2.0
+        ]
+      }
     }
   ],
   "invalid": [
@@ -87,19 +105,6 @@
         "limit": 5,
         "exact": false,
         "numCandidates": 10
-      }
-    },
-    {
-      "description": "missing numCandidates for approximate",
-      "value": {
-        "path": "description",
-        "limit": 5,
-        "exact": false,
-        "queryVector": [
-          2.0,
-          2.0,
-          2.0
-        ]
       }
     },
     {

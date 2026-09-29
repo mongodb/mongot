@@ -168,6 +168,35 @@
         "model": "voyage-3-large",
         "returnStoredSource": false
       }
+    },
+    {
+      "description": "exact-false-auto-numCandidates",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "exact": false,
+        "limit": 5,
+        "queryVector": [
+          2,
+          2,
+          2
+        ],
+        "returnStoredSource": false
+      }
+    },
+    {
+      "description": "exact-omitted-auto-numCandidates",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "limit": 5,
+        "queryVector": [
+          2,
+          2,
+          2
+        ],
+        "returnStoredSource": false
+      }
     }
   ],
   "invalid": [
@@ -265,35 +294,6 @@
         "queryVector": [
           2,
           "2",
-          2
-        ],
-        "returnStoredSource": false
-      }
-    },
-    {
-      "description": "exact: false",
-      "value": {
-        "index": "myVectorIndex",
-        "path": "description",
-        "exact": false,
-        "limit": 5,
-        "queryVector": [
-          2,
-          2,
-          2
-        ],
-        "returnStoredSource": false
-      }
-    },
-    {
-      "description": "exact omitted",
-      "value": {
-        "index": "myVectorIndex",
-        "path": "description",
-        "limit": 5,
-        "queryVector": [
-          2,
-          2,
           2
         ],
         "returnStoredSource": false

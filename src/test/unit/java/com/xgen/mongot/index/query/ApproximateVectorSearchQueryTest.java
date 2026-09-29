@@ -63,6 +63,7 @@ public class ApproximateVectorSearchQueryTest {
           filterAndParentFilter(),
           bsonFloatVectorQuery(),
           bsonByteVectorQuery(),
+          autoNumCandidates(),
           simpleAutoEmbeddingQuery(),
           simpleAutoEmbeddingQueryWithMultiModalFormat(),
           withSearchNodePreference(),
@@ -235,6 +236,20 @@ public class ApproximateVectorSearchQueryTest {
                       .numCandidates(10)
                       .queryVector(
                           Vector.fromBytes(new byte[] {(byte) 0x02, (byte) 0x02, (byte) 0x02}))
+                      .path(FieldPath.newRoot("description"))
+                      .build())
+              .build());
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<VectorSearchQuery> autoNumCandidates() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "auto-numCandidates",
+          VectorQueryBuilder.builder()
+              .index("myVectorIndex")
+              .criteria(
+                  ApproximateVectorQueryCriteriaBuilder.builder()
+                      .limit(10)
+                      .queryVector(Vector.fromFloats(new float[] {2f, 2f, 2f}, NATIVE))
                       .path(FieldPath.newRoot("description"))
                       .build())
               .build());

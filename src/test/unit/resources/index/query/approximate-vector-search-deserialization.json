@@ -139,6 +139,20 @@
       }
     },
     {
+      "description": "auto-numCandidates",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "limit": 10,
+        "queryVector": [
+          2,
+          2,
+          2
+        ],
+        "returnStoredSource": false
+      }
+    },
+    {
       "description": "simple-auto-embedding-query",
       "value": {
         "index": "myVectorIndex",
@@ -249,20 +263,6 @@
         "path": "description",
         "numCandidates": 10,
         "limit": 5,
-        "returnStoredSource": false
-      }
-    },
-    {
-      "description": "missing numCandidates",
-      "value": {
-        "index": "myVectorIndex",
-        "path": "description",
-        "limit": 10,
-        "queryVector": [
-          2,
-          2,
-          2
-        ],
         "returnStoredSource": false
       }
     },

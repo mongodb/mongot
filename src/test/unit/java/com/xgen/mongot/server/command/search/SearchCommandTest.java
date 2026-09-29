@@ -96,6 +96,7 @@ import java.util.function.Supplier;
 import org.bson.BsonArray;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
+import org.bson.BsonDouble;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.types.ObjectId;
@@ -1833,6 +1834,120 @@ public class SearchCommandTest {
                 InitialSyncIndexUnavailableException.class.getSimpleName(),
                 ErrorType.USER_FACING_ERROR))
         .isEqualTo(1.0);
+  }
+
+  @Test
+  public void searchVectorSearchOmittedNumCandidatesWithoutAutoFlag_returnsUserError()
+      throws Exception {
+    BsonDocument vectorSearchQuery =
+        new BsonDocument()
+            .append(
+                "vectorSearch",
+                new BsonDocument()
+                    .append("path", new BsonString("embedding"))
+                    .append(
+                        "queryVector",
+                        new BsonArray(
+                            List.of(new BsonDouble(1.0), new BsonDouble(2.0), new BsonDouble(3.0))))
+                    .append("limit", new BsonInt32(10)));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            new IncompatibleIndexes(),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(vectorSearchQuery)
+                .build(),
+            new SearchCommandsRegister.BootstrapperMetadata(
+                "testVersion",
+                "localhost",
+                () -> MongoDbServerInfo.EMPTY,
+                FeatureFlags.withDefaults().disable(Feature.AUTO_NUM_CANDIDATES).build(),
+                DynamicFeatureFlagRegistry.empty()),
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(
+        result
+            .getString("errmsg")
+            .getValue()
+            .contains("numCandidates is required for approximate vector search"));
+  }
+
+  @Test
+  public void searchVectorSearchOmittedNumCandidatesWithoutAutoFlag_rejectsBeforeCatalogLookup()
+      throws Exception {
+    // The omitted-numCandidates flag-off validation must run before the catalog lookup and
+    // embedding, so a request that would otherwise surface an index-unavailable error still gets
+    // the expected "numCandidates is required" user error. Set up an index that is unavailable for
+    // querying (INITIAL_SYNC) and assert the numCandidates error wins.
+    IndexCatalog catalog = mock(IndexCatalog.class);
+    InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
+
+    var searchIndexDefinition = SearchIndex.mockSearchDefinition(new ObjectId());
+    var definitionGeneration = mockDefinitionGeneration(searchIndexDefinition);
+    com.xgen.mongot.index.SearchIndex mockSearchIndex = SearchIndex.mockIndex(definitionGeneration);
+    doThrow(
+            new InitialSyncIndexUnavailableException(
+                String.format(
+                    "cannot query search index %s while in state %s",
+                    searchIndexDefinition, IndexStatus.StatusCode.INITIAL_SYNC)))
+        .when(mockSearchIndex)
+        .throwIfUnavailableForQuerying();
+    var indexGeneration = new IndexGeneration(mockSearchIndex, definitionGeneration);
+    when(catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
+        .thenReturn(Optional.of(indexGeneration));
+
+    BsonDocument vectorSearchQuery =
+        new BsonDocument()
+            .append(
+                "vectorSearch",
+                new BsonDocument()
+                    .append("path", new BsonString("embedding"))
+                    .append(
+                        "queryVector",
+                        new BsonArray(
+                            List.of(new BsonDouble(1.0), new BsonDouble(2.0), new BsonDouble(3.0))))
+                    .append("limit", new BsonInt32(10)));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            catalog,
+            initializedIndexCatalog,
+            new IncompatibleIndexes(),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(vectorSearchQuery)
+                .build(),
+            new SearchCommandsRegister.BootstrapperMetadata(
+                "testVersion",
+                "localhost",
+                () -> MongoDbServerInfo.EMPTY,
+                FeatureFlags.withDefaults().disable(Feature.AUTO_NUM_CANDIDATES).build(),
+                DynamicFeatureFlagRegistry.empty()),
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    String errmsg = result.getString("errmsg").getValue();
+    Assert.assertTrue(errmsg.contains("numCandidates is required for approximate vector search"));
+    Assert.assertFalse(errmsg.contains("INITIAL_SYNC"));
+    verify(mockSearchIndex, never()).throwIfUnavailableForQuerying();
   }
 
   /**
