@@ -9,6 +9,7 @@ java_library(
         "CommunityConfig.java",
         "CommunityConfigUpdater.java",
         "CommunityCursorConfig.java",
+        "CommunityDurabilityConfig.java",
         "CommunityIndexingConfig.java",
         "CommunityMetadataUpdater.java",
         "CommunityQueryingConfig.java",

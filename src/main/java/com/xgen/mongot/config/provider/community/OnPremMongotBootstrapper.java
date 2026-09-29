@@ -1147,7 +1147,13 @@ public class OnPremMongotBootstrapper {
         InitialSyncConfigMapper.toInitialSyncConfig(
             config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));
 
-    var durabilityConfig = DurabilityConfig.create(Optional.empty(), Optional.empty());
+    var durabilityConfig =
+        DurabilityConfig.create(
+            Optional.empty(),
+            config
+                .durabilityConfig()
+                .flatMap(CommunityDurabilityConfig::commitIntervalMs)
+                .map(Duration::ofMillis));
 
     var cursorConfig =
         CursorConfigMapper.toCursorConfig(

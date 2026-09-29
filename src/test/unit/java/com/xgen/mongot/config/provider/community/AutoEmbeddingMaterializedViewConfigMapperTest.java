@@ -161,6 +161,7 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty())),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -184,6 +185,7 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty())),
+        Optional.empty(),
         Optional.empty());
   }
 }

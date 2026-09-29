@@ -367,6 +367,7 @@ public class OnPremMongotBootstrapperTest {
         Optional.empty(),
         embeddingConfig,
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -390,6 +391,7 @@ public class OnPremMongotBootstrapperTest {
                 Optional.empty(),
                 Optional.empty(),
                 ftdcConfig)),
+        Optional.empty(),
         Optional.empty());
   }
 

@@ -61,6 +61,7 @@ public class CommunityConfigTest {
       return TEST_SUITE.withExamples(
           simple(),
           full(),
+          durabilityOverride(),
           replicaSetX509(),
           withDefaultLogVerbosity(),
           grpcDisabledTls(),
@@ -119,7 +120,47 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
+    }
+
+    private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> durabilityOverride() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "durability override",
+          new CommunityConfig(
+              new SyncSourceConfig(
+                  new ReplicaSetConfig(
+                      List.of(HostAndPort.fromParts("mongod", 27017)),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(
+                          new ScramConfig(
+                              Databases.ADMIN,
+                              "user",
+                              Path.of("/etc/mongot/replicaSet.passwd"),
+                              new TlsConfig(
+                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                  Optional.empty(),
+                  Optional.empty()),
+              new StorageConfig(Path.of("data/mongot")),
+              new ServerConfig(
+                  new GrpcServerConfig("localhost:27028", Optional.empty()), Optional.empty()),
+              Optional.of(new MetricsConfig(true, "localhost:9946")),
+              Optional.of(new HealthCheckConfig("localhost:8080")),
+              Optional.of(new LoggingConfig("DEBUG", Optional.of("/var/log/mongot"))),
+              Optional.empty(),
+              Optional.of(
+                  new AdvancedConfigs(
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.empty(),
+                      Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
+              Optional.of(new CommunityDurabilityConfig(Optional.of(2000)))));
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<CommunityConfig> replicaSetX509() {
@@ -207,6 +248,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -246,6 +288,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -292,6 +335,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -338,6 +382,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -384,6 +429,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -430,6 +476,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -472,6 +519,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -516,6 +564,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -574,6 +623,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -612,6 +662,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -651,6 +702,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
 
@@ -794,6 +846,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.of(DiskMonitorConfig.getDefault()),
                       Optional.of(FtdcCommunityConfig.getDefault()))),
+              Optional.empty(),
               Optional.empty()));
     }
   }
@@ -863,6 +916,7 @@ public class CommunityConfigTest {
                       Optional.empty(),
                       Optional.empty(),
                       Optional.of(new FtdcCommunityConfig(false, 200, 20, 3000)))),
+              Optional.empty(),
               Optional.empty());
 
       assertEquals(expected, result);

@@ -770,6 +770,50 @@
           }
         }
       }
+    },
+    {
+      "description": "durability override",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "scramAuth": {
+              "username": "user",
+              "passwordFile": "/etc/mongot/replicaSet.passwd"
+            }
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG",
+          "logPath": "/var/log/mongot"
+        },
+        "advancedConfigs": {
+          "ftdc": {
+            "enabled": true,
+            "directorySizeMb": 100,
+            "fileSizeMb": 10,
+            "collectionPeriodMillis": 1000
+          }
+        },
+        "durability": {
+          "commitIntervalMs": 2000
+        }
+      }
     }
   ],
   "invalid": [
@@ -1419,6 +1463,24 @@
         }
       },
       "errorMessageContains": "pauseReplicationThreshold must be greater than or equal to resumeReplicationThreshold"
+    },
+    {
+      "description": "durability override invalid interval",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "scramAuth": {
+              "username": "user",
+              "passwordFile": "/etc/mongot/replicaSet.passwd"
+            }
+          }
+        },
+        "storage": {"dataPath": "data/mongot"},
+        "server": {"grpc": {"address": "localhost:27028"}},
+        "durability": {"commitIntervalMs": 0}
+      },
+      "errorMessageContains": "must be positive"
     }
   ]
 }
