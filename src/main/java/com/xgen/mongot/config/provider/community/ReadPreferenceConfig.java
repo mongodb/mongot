@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.mongodb.TagSet;
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 import org.bson.BsonDocument;
+import picocli.CommandLine;
 
 public record ReadPreferenceConfig(
     MongoReadPreferenceName readPreference, Optional<List<TagSet>> tagSets)
@@ -35,6 +37,29 @@ public record ReadPreferenceConfig(
                     .required())
             .optional()
             .noDefault();
+  }
+
+  public static final class ReadPreferenceConfigCliOptionRegistry extends CliOptionRegistry {
+    @CommandLine.Option(
+        names = "--replicationReaderReadPreference",
+        description =
+            "Read preference mongot uses for replication operations: primary, primaryPreferred, "
+                + "secondary, secondaryPreferred, or nearest")
+    public Optional<String> readPreference = Optional.empty();
+
+    @CommandLine.Option(
+        names = "--replicationReaderTagSets",
+        description =
+            "Array of tag sets that filter which replica set members receive replication reads. "
+                + "Cannot be configured if replicationReaderReadPreference is primary. "
+                + "e.g. [[{\"name\":\"hostname\",\"value\":\"mongod1\"}],"
+                + "[{\"name\":\"region\",\"value\":\"us-east-1\"}]]")
+    public Optional<String> tagSets = Optional.empty();
+
+    public ReadPreferenceConfigCliOptionRegistry() {
+      addStringLeafValue(Fields.READ_PREFERENCE, () -> this.readPreference);
+      addJsonArrayLeafValue(Fields.TAG_SETS, () -> this.tagSets);
+    }
   }
 
   public static ReadPreferenceConfig fromBson(DocumentParser parser) throws BsonParseException {

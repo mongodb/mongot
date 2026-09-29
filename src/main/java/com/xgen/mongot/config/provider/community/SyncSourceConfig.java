@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.mongodb.ReadPreference;
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -8,6 +9,7 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
 import org.bson.BsonDocument;
+import picocli.CommandLine;
 
 public record SyncSourceConfig(
     ReplicaSetConfig replicaSet,
@@ -41,6 +43,27 @@ public record SyncSourceConfig(
             .disallowUnknownFields()
             .optional()
             .noDefault();
+  }
+
+  public static final class SyncSourceConfigCliOptionRegistry extends CliOptionRegistry {
+    @CommandLine.Mixin
+    public ReplicaSetConfig.ReplicaSetConfigCliOptionRegistry replicaSetConfigCliOptionRegistry =
+        new ReplicaSetConfig.ReplicaSetConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public RouterConfig.RouterConfigCliOptionRegistry routerConfigCliOptionRegistry =
+        new RouterConfig.RouterConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public ReadPreferenceConfig.ReadPreferenceConfigCliOptionRegistry
+        replicationReaderCliOptionRegistry =
+            new ReadPreferenceConfig.ReadPreferenceConfigCliOptionRegistry();
+
+    public SyncSourceConfigCliOptionRegistry() {
+      addChildRegistry(Fields.REPLICA_SET, this.replicaSetConfigCliOptionRegistry);
+      addChildRegistry(Fields.ROUTER, this.routerConfigCliOptionRegistry);
+      addChildRegistry(Fields.REPLICATION_READER, this.replicationReaderCliOptionRegistry);
+    }
   }
 
   public static SyncSourceConfig fromBson(DocumentParser parser) throws BsonParseException {
