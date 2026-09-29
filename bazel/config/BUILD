@@ -6,7 +6,6 @@ string_flag(
     build_setting_default = "amazon_linux_2023",
     values = [
         "amazon_linux_2023",
-        "amazon_linux_2",
     ],
     visibility = ["//visibility:public"],
 )
@@ -30,17 +29,6 @@ config_setting(
 )
 
 config_setting(
-    name = "al2_aarch64_last_green",
-    constraint_values = [
-        "@platforms//cpu:aarch64",
-    ],
-    flag_values = {
-        ":base_docker_image_os": "amazon_linux_2",
-        ":server_binaries_source": "last_green",
-    },
-)
-
-config_setting(
     name = "al2023_aarch64_last_green",
     constraint_values = [
         "@platforms//cpu:aarch64",
@@ -58,17 +46,6 @@ config_setting(
     ],
     flag_values = {
         ":server_binaries_source": "latest_patch_release",
-    },
-)
-
-config_setting(
-    name = "al2_x86_64_last_green",
-    constraint_values = [
-        "@platforms//cpu:x86_64",
-    ],
-    flag_values = {
-        ":base_docker_image_os": "amazon_linux_2",
-        ":server_binaries_source": "last_green",
     },
 )
 
