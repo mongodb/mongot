@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.server.executors.RegularBlockingRequestSettings;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.junit.Test;
@@ -16,7 +17,9 @@ public class SearchQueryAdmissionControlConfigMapperTest {
 
   @Test
   public void createRegularBlockingRequestSettings_honorsConfiguredValues() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     RegularBlockingRequestSettings settings =
         SearchQueryAdmissionControlConfigMapper.createRegularBlockingRequestSettings(

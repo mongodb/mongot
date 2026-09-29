@@ -5,6 +5,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.net.HostAndPort;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -129,7 +130,10 @@ public class ConfigSpliceUtilTest {
         Path.of("src/test/unit/resources/config/provider/community/communityConfig.yaml");
     Map<String, BsonValue> cliValues = Map.of("server.name", new BsonString("cli-named"));
 
-    CommunityConfig result = CommunityConfig.readFromFile(configPath, cliValues).config();
+    CommunityConfig result =
+        CommunityConfig.readFromFile(
+                configPath, cliValues, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     assertEquals(Optional.of("cli-named"), result.serverConfig().name());
   }
@@ -152,7 +156,10 @@ public class ConfigSpliceUtilTest {
             "server.grpc.address",
             new BsonString("localhost:27027"));
 
-    CommunityConfig result = CommunityConfig.readFromFile(configPath, cliValues).config();
+    CommunityConfig result =
+        CommunityConfig.readFromFile(
+                configPath, cliValues, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     assertEquals(
         List.of(HostAndPort.fromParts("mongod", 27017)),
@@ -170,6 +177,9 @@ public class ConfigSpliceUtilTest {
         Map.of("server.grpc.address", new BsonString("localhost:27027"));
 
     assertThrows(
-        BsonParseException.class, () -> CommunityConfig.readFromFile(configPath, cliValues));
+        BsonParseException.class,
+        () ->
+            CommunityConfig.readFromFile(
+                configPath, cliValues, Optional.of(DeploymentEnvironment.COMMUNITY)));
   }
 }

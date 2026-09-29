@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.SingleLinkedList;
 import java.util.Collection;
@@ -14,9 +15,16 @@ public class BsonParseContext {
   private static final BsonParseContext ROOT = new BsonParseContext(SingleLinkedList.empty());
 
   private final SingleLinkedList<String> hierarchy;
+  private final Optional<DeploymentEnvironment> deploymentEnvironment;
 
   BsonParseContext(SingleLinkedList<String> ancestors) {
+    this(ancestors, Optional.empty());
+  }
+
+  BsonParseContext(
+      SingleLinkedList<String> ancestors, Optional<DeploymentEnvironment> deploymentEnvironment) {
     this.hierarchy = ancestors;
+    this.deploymentEnvironment = deploymentEnvironment;
   }
 
   public static BsonParseContext root() {
@@ -24,18 +32,24 @@ public class BsonParseContext {
   }
 
   public BsonParseContext child(String segment) {
-    return new BsonParseContext(this.hierarchy.prepend(segment));
+    return new BsonParseContext(this.hierarchy.prepend(segment), this.deploymentEnvironment);
   }
 
   /** context for array element. */
   public BsonParseContext arrayElement(int index) {
     // Add [index] to path without adding a delimiter before it.
     if (this.hierarchy.isEmpty()) {
-      return new BsonParseContext(this.hierarchy.prepend("[" + index + ']'));
+      return new BsonParseContext(
+          this.hierarchy.prepend("[" + index + ']'), this.deploymentEnvironment);
     } else {
       String elementPath = this.hierarchy.head() + "[" + index + ']';
-      return new BsonParseContext(this.hierarchy.getTail().prepend(elementPath));
+      return new BsonParseContext(
+          this.hierarchy.getTail().prepend(elementPath), this.deploymentEnvironment);
     }
+  }
+
+  public Optional<DeploymentEnvironment> getDeploymentEnvironment() {
+    return this.deploymentEnvironment;
   }
 
   /** Throws a BsonParseException describing overflow. */

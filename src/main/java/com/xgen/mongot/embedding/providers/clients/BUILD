@@ -10,7 +10,6 @@ java_library(
     visibility = ["//:__subpackages__"],
     exports = ["//src/main/java/com/xgen/mongot/embedding"],
     deps = [
-        "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/embedding",
         "//src/main/java/com/xgen/mongot/embedding/exceptions",
         "//src/main/java/com/xgen/mongot/embedding/providers/configs",

@@ -15,6 +15,7 @@ import com.xgen.mongot.config.provider.community.ServerConfig.GrpcServerConfig;
 import com.xgen.mongot.config.provider.community.ServerConfig.GrpcServerConfig.GrpcTls;
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
 import com.xgen.mongot.config.util.TlsMode;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.Databases;
 import com.xgen.testing.BsonDeserializationTestSuite;
@@ -858,7 +859,9 @@ public class CommunityConfigTest {
     public void deserializeFromYaml() throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfig.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
       CommunityConfig expected =
           new CommunityConfig(
               new SyncSourceConfig(
@@ -927,7 +930,9 @@ public class CommunityConfigTest {
         throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfigX509.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
 
       var replicaSet = result.syncSourceConfig().replicaSet();
       assertTrue("replicaSet should use x509", replicaSet.x509().isPresent());
@@ -953,7 +958,9 @@ public class CommunityConfigTest {
       Path configPath =
           Path.of(
               "src/test/unit/resources/config/provider/community/communityConfigScramNoCa.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
 
       var replicaSet = result.syncSourceConfig().replicaSet();
       assertTrue("replicaSet should use scram auth", replicaSet.scram().isPresent());
@@ -975,7 +982,9 @@ public class CommunityConfigTest {
         throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfigScram.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
 
       var replicaSet = result.syncSourceConfig().replicaSet();
       assertTrue("replicaSet should use scram auth", replicaSet.scram().isPresent());
@@ -998,7 +1007,9 @@ public class CommunityConfigTest {
     public void readFromFile_withTuningConfigs() throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfigTuning.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
       var advanced = result.advancedConfigs().get();
 
       var lucene = advanced.indexingConfig().get().luceneConfig().get();
@@ -1084,7 +1095,9 @@ public class CommunityConfigTest {
           Path.of(
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigAdmissionControl.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
       var advanced = result.advancedConfigs().get();
 
       var regularBlockingRequest = advanced.regularBlockingRequestConfig().get();
@@ -1101,7 +1114,8 @@ public class CommunityConfigTest {
           Path.of(
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigTuningUnknownKey.yaml");
-      CommunityConfig.ParsedCommunityConfig parsed = CommunityConfig.readFromFile(configPath);
+      CommunityConfig.ParsedCommunityConfig parsed =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY));
       CommunityConfig result = parsed.config();
       var advanced = result.advancedConfigs().get();
 
@@ -1118,7 +1132,11 @@ public class CommunityConfigTest {
           Path.of(
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigInvalidTuning.yaml");
-      assertThrows(BsonParseException.class, () -> CommunityConfig.readFromFile(configPath));
+      assertThrows(
+          BsonParseException.class,
+          () ->
+              CommunityConfig.readFromFile(
+                  configPath, Optional.of(DeploymentEnvironment.COMMUNITY)));
     }
 
     @Test
@@ -1128,7 +1146,8 @@ public class CommunityConfigTest {
           Path.of(
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigInvalidTuningDuplicateField.yaml");
-      CommunityConfig.ParsedCommunityConfig parsedConfig = CommunityConfig.readFromFile(configPath);
+      CommunityConfig.ParsedCommunityConfig parsedConfig =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY));
       assertEquals("data/mongot", parsedConfig.config().storageConfig().dataPath().toString());
       assertFalse(parsedConfig.unknownFieldExceptions().isEmpty());
     }
@@ -1138,7 +1157,9 @@ public class CommunityConfigTest {
         throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfigSrvHost.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
 
       var replicaSet = result.syncSourceConfig().replicaSet();
       assertTrue("replicaSet should have srvHost", replicaSet.srvHost().isPresent());
@@ -1156,7 +1177,9 @@ public class CommunityConfigTest {
         throws IOException, BsonParseException {
       Path configPath =
           Path.of("src/test/unit/resources/config/provider/community/communityConfigTracing.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
 
       TracingConfig tracing = result.tracingConfig().orElseThrow();
       assertTrue(tracing.enabled());
@@ -1171,7 +1194,8 @@ public class CommunityConfigTest {
           Path.of(
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigTracingUnknownField.yaml");
-      CommunityConfig.ParsedCommunityConfig parsed = CommunityConfig.readFromFile(configPath);
+      CommunityConfig.ParsedCommunityConfig parsed =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY));
 
       assertFalse(parsed.unknownFieldExceptions().isEmpty());
       assertEquals(
@@ -1186,7 +1210,9 @@ public class CommunityConfigTest {
           Path.of(
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigLoggingOtlp.yaml");
-      CommunityConfig result = CommunityConfig.readFromFile(configPath).config();
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+              .config();
 
       LoggingConfig logging = result.loggingConfig().orElseThrow();
       assertEquals("DEBUG", logging.verbosity());
@@ -1203,7 +1229,11 @@ public class CommunityConfigTest {
               "src/test/unit/resources/config/provider/community/"
                   + "communityConfigLoggingOtlpUnknownField.yaml");
 
-      assertThrows(BsonParseException.class, () -> CommunityConfig.readFromFile(configPath));
+      assertThrows(
+          BsonParseException.class,
+          () ->
+              CommunityConfig.readFromFile(
+                  configPath, Optional.of(DeploymentEnvironment.COMMUNITY)));
     }
   }
 }

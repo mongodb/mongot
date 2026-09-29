@@ -3,11 +3,33 @@ package com.xgen.mongot.util.bson.parser;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
+import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.junit.Test;
 
 public class PermissiveBsonParseContextTest {
+
+  @Test
+  public void testRootWithDeploymentEnvironment() {
+    PermissiveBsonParseContext root =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.ENTERPRISE));
+
+    assertThat(root.getDeploymentEnvironment()).hasValue(DeploymentEnvironment.ENTERPRISE);
+  }
+
+  @Test
+  public void testDeploymentEnvironmentPropagatesToChildren() {
+    PermissiveBsonParseContext child =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY))
+            .child("foo")
+            .arrayElement(0)
+            .child("bar");
+
+    assertThat(child.getDeploymentEnvironment()).hasValue(DeploymentEnvironment.COMMUNITY);
+  }
+
   @Test
   public void testIgnoresUnknownFields() throws BsonParseException {
     BsonDocument bsonDocument = new BsonDocument("foo", new BsonString("bar"));

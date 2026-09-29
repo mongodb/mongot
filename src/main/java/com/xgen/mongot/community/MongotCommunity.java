@@ -7,7 +7,7 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.lucene.vector.Similarity;
 import com.xgen.mongot.logging.Logging;
 import com.xgen.mongot.util.Crash;
-import com.xgen.mongot.util.MongotOnPremEdition;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.MongotVersionResolver;
 import com.xgen.mongot.util.security.Security;
 import java.nio.file.Path;
@@ -76,7 +76,7 @@ public class MongotCommunity implements Runnable, IVersionProvider {
         .ifThrows(
             () ->
                 new OnPremMongotBootstrapper(
-                        dynamicFeatureFlagRegistry, featureFlags, MongotOnPremEdition.COMMUNITY)
+                        dynamicFeatureFlagRegistry, featureFlags, DeploymentEnvironment.COMMUNITY)
                     .bootstrap(this.configPath, this.internalListAllIndexesForTesting));
   }
 

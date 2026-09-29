@@ -5,11 +5,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.xgen.mongot.config.util.DeploymentEnvironment;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl;
 import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.lang.reflect.Field;
 import java.util.Optional;

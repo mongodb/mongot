@@ -51,7 +51,6 @@ java_test_suite(
     tags = ["unit"],
     deps = [
         "//src/main/java/com/xgen/mongot/catalog",
-        "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/embedding",
         "//src/main/java/com/xgen/mongot/embedding/cache",
         "//src/main/java/com/xgen/mongot/embedding/config",

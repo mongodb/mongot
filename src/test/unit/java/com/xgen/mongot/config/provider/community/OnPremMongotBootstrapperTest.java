@@ -27,6 +27,7 @@ import com.xgen.mongot.trace.Slf4jExporter;
 import com.xgen.mongot.trace.SpanGuard;
 import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Databases;
 import com.xgen.testing.TestUtils;
@@ -425,7 +426,10 @@ public class OnPremMongotBootstrapperTest {
     Path configPath =
         Path.of("src/test/unit/resources/config/provider/community/communityConfigTracing.yaml");
     TracingConfig config =
-        CommunityConfig.readFromFile(configPath).config().tracingConfig().orElseThrow();
+        CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config()
+            .tracingConfig()
+            .orElseThrow();
 
     Optional<SpanProcessor> processor =
         OnPremMongotBootstrapper.configureTracing(Optional.of(config), this.meterRegistry);

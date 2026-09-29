@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.YamlCodec;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
@@ -107,9 +108,10 @@ public record CommunityConfig(
   public record ParsedCommunityConfig(
       CommunityConfig config, List<BsonParseException> unknownFieldExceptions) {}
 
-  public static ParsedCommunityConfig readFromFile(Path configPath)
+  public static ParsedCommunityConfig readFromFile(
+      Path configPath, Optional<DeploymentEnvironment> deploymentEnvironment)
       throws IOException, BsonParseException {
-    return readFromFile(configPath, Map.of());
+    return readFromFile(configPath, Map.of(), deploymentEnvironment);
   }
 
   /**
@@ -119,30 +121,35 @@ public record CommunityConfig(
    *
    * @param configPath the path of the YAML config file.
    * @param cliValues the CLI-supplied values keyed by dot-delimited YAML path.
+   * @param deploymentEnvironment Edition of binary ru
    * @throws IOException if the config file cannot be read.
    * @throws BsonParseException if a config value is set both in the config file and on the command
    *     line, or the config cannot be parsed.
    */
   public static ParsedCommunityConfig readFromFile(
-      Path configPath, Map<String, BsonValue> cliValues) throws IOException, BsonParseException {
+      Path configPath,
+      Map<String, BsonValue> cliValues,
+      Optional<DeploymentEnvironment> deploymentEnvironment)
+      throws IOException, BsonParseException {
     LOG.atInfo().addKeyValue("configPath", configPath).log("Reading config from file");
     String yaml = Files.readString(configPath);
     BsonDocument bson = YamlCodec.fromYaml(yaml);
     ConfigSpliceUtil.splice(bson, cliValues);
-    return CommunityConfig.fromBson(bson);
+    return CommunityConfig.fromBson(bson, deploymentEnvironment);
   }
 
-  private static ParsedCommunityConfig fromBson(BsonDocument document) throws BsonParseException {
+  private static ParsedCommunityConfig fromBson(
+      BsonDocument document, Optional<DeploymentEnvironment> deploymentEnvironment)
+      throws BsonParseException {
     // tracing.otlp and logging.otlp are parsed strictly: unlike the local-only blocks, they are
     // outbound sinks and their optional caCertificateFile is security-relevant, so a misspelled key
     // would silently fall back to the JVM trust store instead of the operator's CA. Unknown keys
     // elsewhere only warn (forward compatibility). These passes only detect unknown keys;
     // endpoint/CA
-    // value validation runs once during the parse below.
     TracingConfig.validateStrictOtlp(document);
     OtlpTracingConfig.validateStrict(document, "logging");
     // Use a permissive parse context so we can collect any unknown fields.
-    PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
+    PermissiveBsonParseContext context = PermissiveBsonParseContext.root(deploymentEnvironment);
     CommunityConfig config;
     try (var parser = BsonDocumentParser.withContext(context, document).build()) {
       config = CommunityConfig.fromBson(parser);

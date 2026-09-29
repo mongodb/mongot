@@ -7,6 +7,7 @@ import com.xgen.mongot.config.util.HysteresisConfig;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.config.LuceneConfig.VectorMergePolicyConfig;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.testing.util.MockRuntimeBuilder;
 import java.nio.file.Path;
@@ -32,7 +33,9 @@ public class LuceneConfigMapperTest {
 
   @Test
   public void toLuceneConfig_appliesCommunityDefaultsWhenUnset() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(DEFAULT_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(DEFAULT_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     LuceneConfig lc =
         LuceneConfigMapper.toLuceneConfig(
@@ -54,7 +57,9 @@ public class LuceneConfigMapperTest {
 
   @Test
   public void toLuceneConfig_honorsConfiguredValues() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     LuceneConfig lc = LuceneConfigMapper.toLuceneConfig(config, RUNTIME, Optional.empty());
 

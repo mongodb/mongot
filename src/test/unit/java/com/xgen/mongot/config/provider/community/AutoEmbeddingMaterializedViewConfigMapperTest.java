@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -20,7 +21,9 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
 
   @Test
   public void toAutoEmbeddingMaterializedViewConfig_honorsConfiguredValues() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     AutoEmbeddingMaterializedViewConfig ae =
         AutoEmbeddingMaterializedViewConfigMapper.toAutoEmbeddingMaterializedViewConfig(
@@ -45,7 +48,9 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
 
   @Test
   public void toAutoEmbeddingMaterializedViewConfig_appliesDefaultsWhenUnset() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(MINIMAL_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(MINIMAL_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     AutoEmbeddingMaterializedViewConfig ae =
         AutoEmbeddingMaterializedViewConfigMapper.toAutoEmbeddingMaterializedViewConfig(
@@ -64,7 +69,9 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
   @Test
   public void toAutoEmbeddingMaterializedViewConfig_derivesInitialSyncsFromReplication()
       throws Exception {
-    CommunityConfig base = CommunityConfig.readFromFile(MINIMAL_CONFIG).config();
+    CommunityConfig base =
+        CommunityConfig.readFromFile(MINIMAL_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
     var replicationConfig =
         new CommunityReplicationConfig(
             Optional.of(
@@ -92,7 +99,9 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
   @Test
   public void toAutoEmbeddingMaterializedViewConfig_takesRateLimitsAndBudgetsFromMaterializedView()
       throws Exception {
-    CommunityConfig base = CommunityConfig.readFromFile(MINIMAL_CONFIG).config();
+    CommunityConfig base =
+        CommunityConfig.readFromFile(MINIMAL_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
     var autoEmbeddingConfig =
         new CommunityAutoEmbeddingConfig(
             Optional.of(
@@ -126,7 +135,9 @@ public class AutoEmbeddingMaterializedViewConfigMapperTest {
 
   @Test
   public void toAutoEmbeddingMaterializedViewConfig_propagatesGlobalPauseKnobs() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
     var global =
         MongoDbReplicationConfigMapper.toGlobalReplicationConfig(
             config.advancedConfigs().flatMap(AdvancedConfigs::replicationConfig));

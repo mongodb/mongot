@@ -28,7 +28,6 @@ import com.xgen.mongot.config.provider.MongotConfigs;
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingServiceManagerConfig;
 import com.xgen.mongot.config.provider.monitor.PeriodicConfigMonitor;
-import com.xgen.mongot.config.util.DeploymentEnvironment;
 import com.xgen.mongot.config.util.HysteresisConfig;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorManagerImpl;
@@ -83,9 +82,9 @@ import com.xgen.mongot.trace.Slf4jExporter;
 import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.GlobalMetricFactory;
 import com.xgen.mongot.util.LoggableIdUtils;
-import com.xgen.mongot.util.MongotOnPremEdition;
 import com.xgen.mongot.util.MongotVersionResolver;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.mongot.util.SecretsParser;
@@ -132,7 +131,7 @@ public class OnPremMongotBootstrapper {
 
   private final FeatureFlags featureFlags;
 
-  private final MongotOnPremEdition edition;
+  private final DeploymentEnvironment edition;
 
   /**
    * Creates a bootstrapper for an on-prem mongot edition.
@@ -146,7 +145,7 @@ public class OnPremMongotBootstrapper {
   public OnPremMongotBootstrapper(
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       FeatureFlags featureFlags,
-      MongotOnPremEdition edition) {
+      DeploymentEnvironment edition) {
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     this.featureFlags = featureFlags;
     this.edition = edition;
@@ -161,7 +160,8 @@ public class OnPremMongotBootstrapper {
 
     CommunityConfig.ParsedCommunityConfig parsedConfig =
         Crash.because("failed to parse config file")
-            .ifThrowsExceptionOrError(() -> CommunityConfig.readFromFile(configPath));
+            .ifThrowsExceptionOrError(
+                () -> CommunityConfig.readFromFile(configPath, Optional.of(this.edition)));
     CommunityConfig config = parsedConfig.config();
 
     config
@@ -294,7 +294,7 @@ public class OnPremMongotBootstrapper {
     var commandRegisterMetadata =
         new SearchCommandsRegister.BootstrapperMetadata(
             mongotVersion,
-            this.edition.mongotHostName(),
+            this.edition.deploymentEnvironmentName(),
             mongoDbMetadataClient,
             mongotConfigs.featureFlags,
             this.dynamicFeatureFlagRegistry);

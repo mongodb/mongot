@@ -3,6 +3,7 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 
 import com.xgen.mongot.cursor.CursorConfig;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.junit.Test;
@@ -14,7 +15,9 @@ public class CursorConfigMapperTest {
 
   @Test
   public void toCursorConfig_honorsConfiguredValues() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     CursorConfig cursorConfig =
         CursorConfigMapper.toCursorConfig(

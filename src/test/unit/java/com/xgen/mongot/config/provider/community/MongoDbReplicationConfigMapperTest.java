@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.Runtime;
 import com.xgen.testing.util.MockRuntimeBuilder;
 import java.nio.file.Path;
@@ -34,7 +35,9 @@ public class MongoDbReplicationConfigMapperTest {
 
   @Test
   public void toMongoDbReplicationConfig_honorsConfiguredValues() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
     Runtime runtime =
         new MockRuntimeBuilder().withNumCpus(99).withMaxHeapSize(Bytes.ofMebi(512)).build();
 
@@ -60,7 +63,9 @@ public class MongoDbReplicationConfigMapperTest {
 
   @Test
   public void toGlobalReplicationConfig_honorsConfiguredPauseKnobs() throws Exception {
-    CommunityConfig config = CommunityConfig.readFromFile(TUNING_CONFIG).config();
+    CommunityConfig config =
+        CommunityConfig.readFromFile(TUNING_CONFIG, Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
 
     var global =
         MongoDbReplicationConfigMapper.toGlobalReplicationConfig(
