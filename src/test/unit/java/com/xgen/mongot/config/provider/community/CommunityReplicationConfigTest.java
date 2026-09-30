@@ -3,20 +3,50 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonArray;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 
 public class CommunityReplicationConfigTest {
+
+  private static final Field.Optional<String> ADVANCED_CONFIGS_FIELD =
+      Field.builder("advancedConfigs").stringField().optional().noDefault();
+  private static final Field.Optional<String> REPLICATION_FIELD =
+      Field.builder("replication").stringField().optional().noDefault();
+
+  /**
+   * Registries that mount the replication block under {@code advancedConfigs.replication}, as the
+   * Community config root does, so traversal emits the absolute YAML paths.
+   */
+  private static final class AdvancedConfigsTestRegistry extends CliOptionRegistry {
+    final CommunityReplicationConfig.CommunityReplicationConfigCliOptionRegistry replication =
+        new CommunityReplicationConfig.CommunityReplicationConfigCliOptionRegistry();
+
+    AdvancedConfigsTestRegistry() {
+      addChildRegistry(REPLICATION_FIELD, this.replication);
+    }
+  }
+
+  private static final class RootConfigTestRegistry extends CliOptionRegistry {
+    final AdvancedConfigsTestRegistry advancedConfigs = new AdvancedConfigsTestRegistry();
+
+    RootConfigTestRegistry() {
+      addChildRegistry(ADVANCED_CONFIGS_FIELD, this.advancedConfigs);
+    }
+  }
 
   private static CommunityReplicationConfig parse(BsonDocument doc) throws BsonParseException {
     PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
@@ -152,5 +182,43 @@ public class CommunityReplicationConfigTest {
             .append("notARealField", new BsonInt32(1));
     CommunityReplicationConfig parsed = parse(new BsonDocument("mongodb", mongodb));
     assertEquals(Optional.of(8), parsed.mongoDbConfig().get().numIndexingThreads());
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_withAllOptions_returnsYamlPaths() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    var mongodb = rootRegistry.advancedConfigs.replication.mongoDbConfigCliOptionRegistry;
+    mongodb.numConcurrentInitialSyncs = Optional.of(3);
+    mongodb.numConcurrentChangeStreams = Optional.of(12);
+    mongodb.numIndexingThreads = Optional.of(8);
+    mongodb.numConcurrentSynonymSyncs = Optional.of(2);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(4, cliValues.size());
+    assertEquals(
+        new BsonInt32(3),
+        cliValues.get("advancedConfigs.replication.mongodb.numConcurrentInitialSyncs"));
+    assertEquals(
+        new BsonInt32(12),
+        cliValues.get("advancedConfigs.replication.mongodb.numConcurrentChangeStreams"));
+    assertEquals(
+        new BsonInt32(8), cliValues.get("advancedConfigs.replication.mongodb.numIndexingThreads"));
+    assertEquals(
+        new BsonInt32(2),
+        cliValues.get("advancedConfigs.replication.mongodb.numConcurrentSynonymSyncs"));
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_unsetOptionsAreOmitted() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    rootRegistry.advancedConfigs.replication.mongoDbConfigCliOptionRegistry.numIndexingThreads =
+        Optional.of(8);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(1, cliValues.size());
+    assertEquals(
+        new BsonInt32(8), cliValues.get("advancedConfigs.replication.mongodb.numIndexingThreads"));
   }
 }

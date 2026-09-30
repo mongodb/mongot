@@ -3,16 +3,46 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
+import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
+import org.bson.BsonValue;
 import org.junit.Test;
 
 public class CommunityQueryingConfigTest {
+
+  private static final Field.Optional<String> ADVANCED_CONFIGS_FIELD =
+      Field.builder("advancedConfigs").stringField().optional().noDefault();
+  private static final Field.Optional<String> QUERYING_FIELD =
+      Field.builder("querying").stringField().optional().noDefault();
+
+  /**
+   * Registries that mount the querying block under {@code advancedConfigs.querying}, as the
+   * Community config root does, so traversal emits the absolute YAML paths.
+   */
+  private static final class AdvancedConfigsTestRegistry extends CliOptionRegistry {
+    final CommunityQueryingConfig.CommunityQueryingConfigCliOptionRegistry querying =
+        new CommunityQueryingConfig.CommunityQueryingConfigCliOptionRegistry();
+
+    AdvancedConfigsTestRegistry() {
+      addChildRegistry(QUERYING_FIELD, this.querying);
+    }
+  }
+
+  private static final class RootConfigTestRegistry extends CliOptionRegistry {
+    final AdvancedConfigsTestRegistry advancedConfigs = new AdvancedConfigsTestRegistry();
+
+    RootConfigTestRegistry() {
+      addChildRegistry(ADVANCED_CONFIGS_FIELD, this.advancedConfigs);
+    }
+  }
 
   private static CommunityQueryingConfig parse(BsonDocument doc) throws BsonParseException {
     PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
@@ -85,5 +115,35 @@ public class CommunityQueryingConfigTest {
             .append("notARealField", new BsonInt32(1));
     CommunityQueryingConfig parsed = parse(new BsonDocument("lucene", lucene));
     assertEquals(Optional.of(1024), parsed.luceneConfig().get().maxClauseLimit());
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_withAllOptions_returnsYamlPaths() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    var lucene = rootRegistry.advancedConfigs.querying.luceneConfigCliOptionRegistry;
+    lucene.maxClauseLimit = Optional.of(1024);
+    lucene.vectorFloorSegmentMB = Optional.of(128.0);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(2, cliValues.size());
+    assertEquals(
+        new BsonInt32(1024), cliValues.get("advancedConfigs.querying.lucene.maxClauseLimit"));
+    assertEquals(
+        new BsonDouble(128.0),
+        cliValues.get("advancedConfigs.querying.lucene.vectorFloorSegmentMB"));
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_unsetOptionsAreOmitted() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    rootRegistry.advancedConfigs.querying.luceneConfigCliOptionRegistry.maxClauseLimit =
+        Optional.of(1024);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(1, cliValues.size());
+    assertEquals(
+        new BsonInt32(1024), cliValues.get("advancedConfigs.querying.lucene.maxClauseLimit"));
   }
 }

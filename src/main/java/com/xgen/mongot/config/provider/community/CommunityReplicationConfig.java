@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
+import picocli.CommandLine;
 
 /** The {@code replication} block of the Community mongot config file. */
 public record CommunityReplicationConfig(
@@ -30,6 +32,16 @@ public record CommunityReplicationConfig(
             .disallowUnknownFields()
             .optional()
             .noDefault();
+  }
+
+  public static final class CommunityReplicationConfigCliOptionRegistry extends CliOptionRegistry {
+    @CommandLine.Mixin
+    public MongoDbConfig.MongoDbConfigCliOptionRegistry mongoDbConfigCliOptionRegistry =
+        new MongoDbConfig.MongoDbConfigCliOptionRegistry();
+
+    public CommunityReplicationConfigCliOptionRegistry() {
+      addChildRegistry(Fields.MONGODB_CONFIG, this.mongoDbConfigCliOptionRegistry);
+    }
   }
 
   public static CommunityReplicationConfig fromBson(DocumentParser parser)
@@ -118,6 +130,46 @@ public record CommunityReplicationConfig(
               .noDefault();
     }
 
+    public static final class MongoDbConfigCliOptionRegistry extends CliOptionRegistry {
+      @CommandLine.Option(
+          names = "--replicationMongodbNumConcurrentInitialSyncs",
+          description =
+              "Maximum number of indexes that can run their initial sync at the same time")
+      public Optional<Integer> numConcurrentInitialSyncs = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--replicationMongodbNumConcurrentChangeStreams",
+          description =
+              "Maximum number of steady-state change streams that can have outstanding requests "
+                  + "to the source mongod node at any one time")
+      public Optional<Integer> numConcurrentChangeStreams = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--replicationMongodbNumIndexingThreads",
+          description =
+              "Number of threads used to write replicated documents and changes into indexes")
+      public Optional<Integer> numIndexingThreads = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--replicationMongodbNumConcurrentSynonymSyncs",
+          description = "Maximum number of synonym source collections that can sync concurrently")
+      public Optional<Integer> numConcurrentSynonymSyncs = Optional.empty();
+
+      public MongoDbConfigCliOptionRegistry() {
+        addIntegerLeafValue(
+            MongoDbConfig.Fields.NUM_CONCURRENT_INITIAL_SYNCS,
+            () -> this.numConcurrentInitialSyncs);
+        addIntegerLeafValue(
+            MongoDbConfig.Fields.NUM_CONCURRENT_CHANGE_STREAMS,
+            () -> this.numConcurrentChangeStreams);
+        addIntegerLeafValue(
+            MongoDbConfig.Fields.NUM_INDEXING_THREADS, () -> this.numIndexingThreads);
+        addIntegerLeafValue(
+            MongoDbConfig.Fields.NUM_CONCURRENT_SYNONYM_SYNCS,
+            () -> this.numConcurrentSynonymSyncs);
+      }
+    }
+
     public static MongoDbConfig fromBson(DocumentParser parser) throws BsonParseException {
       return new MongoDbConfig(
           parser.getField(Fields.NUM_CONCURRENT_INITIAL_SYNCS).unwrap(),
@@ -149,7 +201,6 @@ public record CommunityReplicationConfig(
     }
   }
 
-  /** The {@code initialSync} block of the Community {@code replication} config. */
   public record InitialSyncConfig(Optional<BufferlessInitialSyncConfig> bufferlessConfig)
       implements DocumentEncodable {
 
@@ -173,7 +224,6 @@ public record CommunityReplicationConfig(
           .build();
     }
 
-    /** The {@code bufferless} block of the Community {@code initialSync} config. */
     public record BufferlessInitialSyncConfig(Optional<Boolean> enableNaturalOrderScan)
         implements DocumentEncodable {
 
