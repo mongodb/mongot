@@ -385,12 +385,11 @@ public class InitialSyncQueueTest {
             NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO,
             IGNORE_METRICS,
             false,
-            false);
+            true);
 
-    // isNaturalOrderScanSupported should be false and resumeInfo should be set as empty even with a
-    // natural order resume info
-    Assert.assertFalse(mocks.queued.get(index5).getUseNaturalOrderScan());
-    Assert.assertFalse(mocks.queued.get(index5).getResumeInfo().isPresent());
+    // A natural-order resume info is honored when natural-order scan is supported.
+    Assert.assertTrue(mocks.queued.get(index5).getUseNaturalOrderScan());
+    Assert.assertTrue(mocks.queued.get(index5).getResumeInfo().isPresent());
 
     // The first two initial syncs should have started.
     startedLatch0.await(5, TimeUnit.SECONDS);
@@ -435,6 +434,27 @@ public class InitialSyncQueueTest {
     FutureUtils.swallowedFuture(future4).get(5, TimeUnit.SECONDS);
     mocks.mockInitialSyncManagerFactory.completeSync(index5);
     FutureUtils.swallowedFuture(future5).get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testBufferlessInitialSyncsQueue_RejectsNaturalOrderResumeInfoWhenScanUnsupported()
+      throws Exception {
+    Mocks mocks = Mocks.create(Map.of(MOCK_INDEX_GENERATION_ID, () -> RESUME_INFO));
+
+    // Resuming from a natural-order scan token is not meaningful when natural-order scan is not
+    // supported. ReplicationIndexManager drops such a token and clears the index before calling
+    // enqueueResume (CLOUDP-449347); the queue rejects the token outright if a caller skips that.
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            mocks.initialSyncQueue.enqueueResume(
+                DOCUMENT_INDEXER,
+                MOCK_INDEX_DEFINITION_GENERATION,
+                () -> {},
+                NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO,
+                IGNORE_METRICS,
+                false,
+                false));
   }
 
   @Test

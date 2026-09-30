@@ -60,6 +60,7 @@ import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.replication.mongodb.IndexManager.State;
 import com.xgen.mongot.replication.mongodb.ReplicationIndexManager.FailedIndexAction;
 import com.xgen.mongot.replication.mongodb.common.BufferlessIdOrderInitialSyncResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
@@ -184,6 +185,32 @@ public class ReplicationIndexManagerTest {
           .setStatus(indexStatusWithCode(IndexStatus.StatusCode.INITIAL_SYNC));
       mocks.assertStateTransitions(
           IndexManager.State.INITIALIZING, IndexManager.State.INITIAL_SYNC);
+    }
+  }
+
+  @Test
+  public void testInitialSyncResumeClearsIndexWhenNaturalOrderScanNoLongerSupported()
+      throws Exception {
+    // Committed resume info is from an aborted natural-order-scan initial sync, but natural order
+    // scan is no longer supported (Mocks.create() wires enableNaturalOrderScan=false). The token
+    // cannot be honored: resuming from it with an _id-order scan would leave documents indexed by
+    // the aborted scan and deleted from the source before the new high-water mark in the index as
+    // ghosts (CLOUDP-449347). enqueueInitialSyncResume must drop the token and route to the fresh
+    // initial sync path, which clears the index.
+    try (Mocks mocks =
+        Mocks.initialSyncResumeCurrentIndexVersion(Mocks.NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO)) {
+      verify(mocks.initialSyncQueue, timeout(1000))
+          .enqueue(
+              any(),
+              eq(MOCK_INDEX_DEFINITION_GENERATION),
+              any(),
+              any(),
+              anyBoolean(),
+              anyBoolean());
+
+      verify(mocks.documentIndexer, timeout(1000)).clearIndex(any());
+      verify(mocks.initialSyncQueue, never())
+          .enqueueResume(any(), any(), any(), any(), any(), anyBoolean(), anyBoolean());
     }
   }
 
@@ -2114,6 +2141,14 @@ public class ReplicationIndexManagerTest {
 
     static final InitialSyncResumeInfo BUFFERLESS_INITIAL_SYNC_RESUME_INFO =
         new BufferlessIdOrderInitialSyncResumeInfo(new BsonTimestamp(0, 0), new BsonString("key"));
+
+    // Resume info committed by an aborted natural-order-scan initial sync. Used to reproduce
+    // CLOUDP-449347: resuming with this token while natural order scan is no longer supported
+    // (enableNaturalOrderScan rolled back) drops the token to Optional.empty() without clearing
+    // the index first, so ghost documents from the aborted scan are never removed.
+    static final InitialSyncResumeInfo NATURAL_ORDER_INITIAL_SYNC_RESUME_INFO =
+        new BufferlessNaturalOrderInitialSyncResumeInfo(
+            new BsonTimestamp(0, 0), new BsonDocument(), Optional.empty());
 
     final ExecutorService executor;
     @Keep final MongotCursorManager cursorManager;

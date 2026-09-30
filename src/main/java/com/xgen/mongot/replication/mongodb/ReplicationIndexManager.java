@@ -601,6 +601,23 @@ public class ReplicationIndexManager implements IndexManager {
       return;
     }
 
+    // If the committed resume info is a natural-order scan token but natural-order scan is no
+    // longer supported, the token cannot be honored: resuming from it with an _id-order scan
+    // would leave documents indexed by the aborted scan that were deleted from the source
+    // before the new high-water mark in the index as ghosts (CLOUDP-449347). Drop the token and
+    // restart from scratch. Dropping the token and clearing the index are deliberately coupled
+    // here rather than in InitialSyncQueue, which must not run a slow index clear while holding
+    // the initial-sync queue lock.
+    if (initialSyncResumeInfo.isBufferlessNaturalOrderInitialSyncResumeInfo()
+        && !this.isNaturalOrderScanSupported) {
+      this.logger.info(
+          "Committed resume info is a natural-order scan token but natural-order scan is no "
+              + "longer supported; clearing the index and restarting initial sync from scratch.");
+      killCursors(IndexStatus.notStarted());
+      enqueueInitialSync(IndexStatus.initialSync());
+      return;
+    }
+
     killCursors(IndexStatus.notStarted());
     transitionState(State.INITIAL_SYNC);
 

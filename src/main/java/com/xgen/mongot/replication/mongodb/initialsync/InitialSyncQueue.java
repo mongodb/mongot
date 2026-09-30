@@ -420,6 +420,12 @@ public class InitialSyncQueue {
       boolean removeMatchCollectionUuid,
       boolean isNaturalOrderScanSupported)
       throws InitialSyncException {
+    // A natural-order scan token cannot be honored when natural-order scan is not supported.
+    // Callers must drop such a token (and clear the index) before resuming; see
+    // ReplicationIndexManager#enqueueInitialSyncResume.
+    checkState(
+        isNaturalOrderScanSupported || !resumeInfo.isBufferlessNaturalOrderInitialSyncResumeInfo(),
+        "cannot resume from a natural-order scan token when natural-order scan is not supported");
     return doEnqueue(
         documentIndexer,
         indexDefinition,
@@ -434,7 +440,7 @@ public class InitialSyncQueue {
       DocumentIndexer documentIndexer,
       IndexDefinitionGeneration indexDefinition,
       Runnable initialSyncStartingHandler,
-      @Var Optional<InitialSyncResumeInfo> resumeInfo,
+      Optional<InitialSyncResumeInfo> resumeInfo,
       IndexMetricsUpdater indexMetricsUpdater,
       boolean removeMatchCollectionUuid,
       boolean isNaturalOrderScanSupported)
@@ -479,11 +485,6 @@ public class InitialSyncQueue {
         // Natural Order Scan won't be applied when resuming from _id scan
         if (resumeInfo.get().isBufferlessIdOrderInitialSyncResumeInfo()) {
           useNaturalOrderScan = false;
-        }
-        // If FF is set as false, we ensure _id scan will be applied
-        if (resumeInfo.get().isBufferlessNaturalOrderInitialSyncResumeInfo()
-            && !useNaturalOrderScan) {
-          resumeInfo = Optional.empty();
         }
       }
 
