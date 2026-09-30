@@ -8,6 +8,7 @@ import com.mongodb.ErrorCategory;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoNamespace;
+import com.mongodb.WriteConcern;
 import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.BulkWriteOptions;
@@ -501,13 +502,12 @@ public class MaterializedViewWriter implements IndexWriter {
           docCount,
           payloadSizeBytes);
     }
-    // MV writes use the default write concern (w:1) rather than w:majority. This is safe because
-    // commit() calls updateCommitInfo() after bulkWrite(), and updateCommitInfo() uses w:majority
-    // on the lease collection. Since both write to the same mongod primary, MV writes precede the
-    // checkpoint in the oplog. MongoDB secondaries apply oplog entries in order, so w:majority on
-    // the checkpoint implicitly guarantees all preceding MV writes are also majority-replicated.
-    // If the checkpoint write fails (e.g., primary crash before it completes), the checkpoint does
-    // not advance, and the next leader re-processes the batch.
+    // MV writes use an explicit w:majority write concern: the checkpoint written by commit()'s
+    // updateCommitInfo() (also w:majority) must never cover MV writes that a failover could roll
+    // back. Inheriting the cluster default would make that guarantee environment-dependent —
+    // w:majority is the default on Atlas, but community/EA deployments and clusters with a
+    // customer-set defaultWriteConcern of w:1 could ack these writes from the primary alone, and
+    // a failover would then roll back acked MV writes beneath a majority-committed checkpoint.
     try {
       // Block-return lambda (not an expression lambda) so this binds to the value-returning
       // execute(String, CheckedSupplier) overload rather than the void CheckedRunnable one.
@@ -519,6 +519,7 @@ public class MaterializedViewWriter implements IndexWriter {
                     .get()
                     .getDatabase(this.namespace.getDatabaseName())
                     .getCollection(this.namespace.getCollectionName(), RawBsonDocument.class)
+                    .withWriteConcern(WriteConcern.MAJORITY)
                     .bulkWrite(documents, MV_BULK_WRITE_OPTIONS);
               });
       recordWriteEffectConservation(documents, bulkWriteResult);

@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.google.common.util.concurrent.RateLimiter;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoNamespace;
+import com.mongodb.WriteConcern;
 import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoClient;
@@ -96,6 +97,8 @@ public class MaterializedViewWriterTest {
     when(this.mockLeaseManager.getOwnedLeaseVersion(GENERATION_ID)).thenReturn(1L);
     when(this.mockDatabase.getCollection(MV_NAMESPACE.getCollectionName(), RawBsonDocument.class))
         .thenReturn(this.mockCollection);
+    when(this.mockCollection.withWriteConcern(any(WriteConcern.class)))
+        .thenReturn(this.mockCollection);
     when(this.mockMongoClient.getDatabase(MV_DATABASE_NAME)).thenReturn(this.mockDatabase);
   }
 
@@ -140,6 +143,32 @@ public class MaterializedViewWriterTest {
         .bulkWrite(
             argThat(list -> list.size() == 3), same(MaterializedViewWriter.MV_BULK_WRITE_OPTIONS));
     verify(this.mockLeaseManager).updateCommitInfo(GENERATION_ID, EncodedUserData.EMPTY, true);
+  }
+
+  @Test
+  public void testCommitUsesMajorityWriteConcernForMaterializedViewWrites()
+      throws IOException, FieldExceededLimitsException {
+    var matViewWriter =
+        new MaterializedViewWriter(
+            this.autoEmbeddingMongoClient,
+            MV_DATABASE_NAME,
+            MV_COLLECTION_NAME,
+            GENERATION_ID,
+            this.mockLeaseManager,
+            METRICS_FACTORY,
+            COLLECTION_UUID,
+            Optional.empty());
+    ObjectId indexId = new ObjectId();
+    RawBsonDocument document =
+        BsonUtils.documentToRaw(
+            new BsonDocument(indexId.toString(), new BsonDocument("_id", new BsonInt32(1))));
+    matViewWriter.updateIndex(
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(document), indexId), document));
+
+    matViewWriter.commit(EncodedUserData.EMPTY);
+
+    verify(this.mockCollection).withWriteConcern(WriteConcern.MAJORITY);
   }
 
   @Test
