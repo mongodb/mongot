@@ -441,7 +441,7 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.getLeases().get(leaseKey).epoch()).isEqualTo(45L);
 
     // The next ordinary write (a heartbeat renewal) must preserve the healed epoch exactly --
-    // withRenewedOwnership(), not withNewTenure(), is on this path.
+    // withRenewedOwnership() (the flag-off renewal path), not withNewTenure(), is on this path.
     putLeaseInRenewalWindow(generationId);
     setupSuccessfulLeaseUpdate();
     this.leaseManager.heartbeat();
@@ -581,6 +581,54 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
     assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
     assertThat(this.leaseManager.getLeaderGenerationIds()).doesNotContain(generationId);
+  }
+
+  @Test
+  public void tryAcquireLeadership_takeoverFilter_requiresStillExpired() {
+    // Arrange - take over another host's expired lease.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    Lease expiredLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(expiredLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+
+    // Act
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    // Assert - a takeover must only win if the lease is still expired at write time (CLOUDP-449935:
+    // the heartbeat no longer bumps leaseVersion, so version alone is no longer a fence — an
+    // acquirer reading V could otherwise steal a lease the owner just renewed).
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    BsonDocument filter = filterCaptor.getValue().toBsonDocument();
+    assertThat(filter.toJson()).contains("leaseExpiration");
+    assertThat(filter.toJson()).contains("$lt");
+  }
+
+  @Test
+  public void tryAcquireLeadership_reclaimOwnLeaseFilter_doesNotRequireExpired() {
+    // Arrange - reclaim our own still-valid lease (restart-like).
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+
+    Lease ourLease = createLease(generationId, HOSTNAME, Instant.now().plusSeconds(30));
+    setupFindLeaseFromDatabase(ourLease);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+
+    // Act
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    // Assert - reclaiming an own, still-valid lease is not gated on expiry. Only takeovers of
+    // another host's lease require the lease to be expired.
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    BsonDocument filter = filterCaptor.getValue().toBsonDocument();
+    assertThat(filter.toJson()).doesNotContain("leaseExpiration");
   }
 
   @Test
@@ -1711,6 +1759,145 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void heartbeat_asLeader_renewsLease_writesMaxExpirationAndCleanupState() {
+    // Arrange - flag on, so the heartbeat runs the field-scoped updateOne path (CLOUDP-449935).
+    this.leaseManager =
+        new DynamicLeaderLeaseManager(
+            this.mockAutoEmbeddingMongoClient,
+            this.metricsFactory,
+            HOSTNAME,
+            DB_RESOLVER,
+            this.mvMetadataCatalog,
+            () -> true);
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    putLeaseInRenewalWindow(generationId);
+    long versionBefore = this.leaseManager.getOwnedLeaseVersion(generationId);
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    Instant expirationBefore = this.leaseManager.getLeases().get(leaseKey).leaseExpiration();
+
+    // Act - heartbeat to renew
+    this.leaseManager.heartbeat();
+
+    // Assert - the renewal is an updateOne: filter is _id plus owner with no version predicate, and
+    // update is exactly $max on leaseExpiration and $set on cleanupState. It must not carry this
+    // host's cached commitInfo or bump leaseVersion: either would race a concurrent checkpoint on
+    // the same cached version and cause the CLOUDP-397647 demotion / commitInfo rewind. $max, not
+    // $set, so the heartbeat never moves expiration backwards.
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    ArgumentCaptor<Bson> updateCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).updateOne(filterCaptor.capture(), updateCaptor.capture());
+    BsonDocument filter = filterCaptor.getValue().toBsonDocument();
+    assertThat(filter.toJson()).contains("_id");
+    assertThat(filter.toJson()).contains(Lease.Fields.LEASE_OWNER.getName());
+    assertThat(filter.toJson()).doesNotContain(Lease.Fields.LEASE_VERSION.getName());
+
+    BsonDocument update =
+        updateCaptor
+            .getValue()
+            .toBsonDocument(BsonDocument.class, MongoClientSettings.getDefaultCodecRegistry());
+    BsonDocument max = update.getDocument("$max");
+    assertThat(max.keySet()).containsExactly(Lease.Fields.LEASE_EXPIRATION.getName());
+    BsonDocument set = update.getDocument("$set");
+    assertThat(set.keySet()).containsExactly(Lease.Fields.CLEANUP_STATE.getName());
+    assertThat(update).doesNotContainKey(Lease.Fields.LEASE_VERSION.getName());
+    assertThat(update).doesNotContainKey(Lease.Fields.COMMIT_INFO.getName());
+    assertThat(update).doesNotContainKey(Lease.Fields.EPOCH.getName());
+
+    // Renewal is not a new tenure: the in-memory version is unchanged, and with no concurrent
+    // writer the merge does extend the cached expiration.
+    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId)).isEqualTo(versionBefore);
+    assertThat(this.leaseManager.getLeases().get(leaseKey).leaseExpiration())
+        .isGreaterThan(expirationBefore);
+  }
+
+  @Test
+  public void heartbeat_renewal_afterConcurrentCheckpoint_preservesNewerCachedVersion() {
+    // Arrange - flag on, so the renewal cache path is the field-scoped merge.
+    this.leaseManager =
+        new DynamicLeaderLeaseManager(
+            this.mockAutoEmbeddingMongoClient,
+            this.metricsFactory,
+            HOSTNAME,
+            DB_RESOLVER,
+            this.mvMetadataCatalog,
+            () -> true);
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    putLeaseInRenewalWindow(generationId);
+
+    // A concurrent checkpoint advances the cached lease to a newer version/commitInfo between the
+    // heartbeat's read and its success path, and its whole-document replace also lands on the
+    // server after the heartbeat's $max -- so the database holds the checkpoint's earlier
+    // build-time expiration. The merge must therefore keep the cache at the checkpoint's lease
+    // rather than extend it: extending would leave the cache holding a later expiration than the
+    // database, and the renewal-window skip reads this cache, so the store could go unrenewed
+    // while the lease is takeover-able.
+    Lease current = this.leaseManager.getLeases().get(leaseKey);
+    Lease checkpointed =
+        new Lease(
+            current.id(),
+            Lease.SCHEMA_VERSION,
+            current.collectionUuid(),
+            current.collectionName(),
+            current.leaseOwner(),
+            current.leaseExpiration(),
+            current.leaseVersion() + 1,
+            "checkpoint_v3",
+            current.latestIndexDefinitionVersion(),
+            current.indexDefinitionVersionStatusMap(),
+            current.materializedViewCollectionMetadata(),
+            current.steadyAsOfOplogPosition(),
+            current.cleanupState(),
+            current.epoch());
+    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class)))
+        .thenAnswer(
+            invocation -> {
+              this.leaseManager.putLease(leaseKey, checkpointed);
+              UpdateResult ok = mock(UpdateResult.class);
+              when(ok.getMatchedCount()).thenReturn(1L);
+              return ok;
+            });
+
+    // Act
+    this.leaseManager.heartbeat();
+
+    // Assert - the cache retains the checkpoint's version/commitInfo/epoch AND its expiration; the
+    // heartbeat's extension is not applied once the version advanced underneath the tick.
+    Lease cached = this.leaseManager.getLeases().get(leaseKey);
+    assertThat(cached.leaseVersion()).isEqualTo(checkpointed.leaseVersion());
+    assertThat(cached.commitInfo()).isEqualTo("checkpoint_v3");
+    assertThat(cached.epoch()).isEqualTo(checkpointed.epoch());
+    assertThat(cached.leaseExpiration()).isEqualTo(checkpointed.leaseExpiration());
+    assertThat(this.leaseManager.isLeader(generationId)).isTrue();
+  }
+
+  @Test
+  public void heartbeat_asLeader_renewalZeroMatch_demotes() {
+    // Arrange - flag on. Another host acquired the lease in the store, so the renewal's owner
+    // filter matches zero rows and the leader must demote.
+    this.leaseManager =
+        new DynamicLeaderLeaseManager(
+            this.mockAutoEmbeddingMongoClient,
+            this.metricsFactory,
+            HOSTNAME,
+            DB_RESOLVER,
+            this.mvMetadataCatalog,
+            () -> true);
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    putLeaseInRenewalWindow(generationId);
+
+    Lease stolenLease = createLease(generationId, OTHER_HOSTNAME, Instant.now().plusSeconds(60));
+    setupFailedLeaseUpdate();
+    setupFindLeaseFromDatabase(stolenLease);
+
+    // Act
+    this.leaseManager.heartbeat();
+
+    // Assert - a renewal that matches zero rows (lease taken by another host) demotes the leader.
+    assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+  }
+
+  @Test
   public void updateCommitInfo_rejected_recordsCheckpointRejected() throws Exception {
     // Arrange
     MaterializedViewGenerationId generationId = acquireLeadership();
@@ -2128,6 +2315,8 @@ public class DynamicLeaderLeaseManagerTest {
     // has more than half its TTL remaining after the commit info update
     verify(this.mockCollection, times(replaceOneCallsBeforeHeartbeat))
         .replaceOne(any(), any(BsonDocument.class));
+    // The renewal window is skipped, so the heartbeat issues no updateOne (or any other write).
+    verify(this.mockCollection, never()).updateOne(any(Bson.class), any(Bson.class));
   }
 
   // ==================== Leader-Only Operations ====================
@@ -4169,13 +4358,18 @@ public class DynamicLeaderLeaseManagerTest {
   private void setupSuccessfulLeaseUpdate() {
     UpdateResult updateResult = mock(UpdateResult.class);
     when(updateResult.getMatchedCount()).thenReturn(1L);
+    when(updateResult.getModifiedCount()).thenReturn(1L);
     when(this.mockCollection.replaceOne(any(), any(BsonDocument.class))).thenReturn(updateResult);
+    // Lease renewal is a field-scoped updateOne; acquisition/checkpoint/status are replaceOne.
+    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(updateResult);
   }
 
   private void setupFailedLeaseUpdate() {
     UpdateResult updateResult = mock(UpdateResult.class);
     when(updateResult.getMatchedCount()).thenReturn(0L);
+    when(updateResult.getModifiedCount()).thenReturn(0L);
     when(this.mockCollection.replaceOne(any(), any(BsonDocument.class))).thenReturn(updateResult);
+    when(this.mockCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(updateResult);
   }
 
   @SuppressWarnings("unchecked")

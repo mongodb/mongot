@@ -59,6 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import org.bson.BsonDateTime;
 import org.bson.BsonDocument;
@@ -245,6 +246,12 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   private final Map<String, CorruptLease> corruptLeases;
   // The bootstrap repair command is applied once per process; see executeOpsRepairLeaseCommand.
   private final AtomicBoolean opsRepairLeaseApplied = new AtomicBoolean(false);
+  // Evaluated per heartbeat tick (never cached): whether the lease renewal runs the field-scoped
+  // $max updateOne instead of the whole-document replaceOne. Kept as a BooleanSupplier so this
+  // class stays free of a DynamicFeatureFlagRegistry dependency and both branches are trivially
+  // testable. Only safe when every acquirer in the cluster runs the expiration-gated takeover
+  // filter; see the dynamic feature flag's Javadoc.
+  private final BooleanSupplier leaseHeartbeatPartialUpdateEnabled;
 
   @TestOnly
   public DynamicLeaderLeaseManager(
@@ -259,7 +266,26 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         hostname,
         dbResolver,
         mvMetadataCatalog,
-        LeaseManagerOpsCommands.NONE);
+        LeaseManagerOpsCommands.NONE,
+        () -> false);
+  }
+
+  @TestOnly
+  public DynamicLeaderLeaseManager(
+      AutoEmbeddingMongoClient autoEmbeddingMongoClient,
+      MetricsFactory metricsFactory,
+      String hostname,
+      InternalDatabaseResolver dbResolver,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
+      BooleanSupplier leaseHeartbeatPartialUpdateEnabled) {
+    this(
+        autoEmbeddingMongoClient,
+        metricsFactory,
+        hostname,
+        dbResolver,
+        mvMetadataCatalog,
+        LeaseManagerOpsCommands.NONE,
+        leaseHeartbeatPartialUpdateEnabled);
   }
 
   private DynamicLeaderLeaseManager(
@@ -268,7 +294,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       String hostname,
       InternalDatabaseResolver dbResolver,
       MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
-      LeaseManagerOpsCommands opsCommands) {
+      LeaseManagerOpsCommands opsCommands,
+      BooleanSupplier leaseHeartbeatPartialUpdateEnabled) {
     this.metricsFactory = metricsFactory;
     this.operationExecutor =
         new MongoClientOperationExecutor(metricsFactory, "leaseTableCollection");
@@ -289,6 +316,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     this.corruptLeases = new ConcurrentHashMap<>();
     this.autoEmbeddingMongoClient = autoEmbeddingMongoClient;
     this.opsCommands = opsCommands;
+    this.leaseHeartbeatPartialUpdateEnabled = leaseHeartbeatPartialUpdateEnabled;
     this.isDedicatedCluster = dbResolver.isDedicatedCluster();
     this.uuidResolver = buildUuidResolver();
     this.acquisitionSuppressedCounter =
@@ -312,13 +340,32 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       InternalDatabaseResolver dbResolver,
       MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
       LeaseManagerOpsCommands opsCommands) {
+    return create(
+        autoEmbeddingMongoClient,
+        meterAndFtdcRegistry,
+        hostname,
+        dbResolver,
+        mvMetadataCatalog,
+        opsCommands,
+        () -> false);
+  }
+
+  public static DynamicLeaderLeaseManager create(
+      AutoEmbeddingMongoClient autoEmbeddingMongoClient,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      String hostname,
+      InternalDatabaseResolver dbResolver,
+      MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
+      LeaseManagerOpsCommands opsCommands,
+      BooleanSupplier leaseHeartbeatPartialUpdateEnabled) {
     return new DynamicLeaderLeaseManager(
         autoEmbeddingMongoClient,
         new MetricsFactory(METRICS_NAMESPACE, meterAndFtdcRegistry.meterRegistry()),
         hostname,
         dbResolver,
         mvMetadataCatalog,
-        opsCommands);
+        opsCommands,
+        leaseHeartbeatPartialUpdateEnabled);
   }
 
   @Override
@@ -1730,8 +1777,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       return false;
     }
     // OCC delete: commits only while the lease is still marked, still stale, AND still at the
-    // version the sweep saw. leaseVersion is the fencing token — any reuse bumps it (and resets
-    // cleanupState / extends expiration), so each predicate independently vetoes the delete.
+    // version the sweep saw. The predicates are independent vetoes. leaseVersion fences a new
+    // tenure reusing the lease -- the only write that bumps it. A renewal does not bump the
+    // version when partial-update renewal is enabled (the flag-off renewal still does); it is
+    // fenced instead by cleanupState and expiration, which a renewal does reset and extend.
     var filter =
         Filters.and(
             Filters.eq("_id", leaseKey),
@@ -2397,7 +2446,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
 
     var filter =
         createAcquireLeaseFilter(
-            generationId, currentLease.leaseVersion(), newLease.leaseVersion());
+            generationId,
+            currentLease.leaseVersion(),
+            newLease.leaseVersion(),
+            !isReclaimingOwnLease);
 
     var result =
         this.operationExecutor.execute(
@@ -2437,29 +2489,50 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   }
 
   /**
-   * Creates a filter for acquiring an existing lease (expired or owned by us after restart). This
-   * filter does NOT include ownership check because we're intentionally taking over from another
+   * Creates a filter for acquiring an existing lease (expired, or owned by us after restart). This
+   * filter does NOT include an ownership check because we're intentionally taking over from another
    * owner or reclaiming our own lease.
    *
    * <p>The filter matches either:
    *
    * <ul>
    *   <li>The expected version (normal case), OR
-   *   <li>The new version with our hostname (idempotent case - we already wrote but didn't get
+   *   <li>The new version with our hostname (idempotent case - we already wrote but didn't get the
    *       response)
    * </ul>
+   *
+   * <p>When {@code requireLeaseExpired} is true (a takeover of another host's lease), the normal
+   * case also requires the lease to still be expired at write time. With partial-update renewal
+   * enabled, the heartbeat no longer bumps {@code leaseVersion}, so fencing a takeover on version
+   * alone would let an acquirer that read an expired lease at version {@code V} win after the
+   * owner's heartbeat re-extended it (which leaves it at {@code V}) — stealing a lease its owner
+   * just renewed. Requiring expiry re-closes that fence regardless of version. Own-lease reclaims
+   * do not require expiry, because a host may reclaim its own still-valid lease after restart.
    *
    * @param generationId the generation ID for the lease
    * @param currentLeaseVersion the expected current lease version
    * @param newLeaseVersion the new lease version after update
+   * @param requireLeaseExpired whether the normal branch must also match a still-expired lease
    */
   private Bson createAcquireLeaseFilter(
-      MaterializedViewGenerationId generationId, long currentLeaseVersion, long newLeaseVersion) {
+      MaterializedViewGenerationId generationId,
+      long currentLeaseVersion,
+      long newLeaseVersion,
+      boolean requireLeaseExpired) {
+    // Normal case: version matches expected (we're taking over).
+    @Var Bson normalMatch = Filters.eq(Lease.Fields.LEASE_VERSION.getName(), currentLeaseVersion);
+    if (requireLeaseExpired) {
+      normalMatch =
+          Filters.and(
+              normalMatch,
+              Filters.lt(
+                  Lease.Fields.LEASE_EXPIRATION.getName(),
+                  new BsonDateTime(Instant.now().toEpochMilli())));
+    }
     return Filters.and(
         Filters.eq("_id", getLeaseKey(generationId)),
         Filters.or(
-            // Normal case: version matches expected (we're taking over)
-            Filters.eq(Lease.Fields.LEASE_VERSION.getName(), currentLeaseVersion),
+            normalMatch,
             // Idempotent case: we already wrote but didn't get response
             Filters.and(
                 Filters.eq(Lease.Fields.LEASE_VERSION.getName(), newLeaseVersion),
@@ -2562,8 +2635,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    *   "_id": "6930985def257a5ef2f7f823",
    *   "leaseOwner": "mongot-host-1.example.com",  // same owner
    *   "leaseExpiration": "2024-01-15T10:35:00Z",  // now + 5 minutes
-   *   "leaseVersion": 6,                          // incremented
+   *   "leaseVersion": 5,                          // unchanged
    *   "commitInfo": "checkpoint_v5",              // preserved
+   *   "cleanupState": "NOT_ELIGIBLE",             // reset
    *   "indexStatus": "READY"                      // preserved
    * }
    * }</pre>
@@ -2606,31 +2680,101 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         return true;
       }
 
-      Lease renewedLease = currentLease.withRenewedOwnership();
-      var filter =
-          createUpdateFilterForOwnedLease(
-              leaseKey, currentLease.leaseVersion(), renewedLease.leaseVersion());
+      // Renew the lease. CLOUDP-449935 splits this into two shapes, chosen per heartbeat tick (via
+      // the BooleanSupplier) so a flag flip needs no restart:
+      //   - off (default): master's whole-document replaceOne with the owned-lease version fence.
+      //   - on: field-scoped updateOne ($max on leaseExpiration, $set on cleanupState), no version
+      //     predicate, no commitInfo write, and a cache merge instead of a whole-snapshot put.
+      if (this.leaseHeartbeatPartialUpdateEnabled.getAsBoolean()) {
+        // Renew by $max on leaseExpiration and $set on GC eligibility only. This must not be a
+        // whole-document replace: replaceOne would carry this host's cached commitInfo and bump
+        // leaseVersion, either of which can race a concurrent checkpoint on the same cached version
+        // and cause the CLOUDP-397647 split-brain (a heartbeat write before the checkpoint's makes
+        // the checkpoint's OCC filter miss and demote a live leader; one after it rewinds the
+        // committed commitInfo). The heartbeat only extends the lease; it must not rewrite anything
+        // the checkpoint owns. $max, not $set, so the heartbeat never moves expiration backwards
+        // relative to a concurrent writer.
+        Instant newExpiration = now.plusMillis(Lease.LEASE_EXPIRATION_MS);
+        var update =
+            Updates.combine(
+                Updates.max(
+                    Lease.Fields.LEASE_EXPIRATION.getName(),
+                    new BsonDateTime(newExpiration.toEpochMilli())),
+                Updates.set(
+                    Lease.Fields.CLEANUP_STATE.getName(), Lease.CleanupState.NOT_ELIGIBLE.name()));
+        // No leaseVersion predicate: adding one reintroduces the heartbeat-loses-first interleaving
+        // (a checkpoint bumping the version in-between would make this miss and demote a live
+        // leader). The _id + owner filter is sufficient — only a takeover by another host can make
+        // a renewal fail, and the $max/$set are idempotent on retry, so the {N, N+1} clause is
+        // unneeded.
+        var filter =
+            Filters.and(
+                Filters.eq("_id", leaseKey),
+                Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname));
 
-      var result =
-          this.operationExecutor.execute(
-              "renewLease",
-              () ->
-                  this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
-                      .replaceOne(filter, renewedLease.toBson()));
+        var result =
+            this.operationExecutor.execute(
+                "renewLease",
+                () ->
+                    this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
+                        .updateOne(filter, update));
 
-      // replaceOne reached the server (committed or OCC loss), so the store is reachable.
-      this.leaseStoreCircuitBreaker.recordStoreReachable();
-      if (result.getMatchedCount() > 0) {
-        // Successfully renewed.
-        this.leases.put(leaseKey, renewedLease);
-        return true;
+        // updateOne reached the server (committed or OCC loss), so the store is reachable.
+        this.leaseStoreCircuitBreaker.recordStoreReachable();
+        if (result.getMatchedCount() > 0) {
+          // Successfully renewed. Merge onto the cached lease rather than overwrite it: a
+          // checkpoint may have advanced the cached version/commitInfo since this tick read, and
+          // putting this snapshot back would roll the cache backward and OCC-fail that
+          // checkpoint's next write.
+          // Extend the cached expiration only when the cache is still the lease this tick read:
+          // once a checkpoint's replace has landed, the database holds its earlier build-time
+          // expiration, and trusting a later one would leave the cache ahead of the database -- the
+          // renewal-window skip reads this cache, so the store could go unrenewed while the lease
+          // is takeover-able.
+          this.leases.computeIfPresent(
+              leaseKey,
+              (key, cachedLease) ->
+                  cachedLease.leaseVersion() == currentLease.leaseVersion()
+                      ? cachedLease.withRenewedExpiration(newExpiration)
+                      : cachedLease);
+          return true;
+        } else {
+          // Lease was taken by another instance - lost leadership.
+          LOG.warn(
+              "Lease renewal failed for {} - lease was updated by another instance", generationId);
+          refreshLeaseFromDatabase(leaseKey);
+          becomeFollower(generationId);
+          return false;
+        }
       } else {
-        // Lease was taken by another instance - lost leadership.
-        LOG.warn(
-            "Lease renewal failed for {} - lease was updated by another instance", generationId);
-        refreshLeaseFromDatabase(leaseKey);
-        becomeFollower(generationId);
-        return false;
+        // Flag off: master's renewal, byte for byte. Whole-document replaceOne fenced on the owned
+        // lease's version.
+        Lease renewedLease = currentLease.withRenewedOwnership();
+        var filter =
+            createUpdateFilterForOwnedLease(
+                leaseKey, currentLease.leaseVersion(), renewedLease.leaseVersion());
+
+        var result =
+            this.operationExecutor.execute(
+                "renewLease",
+                () ->
+                    this.getCollection(getDatabaseForLease(getLeaseKey(generationId)))
+                        .replaceOne(filter, renewedLease.toBson()));
+
+        // replaceOne reached the server (committed or OCC loss), so the store is reachable.
+        this.leaseStoreCircuitBreaker.recordStoreReachable();
+        if (result.getMatchedCount() > 0) {
+          // Successfully renewed.
+          this.leases.put(leaseKey, renewedLease);
+          return true;
+        } else {
+          // Lease was taken by another instance - lost leadership.
+          LOG.warn(
+              "Lease renewal failed for {} - lease was updated by another instance", generationId);
+          refreshLeaseFromDatabase(leaseKey);
+          becomeFollower(generationId);
+          return false;
+        }
       }
     } catch (IllegalStateException e) {
       LOG.warn(

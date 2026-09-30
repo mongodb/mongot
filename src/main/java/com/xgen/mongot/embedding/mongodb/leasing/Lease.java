@@ -591,10 +591,47 @@ public record Lease(
   }
 
   /**
+   * Returns a copy of this lease with only the expiration refreshed and the GC cleanup state reset
+   * to {@link CleanupState#NOT_ELIGIBLE}. Used by the lease heartbeat (renewal), which must not
+   * change ownership, bump {@code leaseVersion}, or rewrite {@code commitInfo} — those are owned by
+   * acquisition ({@link #withNewTenure}) and the checkpoint/staleness writers respectively
+   * (CLOUDP-449935).
+   *
+   * <p>Preserving {@code leaseVersion} and {@code epoch} (and {@code commitInfo}) means a renew
+   * never rolls back a concurrent checkpoint. The {@code $max} on {@code leaseExpiration} applied
+   * in the database advances expiration forward; this in-memory merge mirrors that by taking the
+   * later of the cached and new expiration rather than overwriting.
+   *
+   * @param newExpiration the new expiration time.
+   * @return a new Lease with the later of the cached/new expiration and {@code NOT_ELIGIBLE}
+   *     cleanup state.
+   */
+  public Lease withRenewedExpiration(Instant newExpiration) {
+    Instant mergedExpiration =
+        this.leaseExpiration.isAfter(newExpiration) ? this.leaseExpiration : newExpiration;
+    return new Lease(
+        this.id,
+        SCHEMA_VERSION,
+        this.collectionUuid,
+        this.collectionName,
+        this.leaseOwner,
+        mergedExpiration,
+        this.leaseVersion,
+        this.commitInfo,
+        this.latestIndexDefinitionVersion,
+        this.indexDefinitionVersionStatusMap,
+        this.materializedViewCollectionMetadata,
+        this.steadyAsOfOplogPosition,
+        CleanupState.NOT_ELIGIBLE,
+        this.epoch);
+  }
+
+  /**
    * Creates a renewed lease for the same tenure: new expiration and incremented version, owner
-   * unchanged. Used for lease renewal (heartbeat), which must not bump {@link #epoch}. Takes no
-   * owner argument — renewal by definition cannot change ownership; an actual ownership change must
-   * go through {@link #withNewTenure} so {@link #epoch} bumps with it.
+   * unchanged. Used for lease renewal (heartbeat) with the CLOUDP-449935 flag off (the master
+   * path), which must not bump {@link #epoch}. Takes no owner argument — renewal by definition
+   * cannot change ownership; an actual ownership change must go through {@link #withNewTenure} so
+   * {@link #epoch} bumps with it.
    *
    * @return a new Lease with updated expiration and version
    */
@@ -617,10 +654,10 @@ public record Lease(
   }
 
   /**
-   * Creates a lease for a new tenure: new owner, updated expiration, and incremented version, like
-   * {@link #withRenewedOwnership}, but also bumps {@link #epoch}. Used whenever ownership transfers
-   * to {@code newOwner} — including same-host reacquisition of an expired lease, which is a new
-   * tenure even though the owner string does not change.
+   * Creates a lease for a new tenure: new owner, updated expiration, and incremented version,
+   * unlike {@link #withRenewedExpiration}, this also bumps {@link #epoch}. Used whenever ownership
+   * transfers to {@code newOwner} — including same-host reacquisition of an expired lease, which is
+   * a new tenure even though the owner string does not change.
    *
    * <p>{@code epoch} normally just increments by one alongside {@code leaseVersion}, but is rebased
    * to {@code leaseVersion + 1} whenever that would otherwise pull it ahead — i.e. {@code newEpoch

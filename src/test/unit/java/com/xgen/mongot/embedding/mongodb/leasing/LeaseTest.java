@@ -790,7 +790,10 @@ public class LeaseTest {
           Lease.CleanupState.NOT_ELIGIBLE,
           eligibleLease.withUpdatedCheckpoint(EncodedUserData.EMPTY).cleanupState());
       assertEquals(
-          Lease.CleanupState.NOT_ELIGIBLE, eligibleLease.withRenewedOwnership().cleanupState());
+          Lease.CleanupState.NOT_ELIGIBLE,
+          eligibleLease
+              .withRenewedExpiration(Instant.now().plusMillis(Lease.LEASE_EXPIRATION_MS))
+              .cleanupState());
       assertEquals(
           Lease.CleanupState.NOT_ELIGIBLE,
           eligibleLease.withUpdatedStatus(IndexStatus.steady(), 1L, null).cleanupState());
@@ -902,8 +905,8 @@ public class LeaseTest {
      * {@link Lease#withNewTenure} is the only builder that bumps epoch, since it is the only one
      * that represents an ownership transfer to a new tenure. Starting from a "synced" lease (epoch
      * equal to leaseVersion, as every lease is immediately after an acquisition), a tenure change
-     * increments both together; renewals in between advance leaseVersion only, but the following
-     * tenure change still moves epoch strictly forward — never backward, never stuck.
+     * increments both together; renewals in between change neither, but the following tenure change
+     * still moves epoch strictly forward — never backward, never stuck.
      */
     @Test
     public void testWithNewTenure_normalAcquisition_epochAndLeaseVersionIncreaseMonotonically() {
@@ -913,16 +916,20 @@ public class LeaseTest {
       assertEquals(6L, firstAcquisition.leaseVersion());
       assertEquals(6L, firstAcquisition.epoch());
 
-      // Renewals advance leaseVersion only, pulling it ahead of epoch.
+      // Renewals extend the lease but do not bump leaseVersion or epoch (CLOUDP-449935).
+      Instant renewalExp = Instant.now().plusMillis(Lease.LEASE_EXPIRATION_MS);
       Lease afterRenewals =
-          firstAcquisition.withRenewedOwnership().withRenewedOwnership().withRenewedOwnership();
-      assertEquals(9L, afterRenewals.leaseVersion());
+          firstAcquisition
+              .withRenewedExpiration(renewalExp)
+              .withRenewedExpiration(renewalExp)
+              .withRenewedExpiration(renewalExp);
+      assertEquals(6L, afterRenewals.leaseVersion());
       assertEquals(6L, afterRenewals.epoch());
 
       Lease secondAcquisition = afterRenewals.withNewTenure("another-owner");
 
-      assertEquals(10L, secondAcquisition.leaseVersion());
-      assertEquals(10L, secondAcquisition.epoch());
+      assertEquals(7L, secondAcquisition.leaseVersion());
+      assertEquals(7L, secondAcquisition.epoch());
       assertTrue(secondAcquisition.epoch() > firstAcquisition.epoch());
       assertTrue(secondAcquisition.leaseVersion() > afterRenewals.leaseVersion());
     }
@@ -989,31 +996,39 @@ public class LeaseTest {
       // fast path, which never calls withNewTenure, resumes with this same safe value.
       assertEquals(45L, readByNewerBinary.epoch());
 
-      // The next ordinary write (e.g. a heartbeat renewal) persists the healed value durably.
-      Lease afterRenewal = readByNewerBinary.withRenewedOwnership();
-      assertEquals(46L, afterRenewal.leaseVersion());
+      // The next ordinary write (e.g. a heartbeat renewal) persists the healed value durably;
+      // renewal no longer bumps leaseVersion (CLOUDP-449935).
+      Lease afterRenewal =
+          readByNewerBinary.withRenewedExpiration(
+              readByNewerBinary.leaseExpiration().plusMillis(Lease.LEASE_EXPIRATION_MS));
+      assertEquals(45L, afterRenewal.leaseVersion());
       assertEquals(45L, afterRenewal.epoch());
       BsonDocument persisted = afterRenewal.toBson();
       assertEquals(45L, persisted.getInt64("epoch").getValue());
 
       // The next real acquisition advances both leaseVersion and epoch together.
       Lease nextAcquisition = afterRenewal.withNewTenure("new-owner");
-      assertEquals(47L, nextAcquisition.leaseVersion());
-      assertEquals(47L, nextAcquisition.epoch());
+      assertEquals(46L, nextAcquisition.leaseVersion());
+      assertEquals(46L, nextAcquisition.epoch());
     }
 
     /**
-     * {@link Lease#withRenewedOwnership} is used for heartbeat renewal, which must not bump epoch —
-     * only a new tenure does.
+     * {@link Lease#withRenewedExpiration} is used for heartbeat renewal, which must not bump epoch
+     * or leaseVersion — only a new tenure does.
      */
     @Test
-    public void testWithRenewedOwnership_preservesEpoch() {
+    public void testWithRenewedExpiration_preservesEpochAndVersion() {
       Lease lease = createLeaseWithSteadyPosition(null).withNewTenure(LEASE_OWNER);
 
-      Lease renewed = lease.withRenewedOwnership();
+      Lease renewed =
+          lease.withRenewedExpiration(
+              lease.leaseExpiration().plusMillis(Lease.LEASE_EXPIRATION_MS));
 
       assertEquals(lease.epoch(), renewed.epoch());
       assertEquals(lease.leaseOwner(), renewed.leaseOwner());
+      assertEquals(lease.leaseVersion(), renewed.leaseVersion());
+      assertEquals(lease.commitInfo(), renewed.commitInfo());
+      assertEquals(Lease.CleanupState.NOT_ELIGIBLE, renewed.cleanupState());
     }
 
     /**
