@@ -23,6 +23,7 @@ import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.EmptyExplainInformation;
+import com.xgen.mongot.index.IndexClosedException;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
@@ -557,16 +558,23 @@ public class VectorSearchCommand implements Command {
       throws IOException, InvalidQueryException, ReaderClosedException {
     try (var guard = Tracing.simpleSpanGuard("VectorSearchCommand.getExhaustedBatch")) {
       VectorIndexReader reader;
-      if (index instanceof InitializedVectorIndex vectorIndex) {
-        reader = vectorIndex.getReader();
-      } else if (index instanceof InitializedMaterializedViewIndex matViewIndex) {
-        // TODO(CLOUDP-353553): split when MV can hold a SearchIndexDefinition.
-        reader = matViewIndex.getReader();
-      } else {
-        throw new InvalidQueryException(
-            "Cannot execute $vectorSearch over search index '%s'"
-                .formatted(materializedQuery.vectorSearchQuery().index()),
-            InvalidQueryException.Type.STRICT);
+      try {
+        if (index instanceof InitializedVectorIndex vectorIndex) {
+          reader = vectorIndex.getReader();
+        } else if (index instanceof InitializedMaterializedViewIndex matViewIndex) {
+          // TODO(CLOUDP-353553): split when MV can hold a SearchIndexDefinition.
+          reader = matViewIndex.getReader();
+        } else {
+          throw new InvalidQueryException(
+              "Cannot execute $vectorSearch over search index '%s'"
+                  .formatted(materializedQuery.vectorSearchQuery().index()),
+              InvalidQueryException.Type.STRICT);
+        }
+      } catch (IndexClosedException e) {
+        // The index was swapped out and closed after we pulled it from the catalog (auto-embed
+        // queries widen this window with the query embedding call). Surface it as
+        // ReaderClosedException so run() retries against the new generation.
+        throw ReaderClosedException.create("getReader");
       }
       var results = reader.query(materializedQuery, context);
       var serializedBatch = createExhaustedCursorBatch(results).toBson();

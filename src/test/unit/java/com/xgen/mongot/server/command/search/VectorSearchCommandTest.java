@@ -35,6 +35,7 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.EmptyExplainInformation;
+import com.xgen.mongot.index.IndexClosedException;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexMetricValuesSupplier;
 import com.xgen.mongot.index.IndexMetricsUpdater;
@@ -1347,6 +1348,50 @@ public class VectorSearchCommandTest {
   }
 
   @Test
+  public void run_indexClosedBeforeGetReader_retriesAgainstCatalog() throws Exception {
+    var mocks = new Mocks();
+    when(mocks.initializedIndex.getReader())
+        .thenThrow(new IndexClosedException("Cannot call getReader() after to close()"))
+        .thenReturn(mocks.reader);
+
+    var command =
+        new VectorSearchCommand(
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(
+                    VectorQueryBuilder.builder()
+                        .index(INDEX_NAME)
+                        .criteria(
+                            ApproximateVectorQueryCriteriaBuilder.builder()
+                                .limit(LIMIT)
+                                .numCandidates(NUM_CANDIDATES)
+                                .queryVector(QUERY_VECTOR)
+                                .path(PATH)
+                                .filter(getFilter())
+                                .build())
+                        .build())
+                .build(),
+            mocks.catalog,
+            mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(),
+            bootstrapperMetadata(),
+            MOCK_EMBEDDING_SERVICE,
+            new VectorSearchCommand.Metrics(mockMetricsFactory()),
+            mocks.cursorManager,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    var result = command.run();
+
+    var expected =
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson();
+    Assert.assertEquals(expected, result);
+    verify(mocks.initializedIndexCatalog, times(2)).getIndex(MOCK_INDEX_GENERATION_ID);
+  }
+
+  @Test
   public void testStoredSourceCursorPathReturnsErrorWhenBatchCannotFit() throws Exception {
     Assume.assumeTrue(this.mongoDbVersion.compareTo(MIN_STORED_SOURCE_VERSION) >= 0);
     var mocks = new Mocks();
@@ -2341,6 +2386,7 @@ public class VectorSearchCommandTest {
     private final IndexCatalog catalog;
     private final InitializedIndexCatalog initializedIndexCatalog;
     private final IndexMetricsUpdater metricsUpdater;
+    final InitializedVectorIndex initializedIndex;
     final LuceneVectorIndexReader reader;
     final BsonArray bsonResults;
     final MongotCursorManager cursorManager;
@@ -2353,6 +2399,7 @@ public class VectorSearchCommandTest {
       var index = Mockito.mock(LuceneVectorIndex.class);
 
       InitializedVectorIndex initializedIndex = Mockito.mock(InitializedVectorIndex.class);
+      this.initializedIndex = initializedIndex;
       lenient()
           .when(initializedIndex.getDefinition())
           .thenReturn(
