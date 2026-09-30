@@ -1,5 +1,7 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
+import java.util.Optional;
 import org.bson.BsonNumber;
 import org.bson.BsonType;
 
@@ -17,12 +19,15 @@ public class BsonNumberField {
   public static class FieldBuilder extends Field.TypedBuilder<BsonNumber, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, Optional.empty());
     }
 
     private FieldBuilder(
-        String name, ValueEncoder<BsonNumber> encoder, ValueParser<BsonNumber> parser) {
-      super(name, encoder, parser);
+        String name,
+        ValueEncoder<BsonNumber> encoder,
+        ValueParser<BsonNumber> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     @Override

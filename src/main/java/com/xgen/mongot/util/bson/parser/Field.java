@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.proto.BsonMessage;
 import org.bson.BsonValue;
 
@@ -22,11 +23,17 @@ public class Field {
     private final String name;
     private final ValueEncoder<T> encoder;
     private final ValueParser<T> parser;
+    private final java.util.Optional<DeploymentEnvironment> edition;
 
-    Required(String name, ValueEncoder<T> encoder, ValueParser<T> parser) {
+    Required(
+        String name,
+        ValueEncoder<T> encoder,
+        ValueParser<T> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
       this.name = name;
       this.encoder = encoder;
       this.parser = parser;
+      this.edition = edition;
     }
 
     public String getName() {
@@ -40,6 +47,14 @@ public class Field {
     ValueParser<T> getParser() {
       return this.parser;
     }
+
+    /**
+     * The on-prem edition this field is restricted to, if any. Empty when the field places no
+     * restriction on editions.
+     */
+    public java.util.Optional<DeploymentEnvironment> getEdition() {
+      return this.edition;
+    }
   }
 
   public static class Optional<T> implements Nameable {
@@ -47,14 +62,17 @@ public class Field {
     private final String name;
     private final ValueEncoder<java.util.Optional<T>> encoder;
     private final ValueParser<java.util.Optional<T>> parser;
+    private final java.util.Optional<DeploymentEnvironment> edition;
 
     Optional(
         String name,
         ValueEncoder<java.util.Optional<T>> encoder,
-        ValueParser<java.util.Optional<T>> parser) {
+        ValueParser<java.util.Optional<T>> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
       this.name = name;
       this.encoder = encoder;
       this.parser = parser;
+      this.edition = edition;
     }
 
     public String getName() {
@@ -68,6 +86,14 @@ public class Field {
     ValueParser<java.util.Optional<T>> getParser() {
       return this.parser;
     }
+
+    /**
+     * The on-prem edition this field is restricted to, if any. Empty when the field places no
+     * restriction on editions.
+     */
+    public java.util.Optional<DeploymentEnvironment> getEdition() {
+      return this.edition;
+    }
   }
 
   public static class WithDefault<T> implements Nameable {
@@ -76,16 +102,19 @@ public class Field {
     private final ValueEncoder<java.util.Optional<T>> encoder;
     private final ValueParser<java.util.Optional<T>> parser;
     private final T defaultValue;
+    private final java.util.Optional<DeploymentEnvironment> edition;
 
     WithDefault(
         String name,
         ValueEncoder<java.util.Optional<T>> encode,
         ValueParser<java.util.Optional<T>> parser,
-        T defaultValue) {
+        T defaultValue,
+        java.util.Optional<DeploymentEnvironment> edition) {
       this.name = name;
       this.encoder = encode;
       this.parser = parser;
       this.defaultValue = defaultValue;
+      this.edition = edition;
     }
 
     public String getName() {
@@ -102,6 +131,14 @@ public class Field {
 
     ValueParser<java.util.Optional<T>> getParser() {
       return this.parser;
+    }
+
+    /**
+     * The on-prem edition this field is restricted to, if any. Empty when the field places no
+     * restriction on editions.
+     */
+    public java.util.Optional<DeploymentEnvironment> getEdition() {
+      return this.edition;
     }
   }
 
@@ -208,7 +245,8 @@ public class Field {
           this.name,
           element.getEncoder(),
           element.getParser(),
-          ListField.SingleValuePresence.MUST_BE_LIST);
+          ListField.SingleValuePresence.MUST_BE_LIST,
+          java.util.Optional.empty());
     }
 
     public <T> ListField.FieldBuilder<java.util.Optional<T>> listOf(Value.Optional<T> element) {
@@ -216,7 +254,8 @@ public class Field {
           this.name,
           element.getEncoder(),
           element.getParser(),
-          ListField.SingleValuePresence.MUST_BE_LIST);
+          ListField.SingleValuePresence.MUST_BE_LIST,
+          java.util.Optional.empty());
     }
 
     public <T> ListField.FieldBuilder<java.util.Optional<T>> listOf(Value.WithDefault<T> element) {
@@ -224,7 +263,8 @@ public class Field {
           this.name,
           element.getEncoder(),
           element.getParser(),
-          ListField.SingleValuePresence.MUST_BE_LIST);
+          ListField.SingleValuePresence.MUST_BE_LIST,
+          java.util.Optional.empty());
     }
 
     /**
@@ -236,7 +276,8 @@ public class Field {
           this.name,
           element.getEncoder(),
           element.getParser(),
-          ListField.SingleValuePresence.SINGLE_VALUE_ALLOWED);
+          ListField.SingleValuePresence.SINGLE_VALUE_ALLOWED,
+          java.util.Optional.empty());
     }
 
     /**
@@ -249,19 +290,23 @@ public class Field {
           this.name,
           element.getEncoder(),
           element.getParser(),
-          ListField.SingleValuePresence.SINGLE_VALUE_ALLOWED);
+          ListField.SingleValuePresence.SINGLE_VALUE_ALLOWED,
+          java.util.Optional.empty());
     }
 
     public <T> MapField.FieldBuilder<T> mapOf(Value.Required<T> value) {
-      return MapField.FieldBuilder.create(this.name, value.getEncoder(), value.getParser());
+      return MapField.FieldBuilder.create(
+          this.name, value.getEncoder(), value.getParser(), java.util.Optional.empty());
     }
 
     public <T> MapField.FieldBuilder<java.util.Optional<T>> mapOf(Value.Optional<T> value) {
-      return MapField.FieldBuilder.create(this.name, value.getEncoder(), value.getParser());
+      return MapField.FieldBuilder.create(
+          this.name, value.getEncoder(), value.getParser(), java.util.Optional.empty());
     }
 
     public <T> MapField.FieldBuilder<java.util.Optional<T>> mapOf(Value.WithDefault<T> value) {
-      return MapField.FieldBuilder.create(this.name, value.getEncoder(), value.getParser());
+      return MapField.FieldBuilder.create(
+          this.name, value.getEncoder(), value.getParser(), java.util.Optional.empty());
     }
   }
 
@@ -281,44 +326,71 @@ public class Field {
     final String name;
     final ValueEncoder<T> encoder;
     final ValueParser<T> parser;
+    final java.util.Optional<DeploymentEnvironment> edition;
 
-    TypedBuilder(String name, ValueEncoder<T> encoder, ValueParser<T> parser) {
+    TypedBuilder(
+        String name,
+        ValueEncoder<T> encoder,
+        ValueParser<T> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
       this.name = name;
       this.encoder = encoder;
       this.parser = parser;
+      this.edition = edition;
     }
 
     interface BuilderFactory<T, B> {
-      B getBuilder(String name, ValueEncoder<T> encoder, ValueParser<T> parser);
+      B getBuilder(
+          String name,
+          ValueEncoder<T> encoder,
+          ValueParser<T> parser,
+          java.util.Optional<DeploymentEnvironment> edition);
     }
 
     abstract BuilderFactory<T, B> getBuilderFactory();
 
     public B validate(FieldValidator<T> validator) {
       ValueParser<T> parser = new ValidatingValueParser<>(this.parser, validator);
-      return getBuilderFactory().getBuilder(this.name, this.encoder, parser);
+      return getBuilderFactory().getBuilder(this.name, this.encoder, parser, this.edition);
+    }
+
+    /**
+     * Restricts this field to the given on-prem edition. Only meaningful for on-prem
+     * (Community/Enterprise) configuration fields; Atlas configurations do not set an edition.
+     */
+    public B edition(DeploymentEnvironment edition) {
+      return getBuilderFactory()
+          .getBuilder(this.name, this.encoder, this.parser, java.util.Optional.of(edition));
     }
 
     public Field.Required<T> required() {
-      return new Field.Required<>(this.name, this.encoder, this.parser);
+      return new Field.Required<>(this.name, this.encoder, this.parser, this.edition);
     }
 
     public OptionalField.FieldBuilder<T> optional() {
-      return new OptionalField.FieldBuilder<>(this.name, this.encoder, this.parser);
+      return OptionalField.FieldBuilder.create(this.name, this.encoder, this.parser, this.edition);
     }
 
     public ListField.FieldBuilder<T> asList() {
       return new ListField.FieldBuilder<>(
-          this.name, this.encoder, this.parser, ListField.SingleValuePresence.MUST_BE_LIST);
+          this.name,
+          this.encoder,
+          this.parser,
+          ListField.SingleValuePresence.MUST_BE_LIST,
+          this.edition);
     }
 
     public ListField.FieldBuilder<T> asSingleValueOrList() {
       return new ListField.FieldBuilder<>(
-          this.name, this.encoder, this.parser, ListField.SingleValuePresence.SINGLE_VALUE_ALLOWED);
+          this.name,
+          this.encoder,
+          this.parser,
+          ListField.SingleValuePresence.SINGLE_VALUE_ALLOWED,
+          this.edition);
     }
 
     public MapField.FieldBuilder<T> asMap() {
-      return MapField.FieldBuilder.create(this.name, this.encoder, this.parser);
+      return MapField.FieldBuilder.create(this.name, this.encoder, this.parser, this.edition);
     }
 
     /**
@@ -326,7 +398,8 @@ public class Field {
      * Use for order-sensitive consumers (e.g. aggregation facet definitions).
      */
     public MapField.FieldBuilder<T> asOrderedMap() {
-      return MapField.FieldBuilder.createOrdered(this.name, this.encoder, this.parser);
+      return MapField.FieldBuilder.createOrdered(
+          this.name, this.encoder, this.parser, this.edition);
     }
   }
 }

@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.proto.BsonMessage;
 import com.xgen.proto.BsonProtoParseException;
 import org.bson.BsonDocumentReader;
@@ -37,8 +38,16 @@ public class ProtoField {
 
   public static class FieldBuilder<T> extends Field.TypedBuilder<T, FieldBuilder<T>> {
 
+    private FieldBuilder(
+        String name,
+        ValueEncoder<T> encoder,
+        ValueParser<T> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
+    }
+
     private FieldBuilder(String name, ValueEncoder<T> encoder, ValueParser<T> parser) {
-      super(name, encoder, parser);
+      this(name, encoder, parser, java.util.Optional.empty());
     }
 
     @Override

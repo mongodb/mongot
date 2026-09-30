@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.UUID;
 import org.bson.BsonBinary;
 import org.bson.BsonBinarySubType;
@@ -22,15 +23,19 @@ public class UuidField {
   public static class FieldBuilder extends Field.TypedBuilder<UUID, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, BINARY_ENCODER, PARSER);
+      this(name, BINARY_ENCODER, PARSER, java.util.Optional.empty());
     }
 
-    private FieldBuilder(String name, ValueEncoder<UUID> encoder, ValueParser<UUID> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<UUID> encoder,
+        ValueParser<UUID> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     public FieldBuilder encodeAsString() {
-      return new FieldBuilder(this.name, STRING_ENCODER, this.parser);
+      return new FieldBuilder(this.name, STRING_ENCODER, this.parser, this.edition);
     }
 
     @Override

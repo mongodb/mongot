@@ -1,5 +1,7 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
+import java.util.Optional;
 import org.bson.BsonBinary;
 import org.bson.types.Binary;
 
@@ -15,11 +17,19 @@ public class BinaryField {
 
   public static class FieldBuilder extends Field.TypedBuilder<Binary, FieldBuilder> {
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, Optional.empty());
     }
 
     FieldBuilder(String name, ValueEncoder<Binary> encoder, ValueParser<Binary> parser) {
-      super(name, encoder, parser);
+      this(name, encoder, parser, Optional.empty());
+    }
+
+    private FieldBuilder(
+        String name,
+        ValueEncoder<Binary> encoder,
+        ValueParser<Binary> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     @Override

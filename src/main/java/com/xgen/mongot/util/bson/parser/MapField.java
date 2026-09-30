@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,8 +19,11 @@ public class MapField {
   public static class FieldBuilder<T> extends Field.TypedBuilder<Map<String, T>, FieldBuilder<T>> {
 
     private FieldBuilder(
-        String name, ValueEncoder<Map<String, T>> encoder, ValueParser<Map<String, T>> parser) {
-      super(name, encoder, parser);
+        String name,
+        ValueEncoder<Map<String, T>> encoder,
+        ValueParser<Map<String, T>> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     /**
@@ -27,9 +31,12 @@ public class MapField {
      * the same type erasure as the required private constructor.
      */
     static <T> FieldBuilder<T> create(
-        String name, ValueEncoder<T> valueEncoder, ValueParser<T> valueParser) {
+        String name,
+        ValueEncoder<T> valueEncoder,
+        ValueParser<T> valueParser,
+        Optional<DeploymentEnvironment> edition) {
       return new FieldBuilder<>(
-          name, new Encoder<>(valueEncoder), new Parser<>(valueParser, HashMap::new));
+          name, new Encoder<>(valueEncoder), new Parser<>(valueParser, HashMap::new), edition);
     }
 
     /**
@@ -39,24 +46,30 @@ public class MapField {
      * their iteration behavior.
      */
     static <T> FieldBuilder<T> createOrdered(
-        String name, ValueEncoder<T> valueEncoder, ValueParser<T> valueParser) {
+        String name,
+        ValueEncoder<T> valueEncoder,
+        ValueParser<T> valueParser,
+        Optional<DeploymentEnvironment> edition) {
       return new FieldBuilder<>(
-          name, new Encoder<>(valueEncoder), new Parser<>(valueParser, LinkedHashMap::new));
+          name,
+          new Encoder<>(valueEncoder),
+          new Parser<>(valueParser, LinkedHashMap::new),
+          edition);
     }
 
     public FieldBuilder<T> mustNotBeEmpty() {
       ValueParser<Map<String, T>> parser = MapField.mustNotBeEmpty(this.parser);
-      return new FieldBuilder<>(this.name, this.encoder, parser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.edition);
     }
 
     public FieldBuilder<T> mustNotContainEmptyStringAsKey() {
       ValueParser<Map<String, T>> parser = MapField.mustNotContainEmptyStringAsKey(this.parser);
-      return new FieldBuilder<>(this.name, this.encoder, parser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.edition);
     }
 
     public FieldBuilder<T> validateKeys(FieldValidator<String> keyValidator) {
       ValueParser<Map<String, T>> parser = MapField.validateKeys(this.parser, keyValidator);
-      return new FieldBuilder<>(this.name, this.encoder, parser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.edition);
     }
 
     @Override

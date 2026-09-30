@@ -2,6 +2,7 @@ package com.xgen.mongot.util.bson.parser;
 
 import com.google.common.collect.Sets;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -27,15 +28,21 @@ public class ListField {
         String name,
         ValueEncoder<T> valueEncoder,
         ValueParser<T> elementParser,
-        SingleValuePresence singleValuePresence) {
+        SingleValuePresence singleValuePresence,
+        Optional<DeploymentEnvironment> edition) {
       this(
           name,
           new Encoder<>(valueEncoder, singleValuePresence),
-          new Parser<>(elementParser, singleValuePresence));
+          new Parser<>(elementParser, singleValuePresence),
+          edition);
     }
 
-    private FieldBuilder(String name, ValueEncoder<List<T>> encoder, Parser<T> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<List<T>> encoder,
+        Parser<T> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
       this.listParser = parser;
     }
 
@@ -43,8 +50,9 @@ public class ListField {
         String name,
         ValueEncoder<List<T>> encoder,
         ValueParser<List<T>> wrappedParser,
-        Parser<T> baseListParser) {
-      super(name, encoder, wrappedParser);
+        Parser<T> baseListParser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, wrappedParser, edition);
       this.listParser = baseListParser;
     }
 
@@ -60,17 +68,18 @@ public class ListField {
      */
     public FieldBuilder<T> skipInvalidElements() {
       this.listParser.skipInvalidElements();
-      return new FieldBuilder<>(this.name, this.encoder, this.parser, this.listParser);
+      return new FieldBuilder<>(
+          this.name, this.encoder, this.parser, this.listParser, this.edition);
     }
 
     public FieldBuilder<T> mustNotBeEmpty() {
       ValueParser<List<T>> parser = ListField.mustNotBeEmpty(this.parser);
-      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser, this.edition);
     }
 
     public FieldBuilder<T> mustBeUnique() {
       ValueParser<List<T>> parser = ListField.mustBeUnique(this.parser);
-      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser, this.edition);
     }
 
     /**
@@ -81,17 +90,18 @@ public class ListField {
         String attributeName, Function<T, R> attributeGetter) {
       ValueParser<List<T>> parser =
           ListField.mustHaveUniqueAttribute(this.parser, attributeName, attributeGetter);
-      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser, this.edition);
     }
 
     public FieldBuilder<T> sizeMustBeWithinBounds(Range<Integer> bounds) {
       ValueParser<List<T>> parser = ListField.sizeMustBeWithinBounds(this.parser, bounds);
-      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser);
+      return new FieldBuilder<>(this.name, this.encoder, parser, this.listParser, this.edition);
     }
 
     @Override
     BuilderFactory<List<T>, FieldBuilder<T>> getBuilderFactory() {
-      return (name, encoder, parser) -> new FieldBuilder<>(name, encoder, parser, this.listParser);
+      return (name, encoder, parser, edition) ->
+          new FieldBuilder<>(name, encoder, parser, this.listParser, edition);
     }
   }
 

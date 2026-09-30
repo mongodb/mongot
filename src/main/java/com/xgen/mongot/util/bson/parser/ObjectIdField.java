@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import org.bson.BsonObjectId;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -20,16 +21,19 @@ public class ObjectIdField {
   public static class FieldBuilder extends Field.TypedBuilder<ObjectId, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, OBJECT_ID_ENCODER, PARSER);
+      this(name, OBJECT_ID_ENCODER, PARSER, java.util.Optional.empty());
     }
 
     private FieldBuilder(
-        String name, ValueEncoder<ObjectId> encoder, ValueParser<ObjectId> parser) {
-      super(name, encoder, parser);
+        String name,
+        ValueEncoder<ObjectId> encoder,
+        ValueParser<ObjectId> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     public FieldBuilder encodeAsString() {
-      return new FieldBuilder(this.name, STRING_ENCODER, this.parser);
+      return new FieldBuilder(this.name, STRING_ENCODER, this.parser, this.edition);
     }
 
     @Override

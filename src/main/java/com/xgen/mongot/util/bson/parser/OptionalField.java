@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.Optional;
 import org.bson.BsonNull;
 import org.bson.BsonValue;
@@ -15,17 +16,27 @@ public class OptionalField {
     private final Encoder<T> encoder;
     private final ValueParser<T> parser;
     private final boolean preserveNulls;
-
-    FieldBuilder(String name, ValueEncoder<T> encoder, ValueParser<T> parser) {
-      this(name, new Encoder<>(encoder), parser, false);
-    }
+    private final Optional<DeploymentEnvironment> edition;
 
     private FieldBuilder(
-        String name, Encoder<T> encoder, ValueParser<T> parser, boolean preserveNulls) {
+        String name,
+        Encoder<T> encoder,
+        ValueParser<T> parser,
+        boolean preserveNulls,
+        Optional<DeploymentEnvironment> edition) {
       this.name = name;
       this.encoder = encoder;
       this.parser = parser;
       this.preserveNulls = preserveNulls;
+      this.edition = edition;
+    }
+
+    static <T> FieldBuilder<T> create(
+        String name,
+        ValueEncoder<T> encoder,
+        ValueParser<T> parser,
+        Optional<DeploymentEnvironment> edition) {
+      return new FieldBuilder<>(name, new Encoder<>(encoder), parser, false, edition);
     }
 
     private ValueParser<Optional<T>> getParser() {
@@ -33,11 +44,20 @@ public class OptionalField {
     }
 
     public Field.WithDefault<T> withDefault(T value) {
-      return new Field.WithDefault<>(this.name, this.encoder, getParser(), value);
+      return new Field.WithDefault<>(this.name, this.encoder, getParser(), value, this.edition);
     }
 
     public Field.Optional<T> noDefault() {
-      return new Field.Optional<>(this.name, this.encoder, getParser());
+      return new Field.Optional<>(this.name, this.encoder, getParser(), this.edition);
+    }
+
+    /**
+     * Restricts this field to the given on-prem edition. Only meaningful for on-prem
+     * (Community/Enterprise) configuration fields; Atlas configurations do not set an edition.
+     */
+    public FieldBuilder<T> edition(DeploymentEnvironment edition) {
+      return new FieldBuilder<>(
+          this.name, this.encoder, this.parser, this.preserveNulls, Optional.of(edition));
     }
 
     /**
@@ -49,12 +69,12 @@ public class OptionalField {
      * explicitly set to null in BSON.
      *
      * <p>Use this method when you need to differentiate between fields that are absent and fields
-     * that are present but set to null.
+     * that are present but set to null in BSON.
      *
      * @return a new FieldBuilder instance that preserves BSON null values during parsing
      */
     public FieldBuilder<T> preserveBsonNull() {
-      return new FieldBuilder<>(this.name, this.encoder, this.parser, true);
+      return new FieldBuilder<>(this.name, this.encoder, this.parser, true, this.edition);
     }
   }
 

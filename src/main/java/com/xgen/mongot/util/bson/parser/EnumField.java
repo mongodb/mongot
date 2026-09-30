@@ -2,6 +2,7 @@ package com.xgen.mongot.util.bson.parser;
 
 import com.google.common.base.CaseFormat;
 import com.xgen.mongot.util.CollectionUtils;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.Enums;
 import java.util.Arrays;
 import java.util.Map;
@@ -132,18 +133,27 @@ public class EnumField {
         Class<T> enumClass,
         Optional<CaseFormat> caseFormat,
         Optional<T> fallbackValue) {
-      this(name, new Encoder<>(caseFormat), new EnumParser<>(enumClass, caseFormat, fallbackValue));
+      this(
+          name,
+          new Encoder<>(caseFormat),
+          new EnumParser<>(enumClass, caseFormat, fallbackValue),
+          Optional.empty());
     }
 
     FieldBuilder(String name, Class<T> enumClass, Optional<CaseFormat> caseFormat) {
       this(
           name,
           new Encoder<>(caseFormat),
-          new EnumParser<>(enumClass, caseFormat, Optional.empty()));
+          new EnumParser<>(enumClass, caseFormat, Optional.empty()),
+          Optional.empty());
     }
 
-    private FieldBuilder(String name, ValueEncoder<T> encoder, ValueParser<T> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<T> encoder,
+        ValueParser<T> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     @Override

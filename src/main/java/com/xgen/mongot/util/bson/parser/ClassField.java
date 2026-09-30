@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import org.bson.BsonType;
 import org.bson.BsonValue;
 
@@ -40,23 +41,33 @@ public class ClassField {
 
     public FieldBuilder<T> allowUnknownFields() {
       return new FieldBuilder<>(
-          this.name, this.encoder, new DocumentValueParser<>(this.parser, true));
+          this.name,
+          this.encoder,
+          new DocumentValueParser<>(this.parser, true),
+          java.util.Optional.empty());
     }
 
     public FieldBuilder<T> disallowUnknownFields() {
       return new FieldBuilder<>(
-          this.name, this.encoder, new DocumentValueParser<>(this.parser, false));
+          this.name,
+          this.encoder,
+          new DocumentValueParser<>(this.parser, false),
+          java.util.Optional.empty());
     }
   }
 
   public static class FieldBuilder<T> extends Field.TypedBuilder<T, FieldBuilder<T>> {
 
-    private FieldBuilder(String name, ValueEncoder<T> encoder, ValueParser<T> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<T> encoder,
+        ValueParser<T> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     FieldBuilder(String name, ValueEncoder<T> encoder, FromValueParser<T> parser) {
-      this(name, encoder, new ValueValueParser<>(parser));
+      this(name, encoder, new ValueValueParser<>(parser), java.util.Optional.empty());
     }
 
     @Override

@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.Optional;
 import org.apache.commons.lang3.Range;
 
@@ -9,23 +10,27 @@ class NumericField {
   abstract static class FieldBuilder<N extends Number, B extends FieldBuilder<N, B>>
       extends Field.TypedBuilder<N, B> {
 
-    FieldBuilder(String name, ValueEncoder<N> encoder, ValueParser<N> parser) {
-      super(name, encoder, parser);
+    FieldBuilder(
+        String name,
+        ValueEncoder<N> encoder,
+        ValueParser<N> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     public B mustBeNonNegative() {
       ValueParser<N> parser = NumericField.mustBeNonNegative(this.parser);
-      return getBuilderFactory().getBuilder(this.name, this.encoder, parser);
+      return getBuilderFactory().getBuilder(this.name, this.encoder, parser, this.edition);
     }
 
     public B mustBePositive() {
       ValueParser<N> parser = NumericField.mustBePositive(this.parser);
-      return getBuilderFactory().getBuilder(this.name, this.encoder, parser);
+      return getBuilderFactory().getBuilder(this.name, this.encoder, parser, this.edition);
     }
 
     public B mustBeWithinBounds(Range<N> bounds) {
       ValueParser<N> parser = NumericField.mustBeWithinBounds(this.parser, bounds);
-      return getBuilderFactory().getBuilder(this.name, this.encoder, parser);
+      return getBuilderFactory().getBuilder(this.name, this.encoder, parser, this.edition);
     }
   }
 

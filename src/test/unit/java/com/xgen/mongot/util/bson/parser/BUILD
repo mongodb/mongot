@@ -17,6 +17,7 @@ java_test_suite(
         "EnumFieldTest.java",
         "FieldEncodeTestUtil.java",
         "FieldParseTestUtil.java",
+        "FieldTest.java",
         "FloatFieldTest.java",
         "IntegerFieldTest.java",
         "ListFieldTest.java",

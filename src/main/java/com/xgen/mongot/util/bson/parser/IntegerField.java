@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
 import org.bson.BsonValue;
@@ -19,15 +20,19 @@ public class IntegerField {
   public static class FieldBuilder extends NumericField.FieldBuilder<Integer, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, INT_32_ENCODER, PARSER);
+      this(name, INT_32_ENCODER, PARSER, java.util.Optional.empty());
     }
 
-    private FieldBuilder(String name, ValueEncoder<Integer> encoder, ValueParser<Integer> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<Integer> encoder,
+        ValueParser<Integer> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     public FieldBuilder encodeAsDouble() {
-      return new FieldBuilder(this.name, DOUBLE_ENCODER, this.parser);
+      return new FieldBuilder(this.name, DOUBLE_ENCODER, this.parser, this.edition);
     }
 
     @Override

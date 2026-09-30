@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.Optional;
 import org.bson.BsonString;
 import org.bson.BsonType;
@@ -13,26 +14,30 @@ public class StringField {
   public static class FieldBuilder extends Field.TypedBuilder<String, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, Optional.empty());
     }
 
-    private FieldBuilder(String name, ValueEncoder<String> encoder, ValueParser<String> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<String> encoder,
+        ValueParser<String> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     public FieldBuilder mustNotBeEmpty() {
       ValueParser<String> parser = StringField.mustNotBeEmpty(this.parser);
-      return new FieldBuilder(this.name, this.encoder, parser);
+      return new FieldBuilder(this.name, this.encoder, parser, this.edition);
     }
 
     public FieldBuilder mustNotBeBlank() {
       ValueParser<String> parser = StringField.mustNotBeBlank(this.parser);
-      return new FieldBuilder(this.name, this.encoder, parser);
+      return new FieldBuilder(this.name, this.encoder, parser, this.edition);
     }
 
     public FieldBuilder mustNotBeginWith(String prefix) {
       ValueParser<String> parser = StringField.mustNotBeginWith(this.parser, prefix);
-      return new FieldBuilder(this.name, this.encoder, parser);
+      return new FieldBuilder(this.name, this.encoder, parser, this.edition);
     }
 
     @Override

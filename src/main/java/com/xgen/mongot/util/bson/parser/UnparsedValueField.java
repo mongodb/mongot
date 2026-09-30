@@ -1,5 +1,7 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
+import java.util.Optional;
 import org.bson.BsonType;
 import org.bson.BsonValue;
 
@@ -18,12 +20,15 @@ public class UnparsedValueField {
   public static class FieldBuilder extends Field.TypedBuilder<BsonValue, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, Optional.empty());
     }
 
     private FieldBuilder(
-        String name, ValueEncoder<BsonValue> encoder, ValueParser<BsonValue> parser) {
-      super(name, encoder, parser);
+        String name,
+        ValueEncoder<BsonValue> encoder,
+        ValueParser<BsonValue> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     @Override

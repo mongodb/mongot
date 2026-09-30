@@ -1,5 +1,7 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
+import java.util.Optional;
 import org.bson.BsonTimestamp;
 
 public class BsonTimestampField {
@@ -16,12 +18,15 @@ public class BsonTimestampField {
       extends Field.TypedBuilder<BsonTimestamp, BsonTimestampField.FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, Optional.empty());
     }
 
     private FieldBuilder(
-        String name, ValueEncoder<BsonTimestamp> encoder, ValueParser<BsonTimestamp> parser) {
-      super(name, encoder, parser);
+        String name,
+        ValueEncoder<BsonTimestamp> encoder,
+        ValueParser<BsonTimestamp> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     @Override

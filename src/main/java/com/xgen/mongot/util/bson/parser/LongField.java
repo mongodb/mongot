@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import org.bson.BsonInt64;
 import org.bson.BsonValue;
 
@@ -11,11 +12,15 @@ public class LongField {
   public static class FieldBuilder extends NumericField.FieldBuilder<Long, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, java.util.Optional.empty());
     }
 
-    private FieldBuilder(String name, ValueEncoder<Long> encoder, ValueParser<Long> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<Long> encoder,
+        ValueParser<Long> parser,
+        java.util.Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     @Override

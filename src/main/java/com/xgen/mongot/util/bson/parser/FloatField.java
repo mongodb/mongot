@@ -1,5 +1,6 @@
 package com.xgen.mongot.util.bson.parser;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.Optional;
 import org.bson.BsonDouble;
 import org.bson.BsonValue;
@@ -13,16 +14,20 @@ public class FloatField {
   public static class FieldBuilder extends NumericField.FieldBuilder<Float, FieldBuilder> {
 
     FieldBuilder(String name) {
-      this(name, ENCODER, PARSER);
+      this(name, ENCODER, PARSER, Optional.empty());
     }
 
-    private FieldBuilder(String name, ValueEncoder<Float> encoder, ValueParser<Float> parser) {
-      super(name, encoder, parser);
+    private FieldBuilder(
+        String name,
+        ValueEncoder<Float> encoder,
+        ValueParser<Float> parser,
+        Optional<DeploymentEnvironment> edition) {
+      super(name, encoder, parser, edition);
     }
 
     public FieldBuilder mustBeFinite() {
       ValueParser<Float> parser = FloatField.mustBeFinite(this.parser);
-      return new FieldBuilder(this.name, this.encoder, parser);
+      return new FieldBuilder(this.name, this.encoder, parser, this.edition);
     }
 
     @Override
