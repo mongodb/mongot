@@ -93,11 +93,16 @@ public class GrpcClientAndServer implements ClientAndServer {
 
   @Override
   public BsonDocument runCommand(BsonDocument command) {
-    BsonDocument reply = this.streamCommand.run(command, this.client);
+    BsonDocument reply = runCommandRaw(command);
     if (reply.get("ok").asNumber().intValue() == 0) {
       throw new RuntimeException(reply.get("errmsg").asString().getValue());
     }
     return reply;
+  }
+
+  /** Runs the command and returns the reply as-is, so tests can inspect an {@code ok: 0} body. */
+  public BsonDocument runCommandRaw(BsonDocument command) {
+    return this.streamCommand.run(command, this.client);
   }
 
   @Override

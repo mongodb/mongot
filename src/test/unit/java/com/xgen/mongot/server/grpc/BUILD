@@ -29,9 +29,11 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/server/message",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/mongodb",
+        "//src/main/java/com/xgen/testing",
         "//src/proto/searchenvoy:searchenvoy_java_proto",
         "@io_grpc_grpc_java//api",
         "@io_grpc_grpc_java//stub",
+        "@maven//:ch_qos_logback_logback_classic",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
@@ -40,5 +42,6 @@ java_test_suite(
         "@maven//:junit_junit",
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",
+        "@maven//:org_slf4j_slf4j_api",
     ],
 )

@@ -7,12 +7,14 @@ import com.google.common.base.Stopwatch;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.ParsedCommand;
+import com.xgen.mongot.server.command.registry.CommandNotFoundException;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
 import com.xgen.mongot.server.executors.CancelledStreamSkipException;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.FutureUtils;
+import com.xgen.mongot.util.mongodb.Errors;
 import io.grpc.Status;
 import io.grpc.stub.ServerCalls;
 import io.grpc.stub.StreamObserver;
@@ -63,6 +65,12 @@ public class ManageSearchIndexUnaryCallHandler
       // The first key is the command name, same convention as BsonMessageCallHandler.
       parsedCommand = new ParsedCommand(request.getFirstKey(), request);
       registration = this.commandRegistry.getCommandRegistration(parsedCommand.name());
+    } catch (CommandNotFoundException e) {
+      // Expected during version skew and answered with a coded error, so this is debug-level
+      // detail rather than something to alert on.
+      LOG.atDebug().addKeyValue("command", e.getCommandName()).log("Rejected unknown command");
+      respondWithError(responseObserver, e);
+      return;
     } catch (Throwable t) {
       // No registration was resolved, so there are no per-command metrics to record.
       LOG.error("Got exception. ", t);
@@ -123,8 +131,10 @@ public class ManageSearchIndexUnaryCallHandler
     Throwable unwrapped = FutureUtils.unwrapCause(cause);
 
     BsonDocument error =
-        MessageUtils.createErrorBody(
-            unwrapped.getMessage() == null ? "unknown error" : unwrapped.getMessage());
+        unwrapped instanceof CommandNotFoundException e
+            ? MessageUtils.createError(Errors.COMMAND_NOT_FOUND, e.errorMessage())
+            : MessageUtils.createErrorBody(
+                unwrapped.getMessage() == null ? "unknown error" : unwrapped.getMessage());
     respond(responseObserver, error);
   }
 }

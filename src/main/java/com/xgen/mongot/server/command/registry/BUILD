@@ -2,7 +2,10 @@ load("//bazel/java:package.bzl", "java_library")
 
 java_library(
     name = "registry",
-    srcs = ["CommandRegistry.java"],
+    srcs = [
+        "CommandNotFoundException.java",
+        "CommandRegistry.java",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "//src/main/java/com/xgen/mongot/metrics",

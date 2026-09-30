@@ -32,6 +32,8 @@ public class Errors {
 
   public static final Error MAX_TIME_MS_EXPIRED = new Error(50, "MaxTimeMSExpired");
 
+  public static final Error COMMAND_NOT_FOUND = new Error(59, "CommandNotFound");
+
   public static final Error INDEX_ALREADY_EXISTS = new Error(68, "IndexAlreadyExists");
   public static final Error AUTH_SCHEMA_INCOMPATIBLE = new Error(69, "AuthSchemaIncompatible");
   public static final Error SHARD_NOT_FOUND = new Error(70, "ShardNotFound");

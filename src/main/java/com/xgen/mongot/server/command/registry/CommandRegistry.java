@@ -8,6 +8,7 @@ import com.xgen.mongot.server.command.builtin.IsMasterCommand;
 import com.xgen.mongot.server.command.builtin.PingCommand;
 import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.UserFacingException;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -20,10 +21,14 @@ public class CommandRegistry {
 
   private final Map<String, CommandRegistration> commands;
   private final MetricsFactory commandMetricsFactory;
+  // Requests for commands this mongot does not know. Expected during a rollout in which clients
+  // learn a command before every mongot does; a sustained non-zero rate outside one is a signal.
+  private final Counter unknownCommands;
 
   private CommandRegistry(MetricsFactory commandMetricsFactory) {
     this.commands = new ConcurrentHashMap<>();
     this.commandMetricsFactory = commandMetricsFactory;
+    this.unknownCommands = commandMetricsFactory.counter("unknownCommands");
   }
 
   public static CommandRegistry create(MeterRegistry meterRegistry) {
@@ -64,7 +69,8 @@ public class CommandRegistry {
   public CommandRegistration getCommandRegistration(String commandName) {
     CommandRegistration reg = this.commands.get(commandName);
     if (reg == null) {
-      throw new IllegalArgumentException("no command registered for " + commandName);
+      this.unknownCommands.increment();
+      throw new CommandNotFoundException(commandName);
     }
     return reg;
   }

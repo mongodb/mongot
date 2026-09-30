@@ -12,6 +12,7 @@ import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.ParsedCommand;
+import com.xgen.mongot.server.command.registry.CommandNotFoundException;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
 import com.xgen.mongot.server.executors.CancelledStreamSkipException;
@@ -231,6 +232,15 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
           MessageUtils.createErrorBodyWithLabels(
               message, LOAD_SHEDDING_ERROR_LABELS, Errors.SEARCH_REQUEST_REJECTED_DUE_TO_OVERLOAD);
       return serializeError(request, error);
+    }
+
+    // A command this mongot does not know is expected while a newer client rolls out ahead of
+    // it. Return a code so the client can distinguish it from a failing known command, and skip
+    // the stack trace that "unexpected exception" would log for every such call.
+    if (cause instanceof CommandNotFoundException e) {
+      LOG.atDebug().addKeyValue("command", e.getCommandName()).log("Rejected unknown command");
+      return serializeError(
+          request, MessageUtils.createError(Errors.COMMAND_NOT_FOUND, e.errorMessage()));
     }
 
     if (!(cause instanceof InvalidQueryException)

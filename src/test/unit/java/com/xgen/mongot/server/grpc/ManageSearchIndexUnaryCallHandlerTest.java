@@ -7,11 +7,16 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
 import com.xgen.mongot.util.ErrorType;
+import com.xgen.mongot.util.mongodb.Errors;
+import com.xgen.testing.TestUtils;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
@@ -19,6 +24,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.List;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -27,6 +33,7 @@ import org.bson.codecs.BsonDocumentCodec;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 public class ManageSearchIndexUnaryCallHandlerTest {
 
@@ -101,8 +108,15 @@ public class ManageSearchIndexUnaryCallHandlerTest {
       ManageSearchIndexUnaryCallHandler handler = createHandler(commandRegistry, commandExecutor);
       StreamObserver<RawBsonDocument> responseObserver = mock(RawBsonDocumentStreamObserver.class);
       RawBsonDocument request = toRaw(new BsonDocument("unknownCommand", BsonBoolean.TRUE));
+      List<ILoggingEvent> logEvents =
+          TestUtils.getLogEvents(
+              (Logger) LoggerFactory.getLogger(ManageSearchIndexUnaryCallHandler.class));
 
       handler.invoke(request, responseObserver);
+
+      // An unknown command is expected during version skew: answered with a code, never logged
+      // as an error.
+      Assert.assertTrue(logEvents.stream().noneMatch(event -> event.getLevel() == Level.ERROR));
 
       ArgumentCaptor<RawBsonDocument> captor = ArgumentCaptor.forClass(RawBsonDocument.class);
       verify(responseObserver, timeout(5000)).onNext(captor.capture());
@@ -112,6 +126,10 @@ public class ManageSearchIndexUnaryCallHandlerTest {
       Assert.assertEquals(
           "no command registered for unknownCommand",
           captor.getValue().getString("errmsg").getValue());
+      Assert.assertEquals(
+          Errors.COMMAND_NOT_FOUND.code, captor.getValue().getInt32("code").getValue());
+      Assert.assertEquals(
+          Errors.COMMAND_NOT_FOUND.name, captor.getValue().getString("codeName").getValue());
     } finally {
       commandExecutor.close();
     }

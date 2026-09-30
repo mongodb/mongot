@@ -188,11 +188,23 @@ public class StreamingMessageHandlerTest {
    * responseObserver}.
    */
   private void verifyServerErrorResponse(String expectedErrorMessage) {
+    captureServerErrorResponse(expectedErrorMessage);
+  }
+
+  /** Like {@link #verifyServerErrorResponse(String)} but also checks the error code fields. */
+  private void verifyServerErrorResponse(String expectedErrorMessage, Errors.Error expectedError) {
+    var bsonDocument = captureServerErrorResponse(expectedErrorMessage);
+    Assert.assertEquals(expectedError.code, bsonDocument.getInt32("code").getValue());
+    Assert.assertEquals(expectedError.name, bsonDocument.getString("codeName").getValue());
+  }
+
+  private BsonDocument captureServerErrorResponse(String expectedErrorMessage) {
     ArgumentCaptor<MessageMessage> captor = ArgumentCaptor.forClass(MessageMessage.class);
     this.inOrder.verify(this.responseObserver, timeout(5000).times(1)).onNext(captor.capture());
     var bsonDocument = ((MessageSectionBody) captor.getValue().sections().get(0)).body;
     Assert.assertEquals(0, bsonDocument.getInt32("ok").getValue());
     Assert.assertEquals(expectedErrorMessage, bsonDocument.getString("errmsg").getValue());
+    return bsonDocument;
   }
 
   /** Verifies that {@code responseObserver} is not called. */
@@ -500,7 +512,8 @@ public class StreamingMessageHandlerTest {
   public void invalidCommandName() {
     BsonDocument document = new BsonDocument().append("invalidCommandName", BsonBoolean.TRUE);
     this.messageHandler.onNext(createOpMsgFromBsonDocument(document));
-    verifyServerErrorResponse("no command registered for invalidCommandName");
+    verifyServerErrorResponse(
+        "no command registered for invalidCommandName", Errors.COMMAND_NOT_FOUND);
 
     this.messageHandler.onCompleted();
     verifyServerHalfClosed();
