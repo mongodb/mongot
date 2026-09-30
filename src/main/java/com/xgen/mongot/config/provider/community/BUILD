@@ -58,6 +58,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/embedding/providers/configs",
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/lucene/config",
+        "//src/main/java/com/xgen/mongot/metrics/prometheus",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/replication/mongodb/initialsync/config",
         "//src/main/java/com/xgen/mongot/server/executors",

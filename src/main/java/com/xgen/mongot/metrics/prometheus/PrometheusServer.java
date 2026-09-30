@@ -2,6 +2,9 @@ package com.xgen.mongot.metrics.prometheus;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.metrics.cache.IntervalThrottle;
@@ -28,6 +31,8 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,7 +82,7 @@ public class PrometheusServer {
     return this.server.getAddress();
   }
 
-  /** Starts the Prometheus server. */
+  /** Starts the Prometheus server over HTTP. */
   public static PrometheusServer start(
       InetSocketAddress address,
       Iterable<Tag> commonTags,
@@ -85,6 +90,25 @@ public class PrometheusServer {
       FeatureFlags featureFlags,
       ScrapeCacheConfig scrapeCacheConfig,
       Optional<Supplier<String>> extraScrapeText) {
+    return start(
+        address,
+        commonTags,
+        filters,
+        featureFlags,
+        scrapeCacheConfig,
+        extraScrapeText,
+        Optional.empty());
+  }
+
+  /** Starts the Prometheus server over HTTP, or over mTLS when {@code serverSslContext} is set. */
+  public static PrometheusServer start(
+      InetSocketAddress address,
+      Iterable<Tag> commonTags,
+      List<MeterFilter> filters,
+      FeatureFlags featureFlags,
+      ScrapeCacheConfig scrapeCacheConfig,
+      Optional<Supplier<String>> extraScrapeText,
+      Optional<SSLContext> serverSslContext) {
     return startInternal(
         address,
         new PrometheusMeterRegistry(PrometheusConfig.DEFAULT),
@@ -94,7 +118,8 @@ public class PrometheusServer {
         scrapeCacheConfig,
         /* preWarmCache= */ true,
         Optional.empty(),
-        extraScrapeText);
+        extraScrapeText,
+        serverSslContext);
   }
 
   /** Test-visible entry point. */
@@ -109,6 +134,30 @@ public class PrometheusServer {
       boolean preWarmCache,
       Optional<Executor> httpExecutor,
       Optional<Supplier<String>> extraScrapeText) {
+    return startInternal(
+        address,
+        prometheusRegistry,
+        commonTags,
+        filters,
+        featureFlags,
+        scrapeCacheConfig,
+        preWarmCache,
+        httpExecutor,
+        extraScrapeText,
+        Optional.empty());
+  }
+
+  static PrometheusServer startInternal(
+      InetSocketAddress address,
+      PrometheusMeterRegistry prometheusRegistry,
+      Iterable<Tag> commonTags,
+      List<MeterFilter> filters,
+      FeatureFlags featureFlags,
+      ScrapeCacheConfig scrapeCacheConfig,
+      boolean preWarmCache,
+      Optional<Executor> httpExecutor,
+      Optional<Supplier<String>> extraScrapeText,
+      Optional<SSLContext> serverSslContext) {
     prometheusRegistry.config().namingConvention(new MongotPrometheusNamingConvention());
     prometheusRegistry.config().commonTags(commonTags);
     filters.forEach(filter -> prometheusRegistry.config().meterFilter(filter));
@@ -159,7 +208,7 @@ public class PrometheusServer {
               address,
               BIND_RETRY_INTERVAL,
               BIND_MAX_RETRIES,
-              candidateAddress -> HttpServer.create(candidateAddress, 0));
+              candidateAddress -> createServer(candidateAddress, serverSslContext));
       server.createContext(
           ENDPOINT_PATH,
           httpExchange -> {
@@ -228,6 +277,25 @@ public class PrometheusServer {
       String separator = micrometerText.charAt(micrometerText.length() - 1) == '\n' ? "" : "\n";
       return micrometerText + separator + extraText;
     };
+  }
+
+  private static HttpServer createServer(
+      InetSocketAddress address, Optional<SSLContext> serverSslContext) throws IOException {
+    if (serverSslContext.isEmpty()) {
+      return HttpServer.create(address, 0);
+    }
+    SSLContext sslContext = serverSslContext.get();
+    HttpsServer httpsServer = HttpsServer.create(address, 0);
+    httpsServer.setHttpsConfigurator(
+        new HttpsConfigurator(sslContext) {
+          @Override
+          public void configure(HttpsParameters params) {
+            SSLParameters sslParameters = sslContext.getDefaultSSLParameters();
+            sslParameters.setNeedClientAuth(true);
+            params.setSSLParameters(sslParameters);
+          }
+        });
+    return httpsServer;
   }
 
   /**

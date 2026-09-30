@@ -93,6 +93,7 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.MongoDbMetadataClient;
+import com.xgen.mongot.util.mongodb.SslContextFactory;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -110,6 +111,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.net.ssl.SSLContext;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -460,7 +462,8 @@ public class OnPremMongotBootstrapper {
         .build();
   }
 
-  private static Optional<PrometheusServer> maybeStartPrometheusServer(
+  @VisibleForTesting
+  static Optional<PrometheusServer> maybeStartPrometheusServer(
       MetricsConfig metricsConfig, FeatureFlags featureFlags) {
     if (!metricsConfig.enabled()) {
       LOG.info("Not starting Prometheus endpoint since it was explicitly disabled");
@@ -468,6 +471,25 @@ public class OnPremMongotBootstrapper {
     }
 
     var address = OnPremMongotBootstrapper.parseInetSocketAddress(metricsConfig.address());
+    // Build the server TLS context before binding so invalid TLS material fails startup with an
+    // actionable configuration error rather than at the first scrape.
+    Optional<SSLContext> serverSslContext =
+        metricsConfig
+            .tls()
+            .map(
+                tls ->
+                    SslContextFactory.withCertKeyFile(
+                            Optional.of(tls.caFile()),
+                            tls.certificateKeyFile(),
+                            tls.certificateKeyFilePasswordFile())
+                        .getJavaContext());
+    LOG.atInfo()
+        .addKeyValue("address", address)
+        .addKeyValue("mtlsEnabled", serverSslContext.isPresent())
+        .log(
+            serverSslContext.isPresent()
+                ? "Starting Prometheus endpoint over mTLS"
+                : "Starting Prometheus endpoint over HTTP");
     return Optional.of(
         PrometheusServer.start(
             address,
@@ -475,7 +497,8 @@ public class OnPremMongotBootstrapper {
             List.of(),
             featureFlags,
             ScrapeCacheConfig.getDefault(),
-            Optional.empty()));
+            Optional.empty(),
+            serverSslContext));
   }
 
   private static Optional<SystemMetricsInstrumentation> maybeStartSystemMetrics(

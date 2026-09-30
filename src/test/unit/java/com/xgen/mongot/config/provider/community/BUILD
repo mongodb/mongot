@@ -23,6 +23,7 @@ java_test_suite(
         "InitialSyncConfigMapperTest.java",
         "InitialSyncHostProviderTest.java",
         "LuceneConfigMapperTest.java",
+        "MetricsConfigTest.java",
         "MongoConnectionConfigTest.java",
         "MongoDbReplicationConfigMapperTest.java",
         "OnPremMongotBootstrapperTest.java",
