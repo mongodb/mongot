@@ -3,15 +3,45 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.Field;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
+import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonValue;
 import org.junit.Test;
 
 public class CommunityAutoEmbeddingConfigTest {
+
+  private static final Field.Optional<String> ADVANCED_CONFIGS_FIELD =
+      Field.builder("advancedConfigs").stringField().optional().noDefault();
+  private static final Field.Optional<String> AUTO_EMBEDDING_FIELD =
+      Field.builder("autoEmbedding").stringField().optional().noDefault();
+
+  /**
+   * Registries that mount the autoEmbedding block under {@code advancedConfigs.autoEmbedding}, as
+   * the Community config root does, so traversal emits the absolute YAML paths.
+   */
+  private static final class AdvancedConfigsTestRegistry extends CliOptionRegistry {
+    final CommunityAutoEmbeddingConfig.CommunityAutoEmbeddingConfigCliOptionRegistry autoEmbedding =
+        new CommunityAutoEmbeddingConfig.CommunityAutoEmbeddingConfigCliOptionRegistry();
+
+    AdvancedConfigsTestRegistry() {
+      addChildRegistry(AUTO_EMBEDDING_FIELD, this.autoEmbedding);
+    }
+  }
+
+  private static final class RootConfigTestRegistry extends CliOptionRegistry {
+    final AdvancedConfigsTestRegistry advancedConfigs = new AdvancedConfigsTestRegistry();
+
+    RootConfigTestRegistry() {
+      addChildRegistry(ADVANCED_CONFIGS_FIELD, this.advancedConfigs);
+    }
+  }
 
   private static CommunityAutoEmbeddingConfig parse(BsonDocument doc) throws BsonParseException {
     PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
@@ -123,5 +153,63 @@ public class CommunityAutoEmbeddingConfigTest {
     CommunityAutoEmbeddingConfig parsed =
         parse(new BsonDocument("materializedView", materializedView));
     assertEquals(Optional.of(5), parsed.materializedViewConfig().get().numIndexingThreads());
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_withAllOptions_returnsYamlPaths() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    var materializedView =
+        rootRegistry.advancedConfigs.autoEmbedding.materializedViewConfigCliOptionRegistry;
+    materializedView.numConcurrentChangeStreams = Optional.of(10);
+    materializedView.numIndexingThreads = Optional.of(5);
+    materializedView.numEmbeddingThreads = Optional.of(6);
+    materializedView.numConcurrentInitialSyncs = Optional.of(2);
+    materializedView.matViewWriterMaxConnections = Optional.of(8);
+    materializedView.mvWriteRateLimitRps = Optional.of(50);
+    materializedView.embeddingProviderRpsLimit = Optional.of(25);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(7, cliValues.size());
+    assertEquals(
+        new BsonInt32(10),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.numConcurrentChangeStreams"));
+    assertEquals(
+        new BsonInt32(5),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.numIndexingThreads"));
+    assertEquals(
+        new BsonInt32(6),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.numEmbeddingThreads"));
+    assertEquals(
+        new BsonInt32(2),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.numConcurrentInitialSyncs"));
+    assertEquals(
+        new BsonInt32(8),
+        cliValues.get(
+            "advancedConfigs.autoEmbedding.materializedView.matViewWriterMaxConnections"));
+    assertEquals(
+        new BsonInt32(50),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.mvWriteRateLimitRps"));
+    assertEquals(
+        new BsonInt32(25),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.embeddingProviderRpsLimit"));
+  }
+
+  @Test
+  public void cliOptionRegistry_traverse_unsetOptionsAreOmitted() {
+    RootConfigTestRegistry rootRegistry = new RootConfigTestRegistry();
+    rootRegistry
+            .advancedConfigs
+            .autoEmbedding
+            .materializedViewConfigCliOptionRegistry
+            .numEmbeddingThreads =
+        Optional.of(6);
+
+    Map<String, BsonValue> cliValues = rootRegistry.traverse();
+
+    assertEquals(1, cliValues.size());
+    assertEquals(
+        new BsonInt32(6),
+        cliValues.get("advancedConfigs.autoEmbedding.materializedView.numEmbeddingThreads"));
   }
 }

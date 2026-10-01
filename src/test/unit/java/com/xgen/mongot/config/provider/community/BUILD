@@ -3,8 +3,10 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "community",
     srcs = [
+        "AdvancedConfigsTest.java",
         "AutoEmbeddingMaterializedViewConfigMapperTest.java",
         "CommunityAutoEmbeddingConfigTest.java",
+        "CommunityConfigPicoCliInjectionTest.java",
         "CommunityConfigTest.java",
         "CommunityConfigUpdaterTest.java",
         "CommunityCursorConfigTest.java",
@@ -20,6 +22,7 @@ java_test_suite(
         "CursorConfigMapperTest.java",
         "DiskMonitorConfigTest.java",
         "DroppedCollectionIndexCleanerTest.java",
+        "FtdcCommunityConfigTest.java",
         "InitialSyncConfigMapperTest.java",
         "InitialSyncHostProviderTest.java",
         "LuceneConfigMapperTest.java",
@@ -81,6 +84,7 @@ java_test_suite(
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
+        "@maven//:info_picocli_picocli",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:io_opentelemetry_opentelemetry_api",
         "@maven//:io_opentelemetry_opentelemetry_context",

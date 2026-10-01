@@ -24,7 +24,13 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonArray;
+import org.bson.BsonBoolean;
+import org.bson.BsonInt32;
+import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -1234,6 +1240,40 @@ public class CommunityConfigTest {
           () ->
               CommunityConfig.readFromFile(
                   configPath, Optional.of(DeploymentEnvironment.COMMUNITY)));
+    }
+
+    @Test
+    public void cliOptionRegistry_traverse_returnsOneFieldFromEachChildRegistry() {
+      // Full traversal test coverage should be in each child Config's unit test
+      CommunityConfig.CommunityConfigCliOptionRegistry registry =
+          new CommunityConfig.CommunityConfigCliOptionRegistry();
+      registry.serverConfigCliOptionRegistry.serverName = Optional.of("mongot-1");
+      registry.syncSourceConfigCliOptionRegistry.replicaSetConfigCliOptionRegistry.hostPorts =
+          List.of("mongod:27017");
+      registry.storageConfigCliOptionRegistry.dataPath = Optional.of(Path.of("data/mongot"));
+      registry.metricsConfigCliOptionRegistry.enabled = Optional.of(Boolean.TRUE);
+      registry.healthCheckConfigCliOptionRegistry.address = Optional.of("localhost:8080");
+      registry.loggingConfigCliOptionRegistry.verbosity = Optional.of("WARNING");
+      registry.embeddingConfigCliOptionRegistry.providerEndpoint =
+          Optional.of("https://embedding.example.com");
+      registry.advancedConfigsCliOptionRegistry.ftdcConfigCliOptionRegistry.fileSizeMb =
+          Optional.of(20);
+
+      Map<String, BsonValue> cliValues = registry.traverse();
+
+      assertEquals(8, cliValues.size());
+      assertEquals(new BsonString("mongot-1"), cliValues.get("server.name"));
+      assertEquals(
+          new BsonArray(List.of(new BsonString("mongod:27017"))),
+          cliValues.get("syncSource.replicaSet.hostAndPort"));
+      assertEquals(new BsonString("data/mongot"), cliValues.get("storage.dataPath"));
+      assertEquals(BsonBoolean.TRUE, cliValues.get("metrics.enabled"));
+      assertEquals(new BsonString("localhost:8080"), cliValues.get("healthCheck.address"));
+      assertEquals(new BsonString("WARNING"), cliValues.get("logging.verbosity"));
+      assertEquals(
+          new BsonString("https://embedding.example.com"),
+          cliValues.get("embedding.providerEndpoint"));
+      assertEquals(new BsonInt32(20), cliValues.get("advancedConfigs.ftdc.fileSizeMb"));
     }
   }
 }

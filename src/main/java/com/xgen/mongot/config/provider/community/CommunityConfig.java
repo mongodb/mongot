@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.embedding.EmbeddingConfig;
 import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.YamlCodec;
@@ -20,6 +21,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import picocli.CommandLine;
 
 public record CommunityConfig(
     SyncSourceConfig syncSourceConfig,
@@ -113,6 +115,52 @@ public record CommunityConfig(
             .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
+  }
+
+  public static final class CommunityConfigCliOptionRegistry extends CliOptionRegistry {
+    @CommandLine.Mixin
+    public ServerConfig.ServerConfigCliOptionRegistry serverConfigCliOptionRegistry =
+        new ServerConfig.ServerConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public SyncSourceConfig.SyncSourceConfigCliOptionRegistry syncSourceConfigCliOptionRegistry =
+        new SyncSourceConfig.SyncSourceConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public StorageConfig.StorageConfigCliOptionRegistry storageConfigCliOptionRegistry =
+        new StorageConfig.StorageConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public MetricsConfig.MetricsConfigCliOptionRegistry metricsConfigCliOptionRegistry =
+        new MetricsConfig.MetricsConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public HealthCheckConfig.HealthCheckConfigCliOptionRegistry healthCheckConfigCliOptionRegistry =
+        new HealthCheckConfig.HealthCheckConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public LoggingConfig.LoggingConfigCliOptionRegistry loggingConfigCliOptionRegistry =
+        new LoggingConfig.LoggingConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public EmbeddingConfig.EmbeddingConfigCliOptionRegistry embeddingConfigCliOptionRegistry =
+        new EmbeddingConfig.EmbeddingConfigCliOptionRegistry();
+
+    @CommandLine.Mixin
+    public AdvancedConfigs.AdvancedConfigsCliOptionRegistry advancedConfigsCliOptionRegistry =
+        new AdvancedConfigs.AdvancedConfigsCliOptionRegistry();
+
+    /** Creates the root registry for the Community config file. */
+    public CommunityConfigCliOptionRegistry() {
+      addChildRegistry(Fields.SERVER, this.serverConfigCliOptionRegistry);
+      addChildRegistry(Fields.SYNC_SOURCE, this.syncSourceConfigCliOptionRegistry);
+      addChildRegistry(Fields.STORAGE, this.storageConfigCliOptionRegistry);
+      addChildRegistry(Fields.METRICS, this.metricsConfigCliOptionRegistry);
+      addChildRegistry(Fields.HEALTH_CHECK, this.healthCheckConfigCliOptionRegistry);
+      addChildRegistry(Fields.LOGGING, this.loggingConfigCliOptionRegistry);
+      addChildRegistry(Fields.EMBEDDING, this.embeddingConfigCliOptionRegistry);
+      addChildRegistry(Fields.ADVANCED_CONFIGS, this.advancedConfigsCliOptionRegistry);
+    }
   }
 
   public record ParsedCommunityConfig(

@@ -1,6 +1,7 @@
 package com.xgen.mongot.community;
 
 import com.google.common.net.HostAndPort;
+import com.xgen.mongot.config.provider.community.CommunityConfig;
 import com.xgen.mongot.config.provider.community.OnPremMongotBootstrapper;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
@@ -45,6 +46,12 @@ public class MongotCommunity implements Runnable, IVersionProvider {
       defaultValue = "false")
   public boolean internalListAllIndexesForTesting;
 
+  // CLI options that set fields of the mongot YAML config file. These do not override the config
+  // file: if a field is provided both in the YAML config and via the CLI, an error is thrown.
+  @CommandLine.Mixin
+  public CommunityConfig.CommunityConfigCliOptionRegistry communityConfigCliOptionRegistry =
+      new CommunityConfig.CommunityConfigCliOptionRegistry();
+
   @Override
   public void run() {
     LOG.atInfo().addKeyValue("mongotVersion", getVersion()[0]).log("[Starting Mongot]");
@@ -77,7 +84,10 @@ public class MongotCommunity implements Runnable, IVersionProvider {
             () ->
                 new OnPremMongotBootstrapper(
                         dynamicFeatureFlagRegistry, featureFlags, DeploymentEnvironment.COMMUNITY)
-                    .bootstrap(this.configPath, this.internalListAllIndexesForTesting));
+                    .bootstrap(
+                        this.configPath,
+                        this.internalListAllIndexesForTesting,
+                        this.communityConfigCliOptionRegistry.traverse()));
   }
 
   public static void main(String[] args) {

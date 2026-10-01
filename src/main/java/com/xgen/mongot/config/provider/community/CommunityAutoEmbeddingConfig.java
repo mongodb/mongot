@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -8,6 +9,7 @@ import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
 import java.util.Optional;
 import org.bson.BsonDocument;
+import picocli.CommandLine;
 
 /**
  * The {@code autoEmbedding} block of the mongot config file. Tunes auto-embedding materialized
@@ -24,6 +26,20 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
             .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
+  }
+
+  public static final class CommunityAutoEmbeddingConfigCliOptionRegistry
+      extends CliOptionRegistry {
+
+    @CommandLine.Mixin
+    public MaterializedViewConfig.MaterializedViewConfigCliOptionRegistry
+        materializedViewConfigCliOptionRegistry =
+            new MaterializedViewConfig.MaterializedViewConfigCliOptionRegistry();
+
+    public CommunityAutoEmbeddingConfigCliOptionRegistry() {
+      addChildRegistry(
+          Fields.MATERIALIZED_VIEW_CONFIG, this.materializedViewConfigCliOptionRegistry);
+    }
   }
 
   public static CommunityAutoEmbeddingConfig fromBson(DocumentParser parser)
@@ -187,6 +203,73 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
               .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
+    }
+
+    public static final class MaterializedViewConfigCliOptionRegistry extends CliOptionRegistry {
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewNumConcurrentChangeStreams",
+          description =
+              "Maximum number of steady-state change streams that the materialized view "
+                  + "replication process can have outstanding at any one time")
+      public Optional<Integer> numConcurrentChangeStreams = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewNumIndexingThreads",
+          description =
+              "Number of threads used to write embedding data into the materialized view's indexes")
+      public Optional<Integer> numIndexingThreads = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewNumEmbeddingThreads",
+          description = "Number of threads used to request embeddings from the embedding provider")
+      public Optional<Integer> numEmbeddingThreads = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewNumConcurrentInitialSyncs",
+          description =
+              "Maximum number of Automated Embedding indexes that can run their initial sync "
+                  + "at the same time")
+      public Optional<Integer> numConcurrentInitialSyncs = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewWriterMaxConnections",
+          description =
+              "Maximum number of connections used to write to the materialized view collection")
+      public Optional<Integer> matViewWriterMaxConnections = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewWriteRateLimitRps",
+          description =
+              "Maximum number of bulk write commits per second to the materialized view collection "
+                  + "on this node")
+      public Optional<Integer> mvWriteRateLimitRps = Optional.empty();
+
+      @CommandLine.Option(
+          names = "--autoEmbeddingMatViewProviderRpsLimit",
+          description =
+              "Maximum number of requests per second this node can send to the embedding provider")
+      public Optional<Integer> embeddingProviderRpsLimit = Optional.empty();
+
+      public MaterializedViewConfigCliOptionRegistry() {
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.NUM_CONCURRENT_CHANGE_STREAMS,
+            () -> this.numConcurrentChangeStreams);
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.NUM_INDEXING_THREADS, () -> this.numIndexingThreads);
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.NUM_EMBEDDING_THREADS, () -> this.numEmbeddingThreads);
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.NUM_CONCURRENT_INITIAL_SYNCS,
+            () -> this.numConcurrentInitialSyncs);
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.MAT_VIEW_WRITER_MAX_CONNECTIONS,
+            () -> this.matViewWriterMaxConnections);
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.MV_WRITE_RATE_LIMIT_RPS, () -> this.mvWriteRateLimitRps);
+        addIntegerLeafValue(
+            MaterializedViewConfig.Fields.EMBEDDING_PROVIDER_RPS_LIMIT,
+            () -> this.embeddingProviderRpsLimit);
+      }
     }
 
     public static MaterializedViewConfig fromBson(DocumentParser parser) throws BsonParseException {

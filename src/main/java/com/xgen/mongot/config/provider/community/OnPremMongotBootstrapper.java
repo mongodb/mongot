@@ -108,6 +108,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -159,11 +160,25 @@ public class OnPremMongotBootstrapper {
    * <p>This method does not return until all mongot subsystems have been configured and started.
    */
   public void bootstrap(Path configPath, boolean internalListAllIndexesForTesting) {
+    bootstrap(configPath, internalListAllIndexesForTesting, Map.of());
+  }
+
+  /**
+   * Bootstraps the mongot using the config file from the supplied configPath, merging any
+   * CLI-supplied config values into it.
+   *
+   * <p>This method does not return until all mongot subsystems have been configured and started.
+   *
+   * @param cliValues the CLI-supplied config values keyed by dot-delimited YAML path.
+   */
+  public void bootstrap(
+      Path configPath, boolean internalListAllIndexesForTesting, Map<String, BsonValue> cliValues) {
 
     CommunityConfig.ParsedCommunityConfig parsedConfig =
         Crash.because("failed to parse config file")
             .ifThrowsExceptionOrError(
-                () -> CommunityConfig.readFromFile(configPath, Optional.of(this.edition)));
+                () ->
+                    CommunityConfig.readFromFile(configPath, cliValues, Optional.of(this.edition)));
     CommunityConfig config = parsedConfig.config();
 
     config
