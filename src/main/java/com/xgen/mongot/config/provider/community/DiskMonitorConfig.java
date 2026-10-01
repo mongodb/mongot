@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -87,6 +88,7 @@ public record DiskMonitorConfig(
         Field.builder("pauseReplicationThreshold")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_PAUSE_REPLICATION_THRESHOLD);
 
@@ -95,6 +97,7 @@ public record DiskMonitorConfig(
         Field.builder("resumeReplicationThreshold")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_RESUME_REPLICATION_THRESHOLD);
 
@@ -103,6 +106,7 @@ public record DiskMonitorConfig(
         Field.builder("crashThreshold")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_CRASH_THRESHOLD);
 
@@ -111,6 +115,7 @@ public record DiskMonitorConfig(
         Field.builder("pauseInitialSyncThreshold")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_PAUSE_INITIAL_SYNC_THRESHOLD);
 
@@ -119,6 +124,7 @@ public record DiskMonitorConfig(
         Field.builder("resumeInitialSyncThreshold")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_RESUME_INITIAL_SYNC_THRESHOLD);
   }

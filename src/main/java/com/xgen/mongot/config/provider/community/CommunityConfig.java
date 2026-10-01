@@ -41,24 +41,28 @@ public record CommunityConfig(
         Field.builder("syncSource")
             .classField(SyncSourceConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     public static final Field.Required<StorageConfig> STORAGE =
         Field.builder("storage")
             .classField(StorageConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     public static final Field.Required<ServerConfig> SERVER =
         Field.builder("server")
             .classField(ServerConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     public static final Field.Optional<MetricsConfig> METRICS =
         Field.builder("metrics")
             .classField(MetricsConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -66,6 +70,7 @@ public record CommunityConfig(
         Field.builder("healthCheck")
             .classField(HealthCheckConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -73,6 +78,7 @@ public record CommunityConfig(
         Field.builder("logging")
             .classField(LoggingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -80,6 +86,7 @@ public record CommunityConfig(
         Field.builder("embedding")
             .classField(EmbeddingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -87,6 +94,7 @@ public record CommunityConfig(
         Field.builder("advancedConfigs")
             .classField(AdvancedConfigs::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -94,6 +102,7 @@ public record CommunityConfig(
         Field.builder("tracing")
             .classField(TracingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -101,6 +110,7 @@ public record CommunityConfig(
         Field.builder("durability")
             .classField(CommunityDurabilityConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

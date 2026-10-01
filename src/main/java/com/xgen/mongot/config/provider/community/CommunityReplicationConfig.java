@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -23,6 +24,7 @@ public record CommunityReplicationConfig(
         Field.builder("mongodb")
             .classField(MongoDbConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -30,6 +32,7 @@ public record CommunityReplicationConfig(
         Field.builder("initialSync")
             .classField(InitialSyncConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }
@@ -77,6 +80,7 @@ public record CommunityReplicationConfig(
           Field.builder("numConcurrentInitialSyncs")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -84,26 +88,39 @@ public record CommunityReplicationConfig(
           Field.builder("numConcurrentChangeStreams")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<Integer> NUM_INDEXING_THREADS =
-          Field.builder("numIndexingThreads").intField().mustBePositive().optional().noDefault();
+          Field.builder("numIndexingThreads")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<Integer> NUM_CONCURRENT_SYNONYM_SYNCS =
           Field.builder("numConcurrentSynonymSyncs")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<Integer> CHANGE_STREAM_MAX_TIME_MS =
-          Field.builder("changeStreamMaxTimeMs").intField().mustBePositive().optional().noDefault();
+          Field.builder("changeStreamMaxTimeMs")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<Integer> CHANGE_STREAM_CURSOR_MAX_TIME_SEC =
           Field.builder("changeStreamCursorMaxTimeSec")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -111,21 +128,28 @@ public record CommunityReplicationConfig(
           Field.builder("numChangeStreamDecodingThreads")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<Boolean> PAUSE_ALL_INITIAL_SYNCS =
-          Field.builder("pauseAllInitialSyncs").booleanField().optional().noDefault();
+          Field.builder("pauseAllInitialSyncs")
+              .booleanField()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<List<ObjectId>> PAUSE_INITIAL_SYNC_ON_INDEX_IDS =
           Field.builder("pauseInitialSyncOnIndexIds")
               .listOf(Value.builder().objectIdValue().required())
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<List<String>> EXCLUDED_CHANGESTREAM_FIELDS =
           Field.builder("excludedChangestreamFields")
               .listOf(Value.builder().stringValue().required())
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }
@@ -209,6 +233,7 @@ public record CommunityReplicationConfig(
           Field.builder("bufferless")
               .classField(BufferlessInitialSyncConfig::fromBson)
               .disallowUnknownFields()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }
@@ -230,7 +255,11 @@ public record CommunityReplicationConfig(
       static class Fields {
         // TODO(CLOUDP-416372) Remove the config once it is fully rolled out.
         public static final Field.Optional<Boolean> ENABLE_NATURAL_ORDER_SCAN =
-            Field.builder("enableNaturalOrderScan").booleanField().optional().noDefault();
+            Field.builder("enableNaturalOrderScan")
+                .booleanField()
+                .edition(DeploymentEnvironment.COMMUNITY)
+                .optional()
+                .noDefault();
       }
 
       public static BufferlessInitialSyncConfig fromBson(DocumentParser parser)

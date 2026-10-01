@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import com.mongodb.ReadPreference;
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -28,12 +29,14 @@ public record SyncSourceConfig(
         Field.builder("replicaSet")
             .classField(ReplicaSetConfig::fromBson, ReplicaSetConfig::toBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     public static final Field.Optional<RouterConfig> ROUTER =
         Field.builder("router")
             .classField(RouterConfig::fromBson, RouterConfig::toBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -41,6 +44,7 @@ public record SyncSourceConfig(
         Field.builder("replicationReader")
             .classField(ReadPreferenceConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

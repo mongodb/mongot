@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.parser.PathField;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -62,23 +63,30 @@ public record TlsConfig(
 
   public static class Fields {
     public static final Field.WithDefault<Boolean> ENABLED =
-        Field.builder("enabled").booleanField().optional().withDefault(false);
+        Field.builder("enabled")
+            .booleanField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(false);
 
     public static final Field.Optional<Path> TLS_CERTIFICATE_KEY_FILE =
         Field.builder("tlsCertificateKeyFile")
             .classField(PathField.PARSER, PathField.ENCODER)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
     public static final Field.Optional<Path> TLS_CERTIFICATE_KEY_FILE_PASSWORD_FILE =
         Field.builder("tlsCertificateKeyFilePasswordFile")
             .classField(PathField.PARSER, PathField.ENCODER)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
     public static final Field.Optional<Path> TLS_CA_FILE =
         Field.builder("caFile")
             .classField(PathField.PARSER, PathField.ENCODER)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

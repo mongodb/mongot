@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -23,6 +24,7 @@ public record SearchQueryAdmissionControlConfig(
         Field.builder("threadPoolSizeMultiplier")
             .doubleField()
             .mustBeNonNegative()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(3.0);
 
@@ -30,15 +32,21 @@ public record SearchQueryAdmissionControlConfig(
         Field.builder("queueCapacityMultiplier")
             .doubleField()
             .mustBeNonNegative()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(30.0);
 
     public static final Field.WithDefault<Boolean> VIRTUAL_QUEUE_CAPACITY =
-        Field.builder("virtualQueueCapacity").booleanField().optional().withDefault(Boolean.TRUE);
+        Field.builder("virtualQueueCapacity")
+            .booleanField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(Boolean.TRUE);
 
     public static final Field.WithDefault<Boolean> SHOULD_RETRY_VIA_LOAD_BALANCER =
         Field.builder("shouldRetryViaLoadBalancer")
             .booleanField()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(Boolean.FALSE);
   }

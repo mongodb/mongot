@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.parser.PathField;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -22,19 +23,28 @@ public record ScramConfig(String authSource, String username, Path passwordFile,
         Field.builder("authSource")
             .stringField()
             .mustNotBeEmpty()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(Databases.ADMIN);
 
     public static final Field.Required<String> USERNAME =
-        Field.builder("username").stringField().mustNotBeEmpty().required();
+        Field.builder("username")
+            .stringField()
+            .mustNotBeEmpty()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .required();
 
     public static final Field.Required<Path> PASSWORD_FILE =
-        Field.builder("passwordFile").classField(PathField.PARSER, PathField.ENCODER).required();
+        Field.builder("passwordFile")
+            .classField(PathField.PARSER, PathField.ENCODER)
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .required();
 
     public static final Field.WithDefault<TlsConfig> TLS =
         Field.builder("tls")
             .classField(TlsConfig::fromBson, TlsConfig::toBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(
                 new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()));

@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -18,11 +19,17 @@ public record CommunityCursorConfig(
         Field.builder("idleCursorHandlingRateMs")
             .intField()
             .mustBePositive()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
     public static final Field.Optional<Integer> CURSOR_IDLE_TIME_MS =
-        Field.builder("cursorIdleTimeMs").intField().mustBePositive().optional().noDefault();
+        Field.builder("cursorIdleTimeMs")
+            .intField()
+            .mustBePositive()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .noDefault();
   }
 
   public static CommunityCursorConfig fromBson(DocumentParser parser) throws BsonParseException {

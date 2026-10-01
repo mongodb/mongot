@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -17,7 +18,12 @@ public record CommunityDurabilityConfig(Optional<Integer> commitIntervalMs)
 
   static class Fields {
     public static final Field.Optional<Integer> COMMIT_INTERVAL_MS =
-        Field.builder("commitIntervalMs").intField().mustBePositive().optional().noDefault();
+        Field.builder("commitIntervalMs")
+            .intField()
+            .mustBePositive()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .noDefault();
   }
 
   public static CommunityDurabilityConfig fromBson(DocumentParser parser)

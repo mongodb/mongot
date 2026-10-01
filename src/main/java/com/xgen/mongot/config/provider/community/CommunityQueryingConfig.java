@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -19,6 +20,7 @@ public record CommunityQueryingConfig(Optional<LuceneConfig> luceneConfig)
         Field.builder("lucene")
             .classField(LuceneConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }
@@ -47,7 +49,12 @@ public record CommunityQueryingConfig(Optional<LuceneConfig> luceneConfig)
 
     static class Fields {
       public static final Field.Optional<Integer> MAX_CLAUSE_LIMIT =
-          Field.builder("maxClauseLimit").intField().mustBePositive().optional().noDefault();
+          Field.builder("maxClauseLimit")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       /**
        * Sets vector FloorSegmentMB in Lucene's {@code TieredMergePolicy}. Larger values improve
@@ -59,6 +66,7 @@ public record CommunityQueryingConfig(Optional<LuceneConfig> luceneConfig)
           Field.builder("vectorFloorSegmentMB")
               .doubleField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }

@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -17,13 +18,22 @@ public record LoggingConfig(
 
   private static class Fields {
     public static final Field.WithDefault<String> VERBOSITY =
-        Field.builder("verbosity").stringField().optional().withDefault(Level.INFO.toString());
+        Field.builder("verbosity")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(Level.INFO.toString());
     public static final Field.Optional<String> LOG_PATH =
-        Field.builder("logPath").stringField().optional().noDefault();
+        Field.builder("logPath")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .noDefault();
     public static final Field.Optional<OtlpTracingConfig> OTLP =
         Field.builder("otlp")
             .classField(OtlpTracingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import com.google.common.net.HostAndPort;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -40,15 +41,21 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
     public static final Field.Required<List<String>> HOST_AND_PORT =
         Field.builder("hostAndPort")
             .singleValueOrListOf(Value.builder().stringValue().mustNotBeEmpty().required())
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     public static final Field.Optional<String> SRV_HOST =
-        Field.builder("srvHost").stringField().optional().noDefault();
+        Field.builder("srvHost")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .noDefault();
 
     public static final Field.Optional<X509Config> X509 =
         Field.builder("x509")
             .classField(X509Config::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -56,6 +63,7 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
       return Field.builder("scramAuth")
           .classField(documentParser -> ScramConfig.fromBson(documentParser, isSrvConfig))
           .disallowUnknownFields()
+          .edition(DeploymentEnvironment.COMMUNITY)
           .optional()
           .noDefault();
     }

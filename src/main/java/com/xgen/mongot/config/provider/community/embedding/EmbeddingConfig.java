@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community.embedding;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.parser.PathField;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -27,22 +28,32 @@ public record EmbeddingConfig(
 
   private static class Fields {
     public static final Field.Optional<String> PROVIDER_ENDPOINT =
-        Field.builder("providerEndpoint").stringField().optional().noDefault();
+        Field.builder("providerEndpoint")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .noDefault();
 
     public static final Field.Optional<Path> QUERY_KEY_FILE =
         Field.builder("queryKeyFile")
             .classField(PathField.PARSER, PathField.ENCODER)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
     public static final Field.Optional<Path> INDEXING_KEY_FILE =
         Field.builder("indexingKeyFile")
             .classField(PathField.PARSER, PathField.ENCODER)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
     public static final Field.WithDefault<Boolean> IS_AUTO_EMBEDDING_VIEW_WRITER =
-        Field.builder("isAutoEmbeddingViewWriter").booleanField().optional().withDefault(false);
+        Field.builder("isAutoEmbeddingViewWriter")
+            .booleanField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(false);
   }
 
   public static final class EmbeddingConfigCliOptionRegistry extends CliOptionRegistry {

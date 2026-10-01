@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -13,7 +14,11 @@ import picocli.CommandLine;
 public record HealthCheckConfig(String address) implements DocumentEncodable {
   private static class Fields {
     public static final Field.WithDefault<String> ADDRESS =
-        Field.builder("address").stringField().optional().withDefault("localhost:8080");
+        Field.builder("address")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault("localhost:8080");
   }
 
   public static final class HealthCheckConfigCliOptionRegistry extends CliOptionRegistry {

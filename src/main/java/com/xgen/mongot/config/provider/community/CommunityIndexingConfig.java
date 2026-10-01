@@ -3,6 +3,7 @@ package com.xgen.mongot.config.provider.community;
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.CommunityIndexingConfig.LuceneConfig.MergePolicyConfig.TieredMergePolicyConfig.TieredMergePolicyConfigCliOptionRegistry;
 import com.xgen.mongot.config.provider.community.CommunityIndexingConfig.LuceneConfig.MergePolicyConfig.TieredMergePolicyConfig.VectorMergePolicyConfig.VectorMergePolicyConfigCliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -23,6 +24,7 @@ public record CommunityIndexingConfig(
         Field.builder("lucene")
             .classField(LuceneConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -30,6 +32,7 @@ public record CommunityIndexingConfig(
         Field.builder("definition")
             .classField(IndexDefinitionConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }
@@ -70,6 +73,7 @@ public record CommunityIndexingConfig(
           Field.builder("refresh")
               .classField(RefreshConfig::fromBson)
               .disallowUnknownFields()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -77,6 +81,7 @@ public record CommunityIndexingConfig(
           Field.builder("mergePolicy")
               .classField(MergePolicyConfig::fromBson)
               .disallowUnknownFields()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -84,6 +89,7 @@ public record CommunityIndexingConfig(
           Field.builder("mergeScheduler")
               .classField(MergeSchedulerConfig::fromBson)
               .disallowUnknownFields()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -95,6 +101,7 @@ public record CommunityIndexingConfig(
                   Range.of(
                       com.xgen.mongot.index.lucene.config.LuceneConfig.MIN_FIELD_LIMIT,
                       Integer.MAX_VALUE))
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }
@@ -149,7 +156,12 @@ public record CommunityIndexingConfig(
 
       static class Fields {
         public static final Field.Optional<Integer> INTERVAL_MS =
-            Field.builder("intervalMs").intField().mustBePositive().optional().noDefault();
+            Field.builder("intervalMs")
+                .intField()
+                .mustBePositive()
+                .edition(DeploymentEnvironment.COMMUNITY)
+                .optional()
+                .noDefault();
       }
 
       public static final class RefreshConfigCliOptionRegistry extends CliOptionRegistry {
@@ -183,6 +195,7 @@ public record CommunityIndexingConfig(
             Field.builder("tiered")
                 .classField(TieredMergePolicyConfig::fromBson)
                 .disallowUnknownFields()
+                .edition(DeploymentEnvironment.COMMUNITY)
                 .optional()
                 .noDefault();
       }
@@ -217,6 +230,7 @@ public record CommunityIndexingConfig(
               Field.builder("vectorMergePolicy")
                   .classField(VectorMergePolicyConfig::fromBson)
                   .disallowUnknownFields()
+                  .edition(DeploymentEnvironment.COMMUNITY)
                   .optional()
                   .noDefault();
         }
@@ -251,7 +265,12 @@ public record CommunityIndexingConfig(
 
           static class Fields {
             public static final Field.Optional<Integer> MERGE_BUDGET_MB =
-                Field.builder("mergeBudgetMb").intField().mustBePositive().optional().noDefault();
+                Field.builder("mergeBudgetMb")
+                    .intField()
+                    .mustBePositive()
+                    .edition(DeploymentEnvironment.COMMUNITY)
+                    .optional()
+                    .noDefault();
           }
 
           public static final class VectorMergePolicyConfigCliOptionRegistry
@@ -294,6 +313,7 @@ public record CommunityIndexingConfig(
                 Field.builder("concurrent")
                     .classField(ConcurrentMergeSchedulerConfig::fromBson)
                     .disallowUnknownFields()
+                    .edition(DeploymentEnvironment.COMMUNITY)
                     .optional()
                     .noDefault();
       }
@@ -342,7 +362,12 @@ public record CommunityIndexingConfig(
 
         static class Fields {
           public static final Field.Optional<Integer> MAX_THREAD_COUNT =
-              Field.builder("maxThreadCount").intField().mustBePositive().optional().noDefault();
+              Field.builder("maxThreadCount")
+                  .intField()
+                  .mustBePositive()
+                  .edition(DeploymentEnvironment.COMMUNITY)
+                  .optional()
+                  .noDefault();
         }
 
         public static ConcurrentMergeSchedulerConfig fromBson(DocumentParser parser)
@@ -369,6 +394,7 @@ public record CommunityIndexingConfig(
           Field.builder("maxEmbeddedDocumentsNestingLevel")
               .intField()
               .mustBeNonNegative()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }

@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -20,6 +21,7 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
         Field.builder("materializedView")
             .classField(MaterializedViewConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }
@@ -60,19 +62,31 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
           Field.builder("numConcurrentChangeStreams")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<Integer> NUM_INDEXING_THREADS =
-          Field.builder("numIndexingThreads").intField().mustBePositive().optional().noDefault();
+          Field.builder("numIndexingThreads")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<Integer> NUM_EMBEDDING_THREADS =
-          Field.builder("numEmbeddingThreads").intField().mustBePositive().optional().noDefault();
+          Field.builder("numEmbeddingThreads")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<Integer> NUM_CONCURRENT_INITIAL_SYNCS =
           Field.builder("numConcurrentInitialSyncs")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -80,6 +94,7 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
           Field.builder("matViewWriterMaxConnections")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -87,6 +102,7 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
           Field.builder("maxInFlightEmbeddingGetMores")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -94,16 +110,23 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
           Field.builder("embeddingGetMoreBatchSize")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<Integer> CHANGE_STREAM_MAX_TIME_MS =
-          Field.builder("changeStreamMaxTimeMs").intField().mustBePositive().optional().noDefault();
+          Field.builder("changeStreamMaxTimeMs")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<Integer> CHANGE_STREAM_CURSOR_MAX_TIME_SEC =
           Field.builder("changeStreamCursorMaxTimeSec")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -111,6 +134,7 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
           Field.builder("numChangeStreamDecodingThreads")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -118,16 +142,23 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
           Field.builder("requestRateLimitBackoffMs")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
       public static final Field.Optional<Integer> MV_WRITE_RATE_LIMIT_RPS =
-          Field.builder("mvWriteRateLimitRps").intField().mustBePositive().optional().noDefault();
+          Field.builder("mvWriteRateLimitRps")
+              .intField()
+              .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .optional()
+              .noDefault();
 
       public static final Field.Optional<Integer> EMBEDDING_PROVIDER_RPS_LIMIT =
           Field.builder("embeddingProviderRpsLimit")
               .intField()
               .mustBePositive()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -140,6 +171,7 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
                       v > 100
                           ? Optional.of("must be between 1 and 100 (inclusive), got " + v)
                           : Optional.empty())
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
 
@@ -152,6 +184,7 @@ public record CommunityAutoEmbeddingConfig(Optional<MaterializedViewConfig> mate
                       v > 100
                           ? Optional.of("must be between 1 and 100 (inclusive), got " + v)
                           : Optional.empty())
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }

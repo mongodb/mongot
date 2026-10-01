@@ -1,6 +1,7 @@
 package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.community.parser.PathField;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -26,12 +27,14 @@ public record OtlpTracingConfig(String endpoint, Optional<Path> caCertificateFil
         Field.builder("endpoint")
             .stringField()
             .validate(OtlpExporterFactory::validateEndpoint)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     static final Field.Optional<Path> CA_CERTIFICATE_FILE =
         Field.builder("caCertificateFile")
             .classField(PathField.PARSER, PathField.ENCODER)
             .validate(OtlpExporterFactory::validateCaCertificateFile)
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

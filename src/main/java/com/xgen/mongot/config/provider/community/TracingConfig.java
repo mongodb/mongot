@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -48,12 +49,17 @@ public record TracingConfig(
 
   private static class Fields {
     public static final Field.WithDefault<Boolean> ENABLED =
-        Field.builder("enabled").booleanField().optional().withDefault(DEFAULT_ENABLED);
+        Field.builder("enabled")
+            .booleanField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(DEFAULT_ENABLED);
 
     public static final Field.WithDefault<SamplingStrategy> SEARCH_SAMPLING_STRATEGY =
         Field.builder("searchSamplingStrategy")
             .enumField(SamplingStrategy.class)
             .asCamelCase()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_SEARCH_SAMPLING_STRATEGY);
 
@@ -61,6 +67,7 @@ public record TracingConfig(
         Field.builder("vectorSamplingStrategy")
             .enumField(SamplingStrategy.class)
             .asCamelCase()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_VECTOR_SAMPLING_STRATEGY);
 
@@ -68,6 +75,7 @@ public record TracingConfig(
         Field.builder("searchTracingSamplerRate")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_SEARCH_TRACING_SAMPLER_RATE);
 
@@ -75,6 +83,7 @@ public record TracingConfig(
         Field.builder("vectorTracingSamplerRate")
             .doubleField()
             .mustBeWithinBounds(Range.of(0.0, 1.0))
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_VECTOR_TRACING_SAMPLER_RATE);
 
@@ -82,6 +91,7 @@ public record TracingConfig(
         Field.builder("otlp")
             .classField(OtlpTracingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

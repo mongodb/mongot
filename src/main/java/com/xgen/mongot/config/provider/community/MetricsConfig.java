@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.parser.PathField;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -16,14 +17,19 @@ public record MetricsConfig(boolean enabled, String address, Optional<MetricsCon
     implements DocumentEncodable {
   private static class Fields {
     public static final Field.Required<Boolean> ENABLED =
-        Field.builder("enabled").booleanField().required();
+        Field.builder("enabled").booleanField().edition(DeploymentEnvironment.COMMUNITY).required();
     public static final Field.WithDefault<String> ADDRESS =
-        Field.builder("address").stringField().optional().withDefault("localhost:9946");
+        Field.builder("address")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault("localhost:9946");
     public static final Field.Optional<MetricsConfig.Tls> TLS =
         Field.builder("tls")
             .classField(MetricsConfig.Tls::fromBson)
             .disallowUnknownFields()
             .optional()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .noDefault();
   }
 
@@ -74,14 +80,19 @@ public record MetricsConfig(boolean enabled, String address, Optional<MetricsCon
       public static final Field.Required<Path> CERTIFICATE_KEY_FILE =
           Field.builder("certificateKeyFile")
               .classField(PathField.PARSER, PathField.ENCODER)
+              .edition(DeploymentEnvironment.COMMUNITY)
               .required();
       public static final Field.Optional<Path> CERTIFICATE_KEY_FILE_PASSWORD_FILE =
           Field.builder("certificateKeyFilePasswordFile")
               .classField(PathField.PARSER, PathField.ENCODER)
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
       public static final Field.Required<Path> CA_FILE =
-          Field.builder("caFile").classField(PathField.PARSER, PathField.ENCODER).required();
+          Field.builder("caFile")
+              .classField(PathField.PARSER, PathField.ENCODER)
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .required();
     }
 
     public static final class TlsCliOptionRegistry extends CliOptionRegistry {

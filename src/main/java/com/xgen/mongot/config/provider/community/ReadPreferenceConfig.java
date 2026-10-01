@@ -2,6 +2,7 @@ package com.xgen.mongot.config.provider.community;
 
 import com.mongodb.TagSet;
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -23,6 +24,7 @@ public record ReadPreferenceConfig(
         Field.builder("readPreference")
             .enumField(MongoReadPreferenceName.class)
             .asCamelCase()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     static final Field.Optional<List<List<Tag>>> TAG_SETS =
@@ -35,6 +37,7 @@ public record ReadPreferenceConfig(
                             .disallowUnknownFields()
                             .required())
                     .required())
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }
@@ -112,9 +115,17 @@ public record ReadPreferenceConfig(
 
     private static class Fields {
       static final Field.Required<String> NAME =
-          Field.builder("name").stringField().mustNotBeEmpty().required();
+          Field.builder("name")
+              .stringField()
+              .mustNotBeEmpty()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .required();
       static final Field.Required<String> VALUE =
-          Field.builder("value").stringField().mustNotBeEmpty().required();
+          Field.builder("value")
+              .stringField()
+              .mustNotBeEmpty()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .required();
     }
 
     static Tag fromBson(DocumentParser parser) throws BsonParseException {

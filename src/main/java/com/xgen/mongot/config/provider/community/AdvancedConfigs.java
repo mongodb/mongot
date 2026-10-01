@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -28,6 +29,7 @@ public record AdvancedConfigs(
         Field.builder("indexing")
             .classField(CommunityIndexingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -35,6 +37,7 @@ public record AdvancedConfigs(
         Field.builder("querying")
             .classField(CommunityQueryingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -42,6 +45,7 @@ public record AdvancedConfigs(
         Field.builder("replication")
             .classField(CommunityReplicationConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -49,6 +53,7 @@ public record AdvancedConfigs(
         Field.builder("autoEmbedding")
             .classField(CommunityAutoEmbeddingConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -56,6 +61,7 @@ public record AdvancedConfigs(
         Field.builder("cursor")
             .classField(CommunityCursorConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -64,6 +70,7 @@ public record AdvancedConfigs(
         Field.builder("searchQueryAdmissionControl")
             .classField(SearchQueryAdmissionControlConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -71,6 +78,7 @@ public record AdvancedConfigs(
         Field.builder("diskMonitor")
             .classField(DiskMonitorConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 
@@ -78,6 +86,7 @@ public record AdvancedConfigs(
         Field.builder("ftdc")
             .classField(FtdcCommunityConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
   }

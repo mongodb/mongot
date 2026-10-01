@@ -1,5 +1,6 @@
 package com.xgen.mongot.config.provider.community;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
@@ -19,20 +20,30 @@ public record FtdcCommunityConfig(
   private static class Fields {
 
     public static final Field.WithDefault<Boolean> ENABLED =
-        Field.builder("enabled").booleanField().optional().withDefault(DEFAULT_ENABLED);
+        Field.builder("enabled")
+            .booleanField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(DEFAULT_ENABLED);
 
     public static final Field.WithDefault<Integer> DIRECTORY_SIZE_MB =
         Field.builder("directorySizeMb")
             .intField()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_DIRECTORY_SIZE_MB);
 
     public static final Field.WithDefault<Integer> FILE_SIZE_MB =
-        Field.builder("fileSizeMb").intField().optional().withDefault(DEFAULT_FILE_SIZE_MB);
+        Field.builder("fileSizeMb")
+            .intField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .withDefault(DEFAULT_FILE_SIZE_MB);
 
     public static final Field.WithDefault<Integer> COLLECTION_PERIOD_MILLIS =
         Field.builder("collectionPeriodMillis")
             .intField()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .withDefault(DEFAULT_COLLECTION_PERIOD_MILLIS);
   }

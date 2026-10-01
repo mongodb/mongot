@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
 import com.xgen.mongot.config.provider.community.parser.PathField;
 import com.xgen.mongot.config.util.TlsMode;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -27,10 +28,15 @@ public record ServerConfig(GrpcServerConfig grpc, Optional<String> name)
         Field.builder("grpc")
             .classField(GrpcServerConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .required();
 
     public static final Field.Optional<String> NAME =
-        Field.builder("name").stringField().optional().noDefault();
+        Field.builder("name")
+            .stringField()
+            .edition(DeploymentEnvironment.COMMUNITY)
+            .optional()
+            .noDefault();
   }
 
   public static final class ServerConfigCliOptionRegistry extends CliOptionRegistry {
@@ -95,11 +101,15 @@ public record ServerConfig(GrpcServerConfig grpc, Optional<String> name)
       implements DocumentEncodable {
     private static class Fields {
       public static final Field.Required<String> ADDRESS =
-          Field.builder("address").stringField().required();
+          Field.builder("address")
+              .stringField()
+              .edition(DeploymentEnvironment.COMMUNITY)
+              .required();
       public static final Field.Optional<GrpcServerConfig.GrpcTls> TLS =
           Field.builder("tls")
               .classField(GrpcServerConfig.GrpcTls::fromBson)
               .disallowUnknownFields()
+              .edition(DeploymentEnvironment.COMMUNITY)
               .optional()
               .noDefault();
     }
@@ -112,20 +122,27 @@ public record ServerConfig(GrpcServerConfig grpc, Optional<String> name)
         implements DocumentEncodable {
       private static class Fields {
         public static final Field.Required<TlsMode> MODE =
-            Field.builder("mode").enumField(TlsMode.class).asCaseInsensitive().required();
+            Field.builder("mode")
+                .enumField(TlsMode.class)
+                .asCaseInsensitive()
+                .edition(DeploymentEnvironment.COMMUNITY)
+                .required();
         public static final Field.Optional<Path> CERTIFICATE_KEY_FILE =
             Field.builder("certificateKeyFile")
                 .classField(PathField.PARSER, PathField.ENCODER)
+                .edition(DeploymentEnvironment.COMMUNITY)
                 .optional()
                 .noDefault();
         public static final Field.Optional<Path> CERTIFICATE_AUTHORITY_FILE =
             Field.builder("caFile")
                 .classField(PathField.PARSER, PathField.ENCODER)
+                .edition(DeploymentEnvironment.COMMUNITY)
                 .optional()
                 .noDefault();
         public static final Field.Optional<Path> CERTIFICATE_KEY_FILE_PASSWORD_FILE =
             Field.builder("certificateKeyFilePasswordFile")
                 .classField(PathField.PARSER, PathField.ENCODER)
+                .edition(DeploymentEnvironment.COMMUNITY)
                 .optional()
                 .noDefault();
       }
