@@ -22,13 +22,13 @@ maven.install(
     artifacts = [
         "com.google.guava:guava:33.5.0-jre",
         # Jackson
-        "com.fasterxml.jackson.core:jackson-databind:2.18.9",
-        "com.fasterxml.jackson.core:jackson-annotations:2.18.9",
-        "com.fasterxml.jackson.core:jackson-core:2.18.9",
-        "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.9",
-        "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.9",
-        "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.9",
-        "com.fasterxml.jackson.module:jackson-module-parameter-names:2.18.9",
+        "com.fasterxml.jackson.core:jackson-databind:2.18.11",
+        "com.fasterxml.jackson.core:jackson-annotations:2.18.11",
+        "com.fasterxml.jackson.core:jackson-core:2.18.11",
+        "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.11",
+        "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.18.11",
+        "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.11",
+        "com.fasterxml.jackson.module:jackson-module-parameter-names:2.18.11",
         # METRICS_ARTIFACTS (1.16.7)
         # micrometer-core >= 1.16.7 addresses CVE-2026-59296 (CRLF injection in
         # StatsD/logging line builders); keep all three artifacts aligned.
