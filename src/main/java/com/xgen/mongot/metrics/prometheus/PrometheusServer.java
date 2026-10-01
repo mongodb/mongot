@@ -12,6 +12,7 @@ import com.xgen.mongot.metrics.cache.ScrapeCache;
 import com.xgen.mongot.metrics.cache.ScrapeCacheConfig;
 import com.xgen.mongot.util.retry.FixedBackoffPolicy;
 import com.xgen.mongot.util.retry.Retry;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
@@ -45,6 +46,11 @@ public class PrometheusServer {
 
   protected static final String SCRAPING_TIMER_NAME = "prometheus-server-scraping-timer";
   protected static final Tags SCRAPING_TIMER_TAGS = Tags.of("timeUnit", "milliseconds");
+
+  // 1 when the endpoint is served over mTLS, 0 over plain HTTP. Exported so managed control
+  // planes and dashboards can observe the listener's configured transport without probing the
+  // scheme.
+  protected static final String METRICS_TLS_ENABLED_GAUGE_NAME = "metrics.tls.enabled";
 
   // Retry transient server-creation failures for a bounded period before failing bootstrap.
   private static final Duration BIND_RETRY_TIMEOUT = Duration.ofMinutes(1);
@@ -167,6 +173,11 @@ public class PrometheusServer {
             .tags(SCRAPING_TIMER_TAGS)
             .publishPercentiles(0.5, 0.75, 0.9, 0.99)
             .register(prometheusRegistry);
+
+    Gauge.builder(METRICS_TLS_ENABLED_GAUGE_NAME, () -> serverSslContext.isPresent() ? 1.0 : 0.0)
+        .description("1 if the metrics listener uses mTLS; 0 if HTTP")
+        .strongReference(true)
+        .register(prometheusRegistry);
 
     // Compose the whole response before caching it, so the cache's timeout and cached-mode
     // fallback cover the extra text source too. Appending afterwards would leave that source
