@@ -12,6 +12,7 @@ import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.MongotVersionResolver;
 import com.xgen.mongot.util.security.Security;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
@@ -26,7 +27,7 @@ public class MongotCommunity implements Runnable, IVersionProvider {
   private static final Logger LOG = LoggerFactory.getLogger(MongotCommunity.class);
 
   @CommandLine.Option(names = "--config", description = "Path to the mongot YAML config file")
-  public Path configPath;
+  public Optional<Path> configPath = Optional.empty();
 
   // This flag informs the system it was started up in test mode and modifies some behaviour when
   // running $listSearchIndexes for internal e2e and integration tests. It should not be applied

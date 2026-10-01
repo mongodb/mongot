@@ -166,18 +166,15 @@ public record CommunityConfig(
   public record ParsedCommunityConfig(
       CommunityConfig config, List<BsonParseException> unknownFieldExceptions) {}
 
-  public static ParsedCommunityConfig readFromFile(
-      Path configPath, Optional<DeploymentEnvironment> deploymentEnvironment)
-      throws IOException, BsonParseException {
-    return readFromFile(configPath, Map.of(), deploymentEnvironment);
-  }
-
   /**
    * Reads the config from {@code configPath} and merges CLI-supplied values into it.
    *
+   * <p>An empty {@code configPath} is treated as an empty YAML config file: every configurable
+   * field must then be supplied on the command line.
+   *
    * <p>See {@link ConfigSpliceUtil#splice} for the merge and conflict semantics.
    *
-   * @param configPath the path of the YAML config file.
+   * @param configPath the path of the YAML config file, or empty for an empty config.
    * @param cliValues the CLI-supplied values keyed by dot-delimited YAML path.
    * @param deploymentEnvironment Edition of binary ru
    * @throws IOException if the config file cannot be read.
@@ -185,15 +182,52 @@ public record CommunityConfig(
    *     line, or the config cannot be parsed.
    */
   public static ParsedCommunityConfig readFromFile(
+      Optional<Path> configPath,
+      Map<String, BsonValue> cliValues,
+      Optional<DeploymentEnvironment> deploymentEnvironment)
+      throws IOException, BsonParseException {
+    if (configPath.isEmpty()) {
+      LOG.atInfo().log("Reading config from file; no config path specified, using an empty config");
+    } else {
+      LOG.atInfo().addKeyValue("configPath", configPath.get()).log("Reading config from file");
+    }
+    BsonDocument bson =
+        configPath.isEmpty()
+            ? new BsonDocument()
+            : YamlCodec.fromYaml(Files.readString(configPath.get()));
+    ConfigSpliceUtil.splice(bson, cliValues);
+    return CommunityConfig.fromBson(bson, deploymentEnvironment);
+  }
+
+  /**
+   * Reads the config from {@code configPath}, or an empty config when {@code configPath} is empty.
+   */
+  public static ParsedCommunityConfig readFromFile(
+      Optional<Path> configPath, Optional<DeploymentEnvironment> deploymentEnvironment)
+      throws IOException, BsonParseException {
+    return readFromFile(configPath, Map.of(), deploymentEnvironment);
+  }
+
+  /**
+   * Convenience overload of {@link #readFromFile(Optional, Map, Optional)} for callers that always
+   * have a config file.
+   */
+  public static ParsedCommunityConfig readFromFile(
       Path configPath,
       Map<String, BsonValue> cliValues,
       Optional<DeploymentEnvironment> deploymentEnvironment)
       throws IOException, BsonParseException {
-    LOG.atInfo().addKeyValue("configPath", configPath).log("Reading config from file");
-    String yaml = Files.readString(configPath);
-    BsonDocument bson = YamlCodec.fromYaml(yaml);
-    ConfigSpliceUtil.splice(bson, cliValues);
-    return CommunityConfig.fromBson(bson, deploymentEnvironment);
+    return readFromFile(Optional.of(configPath), cliValues, deploymentEnvironment);
+  }
+
+  /**
+   * Convenience overload of {@link #readFromFile(Optional, Optional)} for callers that always have
+   * a config file.
+   */
+  public static ParsedCommunityConfig readFromFile(
+      Path configPath, Optional<DeploymentEnvironment> deploymentEnvironment)
+      throws IOException, BsonParseException {
+    return readFromFile(Optional.of(configPath), Map.of(), deploymentEnvironment);
   }
 
   private static ParsedCommunityConfig fromBson(

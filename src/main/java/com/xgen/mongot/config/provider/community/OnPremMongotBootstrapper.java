@@ -155,24 +155,28 @@ public class OnPremMongotBootstrapper {
   }
 
   /**
-   * Bootstraps the mongot using the config file from the supplied configPath.
+   * Bootstraps the mongot using the config file from the supplied configPath, or an empty config
+   * when no config path is given.
    *
    * <p>This method does not return until all mongot subsystems have been configured and started.
    */
-  public void bootstrap(Path configPath, boolean internalListAllIndexesForTesting) {
+  public void bootstrap(Optional<Path> configPath, boolean internalListAllIndexesForTesting) {
     bootstrap(configPath, internalListAllIndexesForTesting, Map.of());
   }
 
   /**
-   * Bootstraps the mongot using the config file from the supplied configPath, merging any
-   * CLI-supplied config values into it.
+   * Bootstraps the mongot using the config file from the supplied configPath, or an empty config
+   * when no config path is given, merging any CLI-supplied config values into it.
    *
    * <p>This method does not return until all mongot subsystems have been configured and started.
    *
+   * @param configPath the path of the YAML config file, or empty for an empty config.
    * @param cliValues the CLI-supplied config values keyed by dot-delimited YAML path.
    */
   public void bootstrap(
-      Path configPath, boolean internalListAllIndexesForTesting, Map<String, BsonValue> cliValues) {
+      Optional<Path> configPath,
+      boolean internalListAllIndexesForTesting,
+      Map<String, BsonValue> cliValues) {
 
     CommunityConfig.ParsedCommunityConfig parsedConfig =
         Crash.because("failed to parse config file")

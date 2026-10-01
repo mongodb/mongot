@@ -338,4 +338,96 @@ public class CommunityConfigPicoCliInjectionTest {
     // No FTDC options were supplied, so the FTDC block falls back to its defaults.
     assertEquals(new FtdcCommunityConfig(true, 100, 10, 1000), config.ftdcConfig());
   }
+
+  // The tests below mirror the empty-YAML-file tests above, except that no config path is
+  // specified: a null config path is treated as an empty config file.
+
+  @Test
+  public void readFromFile_noConfigPathAndEveryCliOption_buildsCompleteConfig() throws Exception {
+    CommunityConfig config =
+        CommunityConfig.readFromFile(
+                Optional.empty(),
+                cliValues(EVERY_OPTION),
+                Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
+
+    assertEquals(Path.of("data/mongot"), config.storageConfig().dataPath());
+    assertEquals("cli-server", config.serverConfig().name().get());
+    assertEquals("localhost:27027", config.serverConfig().grpc().address());
+
+    var replicaSet = config.syncSourceConfig().replicaSet();
+    assertEquals(
+        List.of(HostAndPort.fromString("mongod1:27017"), HostAndPort.fromString("mongod2:27017")),
+        replicaSet.hostandPorts());
+    assertEquals("user", replicaSet.scram().get().username());
+    assertEquals(Path.of("replicaSet.passwd"), replicaSet.scram().get().passwordFile());
+    assertEquals("admin", replicaSet.scram().get().authSource());
+
+    var router = config.syncSourceConfig().router().get();
+    assertEquals(List.of(HostAndPort.fromString("mongos:27017")), router.hostandPorts());
+    assertEquals(
+        Path.of("/etc/mongot/router-x509.pem"),
+        router.x509().get().tlsConfig().tlsCertificateKeyFile().get());
+
+    var replicationReader = config.syncSourceConfig().replicationReader().get();
+    assertEquals(MongoReadPreferenceName.NEAREST, replicationReader.readPreference());
+    assertEquals(
+        List.of(new TagSet(new Tag("dc", "ny")), new TagSet(new Tag("env", "prod"))),
+        replicationReader.tagSets().get());
+
+    assertEquals(true, config.metricsConfig().get().enabled());
+    assertEquals("localhost:9946", config.metricsConfig().get().address());
+    assertEquals("localhost:8080", config.healthCheckConfig().get().address());
+    assertEquals("WARNING", config.loggingConfig().get().verbosity());
+    assertEquals("/var/log/mongot", config.loggingConfig().get().logPath().get());
+
+    assertEquals(new FtdcCommunityConfig(false, 200, 20, 3000), config.ftdcConfig());
+  }
+
+  @Test
+  public void readFromFile_noConfigPathAndCliOptionsMissingRequiredServerGrpcAddress_throws() {
+    Map<String, BsonValue> cliValues =
+        cliValues(
+            "--storageDataPath", "data/mongot",
+            "--replicaSetHostPorts", "mongod1:27017",
+            "--replicaSetScramAuthUsername", "user",
+            "--replicaSetScramAuthPasswordFile", "replicaSet.passwd");
+
+    assertThrows(
+        BsonParseException.class,
+        () ->
+            CommunityConfig.readFromFile(
+                Optional.empty(), cliValues, Optional.of(DeploymentEnvironment.COMMUNITY)));
+  }
+
+  @Test
+  public void cliOptionsApplied_noConfigPath_thenSerializeDeserialize_roundTripsToExpectedConfig()
+      throws Exception {
+    CommunityConfig config =
+        CommunityConfig.readFromFile(
+                Optional.empty(),
+                cliValues(MINIMUM_VALID_CLI_OPTIONS, "--serverName", "roundtrip-server"),
+                Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
+
+    CommunityConfig roundTripped = parse(config.toBson());
+
+    assertEquals(config, roundTripped);
+  }
+
+  @Test
+  public void readFromFile_noConfigPathAndCliOptionsOmittingDefaults_useDefaultValues()
+      throws Exception {
+    CommunityConfig config =
+        CommunityConfig.readFromFile(
+                Optional.empty(),
+                cliValues(MINIMUM_VALID_CLI_OPTIONS),
+                Optional.of(DeploymentEnvironment.COMMUNITY))
+            .config();
+
+    // replicaSet.scramAuth.authSource was not supplied, so it falls back to its default.
+    assertEquals("admin", config.syncSourceConfig().replicaSet().scram().get().authSource());
+    // No FTDC options were supplied, so the FTDC block falls back to its defaults.
+    assertEquals(new FtdcCommunityConfig(true, 100, 10, 1000), config.ftdcConfig());
+  }
 }
