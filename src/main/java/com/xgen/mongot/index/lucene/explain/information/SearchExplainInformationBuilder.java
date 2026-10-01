@@ -14,6 +14,7 @@ public class SearchExplainInformationBuilder {
   private Optional<List<VectorSearchTracingSpec>> vectorTracingInfos = Optional.empty();
   private Optional<List<VectorSearchSegmentStatsSpec>> vectorSearchSegmentStats = Optional.empty();
   private Optional<BsonDocument> vectorliteStats = Optional.empty();
+  private Optional<BsonDocument> vectorliteTrace = Optional.empty();
   private Optional<SortStats> sortStats = Optional.empty();
   private final List<SearchExplainInformation> indexPartitionExplainInformations =
       new ArrayList<>();
@@ -109,6 +110,11 @@ public class SearchExplainInformationBuilder {
     return this;
   }
 
+  public SearchExplainInformationBuilder vectorliteTrace(BsonDocument vectorliteTrace) {
+    this.vectorliteTrace = Optional.of(vectorliteTrace);
+    return this;
+  }
+
   public SearchExplainInformationBuilder dynamicFeatureFlags(
       List<FeatureFlagEvaluationSpec> dynamicFeatureFlags) {
     this.dynamicFeatureFlags = Optional.of(dynamicFeatureFlags);
@@ -159,6 +165,7 @@ public class SearchExplainInformationBuilder {
           this.vectorTracingInfos,
           this.vectorSearchSegmentStats,
           this.vectorliteStats,
+          this.vectorliteTrace,
           Optional.empty(),
           this.dynamicFeatureFlags,
           this.optimizerRulesFired);
@@ -166,7 +173,8 @@ public class SearchExplainInformationBuilder {
 
     // Query/collect/highlight land in indexPartitionExplain. aggregation stays top-level because
     // partitionMerge is a cross-partition phase recorded after the per-partition fan-out joins.
-    // vectorliteStats also stays top-level: vectorlite indexes are single-partition.
+    // vectorliteStats and vectorliteTrace also stay top-level: vectorlite indexes are
+    // single-partition.
     return new SearchExplainInformation(
         Optional.empty(),
         Optional.empty(),
@@ -178,6 +186,7 @@ public class SearchExplainInformationBuilder {
         Optional.empty(),
         Optional.empty(),
         this.vectorliteStats,
+        this.vectorliteTrace,
         Optional.of(this.indexPartitionExplainInformations),
         this.dynamicFeatureFlags,
         this.optimizerRulesFired);
