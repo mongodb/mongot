@@ -53,7 +53,8 @@ public class CommunityConfigTest {
         fromDocument(
             "src/test/unit/resources/config/provider/community",
             SUITE_NAME,
-            CommunityConfig::fromBson);
+            CommunityConfig::fromBson,
+            Optional.of(DeploymentEnvironment.COMMUNITY));
 
     private final BsonDeserializationTestSuite.TestSpecWrapper<CommunityConfig> testSpec;
 

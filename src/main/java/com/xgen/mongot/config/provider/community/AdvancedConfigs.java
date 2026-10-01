@@ -80,6 +80,7 @@ public record AdvancedConfigs(
         Field.builder("diskMonitor")
             .classField(DiskMonitorConfig::fromBson)
             .disallowUnknownFields()
+            .edition(DeploymentEnvironment.COMMUNITY)
             .optional()
             .noDefault();
 

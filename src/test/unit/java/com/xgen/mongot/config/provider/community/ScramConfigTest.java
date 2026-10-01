@@ -6,8 +6,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.bson.BsonBoolean;
@@ -31,7 +33,11 @@ public class ScramConfigTest {
 
   @Test
   public void parse_valid_defaultAuthSource() throws BsonParseException {
-    try (var parser = BsonDocumentParser.fromRoot(minimalScramDoc()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                minimalScramDoc())
+            .build()) {
       ScramConfig parsed = ScramConfig.fromBson(parser, false);
       assertEquals("admin", parsed.authSource());
       assertEquals("__system", parsed.username());
@@ -51,7 +57,10 @@ public class ScramConfigTest {
                 new BsonDocument("enabled", BsonBoolean.TRUE)
                     .append("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem")));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       ScramConfig parsed = ScramConfig.fromBson(parser, false);
       assertEquals("local", parsed.authSource());
       assertEquals("__system", parsed.username());
@@ -69,7 +78,10 @@ public class ScramConfigTest {
             .append("passwordFile", new BsonString("/etc/mongot/keyfile"))
             .append("tls", minimalTlsDoc());
 
-    var parser = BsonDocumentParser.fromRoot(doc).build();
+    var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build();
     @Var BsonParseException caught = null;
     try {
       ScramConfig.fromBson(parser, false);
@@ -96,7 +108,10 @@ public class ScramConfigTest {
             .append("username", new BsonString("__system"))
             .append("tls", minimalTlsDoc());
 
-    var parser = BsonDocumentParser.fromRoot(doc).build();
+    var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build();
     @Var BsonParseException caught = null;
     try {
       ScramConfig.fromBson(parser, false);
@@ -123,7 +138,10 @@ public class ScramConfigTest {
             .append("username", new BsonString("__system"))
             .append("passwordFile", new BsonString("/etc/mongot/keyfile"));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       ScramConfig parsed = ScramConfig.fromBson(parser, false);
       assertFalse("tls should default to disabled when omitted", parsed.tls().enabled());
       assertTrue(
@@ -149,11 +167,18 @@ public class ScramConfigTest {
                     .append(
                         "tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/cert-pass")));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       ScramConfig parsed = ScramConfig.fromBson(parser, false);
       BsonDocument encoded = parsed.toBson();
 
-      try (var parser2 = BsonDocumentParser.fromRoot(encoded).build()) {
+      try (var parser2 =
+          BsonDocumentParser.withContext(
+                  PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                  encoded)
+              .build()) {
         ScramConfig roundTripped = ScramConfig.fromBson(parser2, false);
         assertEquals(parsed.authSource(), roundTripped.authSource());
         assertEquals(parsed.username(), roundTripped.username());
@@ -173,7 +198,11 @@ public class ScramConfigTest {
     TlsConfig tls = new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty());
     ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       config.validate(parser);
     }
   }
@@ -188,7 +217,11 @@ public class ScramConfigTest {
             Optional.of(Path.of("/etc/tls/ca.pem")));
     ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       config.validate(parser);
     }
   }
@@ -203,7 +236,11 @@ public class ScramConfigTest {
             Optional.of(Path.of("/etc/tls/ca.pem")));
     ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
 
-    var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build();
+    var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build();
     @Var BsonParseException caught = null;
     try {
       config.validate(parser);
@@ -237,18 +274,30 @@ public class ScramConfigTest {
             true, Optional.of(Path.of("/etc/tls/client.pem")), Optional.empty(), Optional.empty());
     ScramConfig config = new ScramConfig("admin", "__system", Path.of("/etc/mongot/keyfile"), tls);
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       config.validate(parser);
     }
   }
 
   @Test
   public void roundTrip_defaultAuthSource_preservesValue() throws BsonParseException {
-    try (var parser = BsonDocumentParser.fromRoot(minimalScramDoc()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                minimalScramDoc())
+            .build()) {
       ScramConfig parsed = ScramConfig.fromBson(parser, false);
       BsonDocument encoded = parsed.toBson();
 
-      try (var parser2 = BsonDocumentParser.fromRoot(encoded).build()) {
+      try (var parser2 =
+          BsonDocumentParser.withContext(
+                  PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                  encoded)
+              .build()) {
         ScramConfig roundTripped = ScramConfig.fromBson(parser2, false);
         assertEquals("admin", roundTripped.authSource());
         assertEquals(parsed.username(), roundTripped.username());

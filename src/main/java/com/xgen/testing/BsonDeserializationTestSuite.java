@@ -6,11 +6,13 @@ import static com.xgen.mongot.util.Check.checkState;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.collect.ImmutableSet;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.ClassField;
 import com.xgen.mongot.util.bson.parser.Encodable;
+import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import com.xgen.mongot.util.functionalinterfaces.CheckedFunction;
 import com.xgen.testing.JsonTestSuite.TestCase;
 import java.util.ArrayList;
@@ -50,13 +52,33 @@ public class BsonDeserializationTestSuite<T> {
   /** Creates a BsonDeserializationTestSuite for a class that uses a FromDocumentParser. */
   public static <T> BsonDeserializationTestSuite<T> fromDocument(
       String suitePath, String suiteName, ClassField.FromDocumentParser<T> documentParser) {
+    return fromDocument(suitePath, suiteName, documentParser, Optional.empty());
+  }
+
+  /**
+   * Like {@link #fromDocument(String, String, ClassField.FromDocumentParser)}, but parses under the
+   * given deployment environment so edition-gated on-prem fields can be validated.
+   */
+  public static <T> BsonDeserializationTestSuite<T> fromDocument(
+      String suitePath,
+      String suiteName,
+      ClassField.FromDocumentParser<T> documentParser,
+      Optional<DeploymentEnvironment> deploymentEnvironment) {
     return load(
         suitePath,
         suiteName,
         bsonValue -> {
-          try (var parser = BsonDocumentParser.fromRoot(bsonValue.asDocument()).build()) {
-            return documentParser.parse(parser);
+          PermissiveBsonParseContext context =
+              PermissiveBsonParseContext.root(deploymentEnvironment);
+          T value;
+          try (var parser =
+              BsonDocumentParser.withContext(context, bsonValue.asDocument()).build()) {
+            value = documentParser.parse(parser);
           }
+          if (!context.getUnknownFieldExceptions().isEmpty()) {
+            throw context.getUnknownFieldExceptions().getFirst();
+          }
+          return value;
         });
   }
 

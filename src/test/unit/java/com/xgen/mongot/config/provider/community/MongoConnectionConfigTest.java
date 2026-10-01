@@ -4,8 +4,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
 import com.google.common.net.HostAndPort;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import com.xgen.mongot.util.mongodb.Databases;
 import java.nio.file.Path;
 import java.util.List;
@@ -44,7 +46,11 @@ public class MongoConnectionConfigTest {
     ReplicaSetConfig cfg =
         config(Optional.of(x509(Path.of("/etc/tls/client.pem"))), Optional.empty());
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       cfg.validate(parser);
     }
   }
@@ -57,7 +63,11 @@ public class MongoConnectionConfigTest {
         new ScramConfig(Databases.ADMIN, "__system", Path.of("/etc/mongot/keyfile"), tls);
     ReplicaSetConfig cfg = config(Optional.empty(), Optional.of(scram));
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       cfg.validate(parser);
     }
   }
@@ -73,7 +83,11 @@ public class MongoConnectionConfigTest {
     X509Config x509 = new X509Config(tlsConfig);
     ReplicaSetConfig cfg = config(Optional.of(x509), Optional.empty());
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals("tls must be enabled when tlsCertificateKeyFile is configured", e.getMessage());
     }
@@ -87,7 +101,11 @@ public class MongoConnectionConfigTest {
         new ScramConfig(Databases.ADMIN, "__system", Path.of("/etc/mongot/keyfile"), tls);
     ReplicaSetConfig cfg = config(Optional.of(x509), Optional.of(scram));
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals(
           "Exactly one authentication mechanism must be used (x509 or scram)", e.getMessage());
@@ -98,7 +116,11 @@ public class MongoConnectionConfigTest {
   public void testValidate_NoAuth_ThrowsError() throws BsonParseException {
     ReplicaSetConfig cfg = config(Optional.empty(), Optional.empty());
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals(
           "Exactly one authentication mechanism must be used (x509 or scram)", e.getMessage());
@@ -114,7 +136,11 @@ public class MongoConnectionConfigTest {
 
     BsonDocument encoded = cfg.toBson();
 
-    try (var parser = BsonDocumentParser.fromRoot(encoded).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                encoded)
+            .build()) {
       ReplicaSetConfig roundTripped = ReplicaSetConfig.fromBson(parser);
       assertEquals(cfg, roundTripped);
       roundTripped.validate(parser);
@@ -128,7 +154,11 @@ public class MongoConnectionConfigTest {
 
     BsonDocument encoded = cfg.toBson();
 
-    try (var parser = BsonDocumentParser.fromRoot(encoded).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                encoded)
+            .build()) {
       ReplicaSetConfig roundTripped = ReplicaSetConfig.fromBson(parser);
       assertEquals(cfg, roundTripped);
       roundTripped.validate(parser);
@@ -144,7 +174,11 @@ public class MongoConnectionConfigTest {
             Optional.of(x509(Path.of("/etc/tls/client.pem"))),
             Optional.empty());
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals("HostAndPorts and SrvHost are mutually exclusive", e.getMessage());
     }
@@ -159,7 +193,11 @@ public class MongoConnectionConfigTest {
             Optional.of(x509(Path.of("/etc/tls/client.pem"))),
             Optional.empty());
 
-    try (var parser = BsonDocumentParser.fromRoot(new BsonDocument()).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                new BsonDocument())
+            .build()) {
       BsonParseException e = assertThrows(BsonParseException.class, () -> cfg.validate(parser));
       assertEquals("HostAndPorts or SrvHost must be specified", e.getMessage());
     }
@@ -172,7 +210,11 @@ public class MongoConnectionConfigTest {
 
     BsonDocument encoded = cfg.toBson();
 
-    try (var parser = BsonDocumentParser.fromRoot(encoded).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                encoded)
+            .build()) {
       ReplicaSetConfig roundTripped = ReplicaSetConfig.fromBson(parser);
       assertEquals(cfg, roundTripped);
       roundTripped.validate(parser);

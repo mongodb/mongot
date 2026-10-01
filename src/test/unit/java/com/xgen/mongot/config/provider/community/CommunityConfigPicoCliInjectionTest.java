@@ -173,7 +173,8 @@ public class CommunityConfigPicoCliInjectionTest {
   }
 
   private static CommunityConfig parse(BsonDocument doc) throws BsonParseException {
-    PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
+    PermissiveBsonParseContext context =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY));
     try (var parser = BsonDocumentParser.withContext(context, doc).build()) {
       return CommunityConfig.fromBson(parser);
     }

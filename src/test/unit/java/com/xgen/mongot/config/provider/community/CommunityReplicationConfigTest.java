@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.config.provider.cli.CliOptionRegistry;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.Field;
@@ -49,7 +50,8 @@ public class CommunityReplicationConfigTest {
   }
 
   private static CommunityReplicationConfig parse(BsonDocument doc) throws BsonParseException {
-    PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
+    PermissiveBsonParseContext context =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY));
     try (var parser = BsonDocumentParser.withContext(context, doc).build()) {
       return CommunityReplicationConfig.fromBson(parser);
     }

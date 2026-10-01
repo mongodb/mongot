@@ -5,9 +5,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.junit.Test;
@@ -20,7 +23,10 @@ public class X509AuthConfigTest {
     BsonDocument doc =
         new BsonDocument("tlsCertificateKeyFile", new BsonString("/etc/mongot/tls/client.pem"));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       X509Config parsed = X509Config.fromBson(parser);
       assertEquals(
           Path.of("/etc/mongot/tls/client.pem"), parsed.tlsConfig().tlsCertificateKeyFile().get());
@@ -39,7 +45,10 @@ public class X509AuthConfigTest {
                 "tlsCertificateKeyFilePasswordFile",
                 new BsonString("/etc/mongot/secrets/cert-key-pass"));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       X509Config parsed = X509Config.fromBson(parser);
       assertEquals(
           Path.of("/etc/mongot/tls/client-combined.pem"),
@@ -57,7 +66,10 @@ public class X509AuthConfigTest {
         new BsonDocument("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem"))
             .append("caFile", new BsonString("/etc/mongot/ca.pem"));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       X509Config config = X509Config.fromBson(parser);
       config.validate(parser);
     }
@@ -68,7 +80,10 @@ public class X509AuthConfigTest {
     BsonDocument doc =
         new BsonDocument("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem"));
 
-    var parser = BsonDocumentParser.fromRoot(doc).build();
+    var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build();
     @Var BsonParseException caught = null;
     try {
       X509Config config = X509Config.fromBson(parser);
@@ -94,7 +109,10 @@ public class X509AuthConfigTest {
   public void validate_tlsCertificateKeyFileAbsent_throws() {
     BsonDocument doc = new BsonDocument("caFile", new BsonString("/etc/tls/client.pem"));
 
-    var parser = BsonDocumentParser.fromRoot(doc).build();
+    var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build();
     @Var BsonParseException caught = null;
     try {
       X509Config config = X509Config.fromBson(parser);
@@ -122,7 +140,10 @@ public class X509AuthConfigTest {
         new BsonDocument("tlsCertificateKeyFilePasswordFile", new BsonString("/etc/tls/client.pem"))
             .append("caFile", new BsonString("/etc/mongot/ca.pem"));
 
-    var parser = BsonDocumentParser.fromRoot(doc).build();
+    var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build();
     @Var BsonParseException caught = null;
     try {
       X509Config config = X509Config.fromBson(parser);
@@ -151,11 +172,18 @@ public class X509AuthConfigTest {
             .append("tlsCertificateKeyFile", new BsonString("/etc/tls/client.pem"))
             .append("tlsCertificateKeyFilePasswordFile", new BsonString("/etc/secrets/key-pass"));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       X509Config parsed = X509Config.fromBson(parser);
       BsonDocument encoded = parsed.toBson();
 
-      try (var parser2 = BsonDocumentParser.fromRoot(encoded).build()) {
+      try (var parser2 =
+          BsonDocumentParser.withContext(
+                  PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                  encoded)
+              .build()) {
         X509Config roundTripped = X509Config.fromBson(parser2);
         assertEquals(
             parsed.tlsConfig().tlsCertificateKeyFile(),
@@ -172,11 +200,18 @@ public class X509AuthConfigTest {
     BsonDocument doc =
         new BsonDocument("tlsCertificateKeyFile", new BsonString("/etc/tls/client-only.pem"));
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       X509Config parsed = X509Config.fromBson(parser);
       BsonDocument encoded = parsed.toBson();
 
-      try (var parser2 = BsonDocumentParser.fromRoot(encoded).build()) {
+      try (var parser2 =
+          BsonDocumentParser.withContext(
+                  PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                  encoded)
+              .build()) {
         X509Config roundTripped = X509Config.fromBson(parser2);
         assertEquals(
             Path.of("/etc/tls/client-only.pem"),

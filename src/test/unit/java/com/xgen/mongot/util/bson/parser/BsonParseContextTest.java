@@ -20,11 +20,6 @@ public class BsonParseContextTest {
   }
 
   @Test
-  public void testRootHasNoDeploymentEnvironment() {
-    assertThat(BsonParseContext.root().getDeploymentEnvironment()).isEmpty();
-  }
-
-  @Test
   public void testChild() {
     BsonParseContext child = BsonParseContext.root().child("foo").child("bar").child("dotted.name");
 

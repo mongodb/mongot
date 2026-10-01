@@ -3,6 +3,7 @@ package com.xgen.mongot.util.bson.parser;
 import static com.xgen.mongot.util.bson.parser.OptionalField.MISSING_VALUE;
 
 import com.google.common.collect.Sets;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -55,16 +56,14 @@ public class BsonDocumentParser implements DocumentParser {
 
   @Override
   public <T> ParsedField.Required<T> getField(Field.Required<T> field) throws BsonParseException {
-    String name = field.getName();
-    T value = getFieldValue(name, field.getParser(), true);
+    T value = getFieldValue(field, field.getParser(), true);
 
     return new ParsedField.Required<>(field.getName(), value);
   }
 
   @Override
   public <T> ParsedField.Optional<T> getField(Field.Optional<T> field) throws BsonParseException {
-    String name = field.getName();
-    Optional<T> value = getFieldValue(name, field.getParser(), false);
+    Optional<T> value = getFieldValue(field, field.getParser(), false);
 
     return new ParsedField.Optional<>(field.getName(), value);
   }
@@ -72,38 +71,37 @@ public class BsonDocumentParser implements DocumentParser {
   @Override
   public <T> ParsedField.WithDefault<T> getField(Field.WithDefault<T> field)
       throws BsonParseException {
-    String name = field.getName();
-    Optional<T> value = getFieldValue(name, field.getParser(), false);
+    Optional<T> value = getFieldValue(field, field.getParser(), false);
 
-    return new ParsedField.WithDefault<>(name, value, field.getDefaultValue());
+    return new ParsedField.WithDefault<>(field.getName(), value, field.getDefaultValue());
   }
 
   @Override
   public boolean hasField(Field.Optional<?> field) throws BsonParseException {
-    String name = field.getName();
-    BsonParseContext context = this.context.child(name);
-    BsonValue value = getValue(name, context, false);
+    BsonParseContext context = this.context.child(field.getName());
+    BsonValue value = getValue(field, context, false);
     return !value.equals(MISSING_VALUE);
   }
 
-  private <T> T getFieldValue(String name, ValueParser<T> parser, boolean isRequired)
+  private <T> T getFieldValue(Field.Nameable field, ValueParser<T> parser, boolean isRequired)
       throws BsonParseException {
     // Add the name to our list of witnessed fields.
     // There's no risk in adding a field name we don't actually see (e.g. an optional field that
     // doesn't exist) since we're just trying to find fields that are in the document but were not
     // requested.
-    this.witnessedFields.add(name);
+    this.witnessedFields.add(field.getName());
 
-    BsonParseContext context = this.context.child(name);
-    BsonValue value = getValue(name, context, isRequired);
+    BsonParseContext context = this.context.child(field.getName());
+    BsonValue value = getValue(field, context, isRequired);
 
     return parser.parse(context, value);
   }
 
-  BsonValue getValue(String name, BsonParseContext context, boolean isRequired)
+  BsonValue getValue(Field.Nameable field, BsonParseContext context, boolean isRequired)
       throws BsonParseException {
+    validateEdition(field, context);
 
-    Optional<BsonValue> value = Optional.ofNullable(this.wrapped.get(name));
+    Optional<BsonValue> value = Optional.ofNullable(this.wrapped.get(field.getName()));
 
     if (value.isEmpty()) {
       // The field is missing. If it's required, we should throw, otherwise treat it as null so that
@@ -114,6 +112,45 @@ public class BsonDocumentParser implements DocumentParser {
       return MISSING_VALUE;
     }
     return value.get();
+  }
+
+  /**
+   * Validates that the field's declared edition is compatible with the deployment environment the
+   * system is running under.
+   *
+   * <p>When the context carries no deployment environment (e.g. Atlas), no field may declare an
+   * edition. When running on-prem, every field must declare an edition, and that edition must
+   * support the runtime: Community fields are usable in both Community and Enterprise, while
+   * Enterprise fields are usable only in Enterprise.
+   */
+  private void validateEdition(Field.Nameable field, BsonParseContext fieldContext)
+      throws BsonParseException {
+    Optional<DeploymentEnvironment> fieldEdition = field.getEdition();
+    Optional<DeploymentEnvironment> runtimeEdition = fieldContext.getDeploymentEnvironment();
+
+    if (runtimeEdition.isEmpty()) {
+      if (fieldEdition.isPresent()) {
+        fieldContext.handleSemanticError("must not specify an edition for Atlas configurations");
+      }
+      return;
+    }
+
+    if (fieldEdition.isEmpty()) {
+      fieldContext.handleSemanticError("must declare an edition for on-prem configurations");
+      return;
+    }
+
+    if (!supports(fieldEdition.get(), runtimeEdition.get())) {
+      fieldContext.handleSemanticError(
+          "is not supported in the " + runtimeEdition.get() + " edition");
+    }
+  }
+
+  private static boolean supports(
+      DeploymentEnvironment fieldEdition, DeploymentEnvironment runtimeEdition) {
+    return fieldEdition == runtimeEdition
+        || (fieldEdition == DeploymentEnvironment.COMMUNITY
+            && runtimeEdition == DeploymentEnvironment.ENTERPRISE);
   }
 
   @Override

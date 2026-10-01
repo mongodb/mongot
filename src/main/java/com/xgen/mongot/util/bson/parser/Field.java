@@ -16,6 +16,12 @@ public class Field {
    */
   public interface Nameable {
     String getName();
+
+    /**
+     * The on-prem edition this field is restricted to, if any. Empty when the field places no
+     * restriction on editions.
+     */
+    java.util.Optional<DeploymentEnvironment> getEdition();
   }
 
   public static class Required<T> implements Nameable {

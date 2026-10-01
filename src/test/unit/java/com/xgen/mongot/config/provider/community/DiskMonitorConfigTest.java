@@ -3,9 +3,11 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
+import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.junit.Test;
@@ -13,7 +15,8 @@ import org.junit.Test;
 public class DiskMonitorConfigTest {
 
   private static DiskMonitorConfig parse(BsonDocument doc) throws BsonParseException {
-    PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
+    PermissiveBsonParseContext context =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY));
     try (var parser = BsonDocumentParser.withContext(context, doc).build()) {
       return DiskMonitorConfig.fromBson(parser);
     }

@@ -3,8 +3,10 @@ package com.xgen.mongot.config.provider.community;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -27,7 +29,10 @@ public class MetricsConfigTest {
             .append("caFile", new BsonString("/etc/mongot/prometheus-clients-ca.pem"));
     BsonDocument doc = new BsonDocument().append("enabled", BsonBoolean.TRUE).append("tls", tls);
 
-    try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+    try (var parser =
+        BsonDocumentParser.withContext(
+                PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)), doc)
+            .build()) {
       MetricsConfig.Tls parsed = MetricsConfig.fromBson(parser).tls().orElseThrow();
       assertEquals(Path.of("/etc/mongot/metrics-server.pem"), parsed.certificateKeyFile());
       assertEquals(
@@ -55,7 +60,11 @@ public class MetricsConfigTest {
     assertThrows(
         BsonParseException.class,
         () -> {
-          try (var parser = BsonDocumentParser.fromRoot(doc).build()) {
+          try (var parser =
+              BsonDocumentParser.withContext(
+                      PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY)),
+                      doc)
+                  .build()) {
             MetricsConfig.fromBson(parser);
           }
         });

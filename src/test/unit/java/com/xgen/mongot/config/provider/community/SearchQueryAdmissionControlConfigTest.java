@@ -5,9 +5,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
+import java.util.Optional;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
@@ -18,7 +20,8 @@ public class SearchQueryAdmissionControlConfigTest {
 
   private static SearchQueryAdmissionControlConfig parse(BsonDocument doc)
       throws BsonParseException {
-    PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
+    PermissiveBsonParseContext context =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY));
     try (var parser = BsonDocumentParser.withContext(context, doc).build()) {
       return SearchQueryAdmissionControlConfig.fromBson(parser);
     }

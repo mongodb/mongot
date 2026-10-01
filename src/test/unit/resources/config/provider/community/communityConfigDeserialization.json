@@ -857,7 +857,7 @@
           }
         }
       },
-      "errorMessageContains": "unrecognized"
+      "errorMessageContains": "Exactly one authentication mechanism must be used (x509 or scram)"
     },
     {
       "description": "missing sync source replicaSet",

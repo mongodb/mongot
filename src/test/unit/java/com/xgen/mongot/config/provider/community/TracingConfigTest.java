@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.config.provider.community.TracingConfig.SamplingStrategy;
+import com.xgen.mongot.util.DeploymentEnvironment;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
@@ -15,6 +16,7 @@ import java.security.KeyPairGenerator;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.Optional;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -29,7 +31,8 @@ import org.junit.Test;
 public class TracingConfigTest {
 
   private static TracingConfig parse(BsonDocument doc) throws BsonParseException {
-    PermissiveBsonParseContext context = PermissiveBsonParseContext.root();
+    PermissiveBsonParseContext context =
+        PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY));
     try (var parser = BsonDocumentParser.withContext(context, doc).build()) {
       return TracingConfig.fromBson(parser);
     }

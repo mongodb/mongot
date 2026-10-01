@@ -20,6 +20,11 @@ public class PermissiveBsonParseContextTest {
   }
 
   @Test
+  public void testRootHasNoDeploymentEnvironment() {
+    assertThat(PermissiveBsonParseContext.root().getDeploymentEnvironment()).isEmpty();
+  }
+
+  @Test
   public void testDeploymentEnvironmentPropagatesToChildren() {
     PermissiveBsonParseContext child =
         PermissiveBsonParseContext.root(Optional.of(DeploymentEnvironment.COMMUNITY))
