@@ -69,10 +69,10 @@ public class AggregationValidator {
       if (totalBuckets > maxBuckets) {
         throw new AggregationValidationException(
             String.format(
-                "the aggregation query may materialize about %d buckets, above the maximum of %d"
-                    + " allowed per query. Reduce the cardinality of the grouping fields, or raise"
-                    + " the limit via the aggregationMaxBuckets configuration.",
-                totalBuckets, maxBuckets));
+                "The facets query materializes over %d buckets, which is not supported. Reduce the"
+                    + " total buckets by reducing nested facet depth or facet on fields with"
+                    + " cardinality below %d.",
+                maxBuckets, maxBuckets));
       }
     }
   }

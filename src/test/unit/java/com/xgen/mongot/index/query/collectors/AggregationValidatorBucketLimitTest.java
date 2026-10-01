@@ -113,8 +113,8 @@ public class AggregationValidatorBucketLimitTest {
             AggregationValidationException.class,
             () -> AggregationValidator.validateBucketLimit(collector, this.reader, 9));
 
-    assertThat(e).hasMessageThat().contains("10 buckets");
-    assertThat(e).hasMessageThat().contains("maximum of 9");
+    assertThat(e).hasMessageThat().contains("over 9 buckets");
+    assertThat(e).hasMessageThat().contains("cardinality below 9");
   }
 
   /**
