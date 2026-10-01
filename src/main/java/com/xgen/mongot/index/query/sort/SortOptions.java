@@ -36,6 +36,13 @@ public sealed interface SortOptions extends DocumentEncodable
             .asCamelCase()
             .optional()
             .noDefault();
+
+    static final Field.Optional<EmbeddedSortScope> EMBEDDED_DOCUMENT =
+        Field.builder("embeddedDocument")
+            .classField(EmbeddedSortScope::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
   }
 
   SortOptions invert();
@@ -83,15 +90,22 @@ public sealed interface SortOptions extends DocumentEncodable
       }
 
       var wrappedNoData = parser.getField(Fields.NO_DATA);
+      var wrappedEmbeddedDocument = parser.getField(Fields.EMBEDDED_DOCUMENT);
 
       parser.getGroup().atMostOneOf(wrappedMeta, wrappedNoData);
+      // An embedded-document scope is a user-field concept; it cannot combine with a $meta sort.
+      parser.getGroup().atMostOneOf(wrappedMeta, wrappedEmbeddedDocument);
 
       if (meta.isPresent()) {
         return new MetaSortOptions(sortOrder.orElse(meta.get().getDefaultSortOrder()), meta.get());
       }
 
+      SortOrder order = sortOrder.get();
       return new UserFieldSortOptions(
-          sortOrder.get(), wrappedNoData.unwrap().orElse(NullEmptySortPosition.LOWEST));
+          order,
+          order == SortOrder.ASC ? SortSelector.MIN : SortSelector.MAX,
+          wrappedNoData.unwrap().orElse(NullEmptySortPosition.LOWEST),
+          wrappedEmbeddedDocument.unwrap());
     }
   }
 }

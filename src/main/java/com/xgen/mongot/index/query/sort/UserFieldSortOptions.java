@@ -8,9 +8,16 @@ import org.bson.BsonDocument;
  * This class encapsulates options for sorting non-metadata fields, which can contain null or empty
  * values. It extends SortOptions to specify how null or missing values should be positioned within
  * the sort order.
+ *
+ * <p>An optional {@link EmbeddedSortScope} selects matching children of an {@code
+ * embeddedDocuments} array. The scope survives inversion and BSON serialization. Without a scope,
+ * the field is sorted on its own document-indexed value.
  */
 public record UserFieldSortOptions(
-    SortOrder order, SortSelector selector, NullEmptySortPosition nullEmptySortPosition)
+    SortOrder order,
+    SortSelector selector,
+    NullEmptySortPosition nullEmptySortPosition,
+    Optional<EmbeddedSortScope> embeddedScope)
     implements SortOptions {
 
   /**
@@ -29,7 +36,16 @@ public record UserFieldSortOptions(
 
   public UserFieldSortOptions(SortOrder order, NullEmptySortPosition nullEmptySortPosition) {
     this(
-        order, order == SortOrder.ASC ? SortSelector.MIN : SortSelector.MAX, nullEmptySortPosition);
+        order,
+        order == SortOrder.ASC ? SortSelector.MIN : SortSelector.MAX,
+        nullEmptySortPosition,
+        Optional.empty());
+  }
+
+  /** Convenience constructor for an unscoped sort (no embedded-document scope). */
+  public UserFieldSortOptions(
+      SortOrder order, SortSelector selector, NullEmptySortPosition nullEmptySortPosition) {
+    this(order, selector, nullEmptySortPosition, Optional.empty());
   }
 
   /**
@@ -43,18 +59,25 @@ public record UserFieldSortOptions(
    */
   @Override
   public UserFieldSortOptions invert() {
-    return new UserFieldSortOptions(this.order.invert(), this.selector, this.nullEmptySortPosition);
+    return new UserFieldSortOptions(
+        this.order.invert(), this.selector, this.nullEmptySortPosition, this.embeddedScope);
   }
 
   @Override
   public BsonDocument toBson() {
     var builder = BsonDocumentBuilder.builder().field(Fields.ORDER, Optional.of(this.order));
     builder.field(Fields.NO_DATA, Optional.of(this.nullEmptySortPosition));
+    builder.field(Fields.EMBEDDED_DOCUMENT, this.embeddedScope);
     return builder.build();
   }
 
   @Override
   public String toString() {
-    return "UserFieldSortOptions(" + "nullEmptySortPosition=" + this.nullEmptySortPosition + ')';
+    return "UserFieldSortOptions("
+        + "nullEmptySortPosition="
+        + this.nullEmptySortPosition
+        + ", embeddedScope="
+        + this.embeddedScope
+        + ')';
   }
 }

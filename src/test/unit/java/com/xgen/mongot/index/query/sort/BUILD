@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "sort",
     srcs = [
+        "MongotSortFieldTest.java",
         "NullEmptySortPositionTest.java",
         "SequenceTokenTest.java",
         "SortBetaV1Test.java",

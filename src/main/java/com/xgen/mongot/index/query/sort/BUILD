@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "sort",
     srcs = [
+        "EmbeddedSortScope.java",
         "MetaSortField.java",
         "MetaSortOptions.java",
         "MongotSortField.java",

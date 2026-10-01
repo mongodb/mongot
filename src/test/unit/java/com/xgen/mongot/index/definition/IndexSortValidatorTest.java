@@ -4,11 +4,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
 import com.xgen.mongot.index.query.sort.MetaSortField;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.MongotSortField;
+import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.Sort;
 import com.xgen.mongot.index.query.sort.SortOrder;
+import com.xgen.mongot.index.query.sort.SortSelector;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -18,8 +21,11 @@ import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.TokenFieldDefinitionBuilder;
 import java.util.List;
+import java.util.Optional;
 import org.apache.commons.collections4.Trie;
 import org.apache.commons.collections4.trie.PatriciaTrie;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.junit.Test;
 
 public class IndexSortValidatorTest {
@@ -52,6 +58,47 @@ public class IndexSortValidatorTest {
       fail("Expected BsonParseException");
     } catch (BsonParseException e) {
       assertEquals("Cannot sort on score for fields: [scoreField]", e.getMessage());
+    }
+  }
+
+  private static UserFieldSortOptions scopedAsc(String path) {
+    BsonDocument operator =
+        new BsonDocument("exists", new BsonDocument("path", new BsonString(path + ".price")));
+    return new UserFieldSortOptions(
+        SortOrder.ASC,
+        SortSelector.MIN,
+        NullEmptySortPosition.LOWEST,
+        Optional.of(new EmbeddedSortScope(FieldPath.parse(path), operator)));
+  }
+
+  @Test
+  public void validateNoEmbeddedScope_withRegularFields_passes() throws BsonParseException {
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(
+                    FieldPath.newRoot("field2"), UserFieldSortOptions.DEFAULT_DESC)));
+
+    // Should not throw
+    IndexSortValidator.validateNoEmbeddedScope(sort);
+  }
+
+  @Test
+  public void validateNoEmbeddedScope_withScopedField_throwsException() {
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC),
+                new MongotSortField(FieldPath.parse("variants.price"), scopedAsc("variants"))));
+
+    try {
+      IndexSortValidator.validateNoEmbeddedScope(sort);
+      fail("Expected BsonParseException");
+    } catch (BsonParseException e) {
+      assertEquals(
+          "embeddedDocument is not supported on an index sort for fields: [variants.price]",
+          e.getMessage());
     }
   }
 

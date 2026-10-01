@@ -12,8 +12,19 @@ import org.bson.BsonValue;
 public record MongotSortField(FieldPath field, SortOptions options) {
   public static MongotSortField fromBson(String key, BsonValue value, BsonParseContext context)
       throws BsonParseException {
-    var order = SortOptions.fromBson(context, value);
-    return new MongotSortField(FieldPath.parse(key), order);
+    var options = SortOptions.fromBson(context, value);
+    var field = FieldPath.parse(key);
+    if (options instanceof UserFieldSortOptions userOptions
+        && userOptions.embeddedScope().isPresent()) {
+      var scope = userOptions.embeddedScope().get();
+      if (!field.isChildOf(scope.path())) {
+        context
+            .child(key)
+            .handleSemanticError(
+                String.format("must be a child of embeddedDocument.path \"%s\"", scope.path()));
+      }
+    }
+    return new MongotSortField(field, options);
   }
 
   public MongotSortField invert() {

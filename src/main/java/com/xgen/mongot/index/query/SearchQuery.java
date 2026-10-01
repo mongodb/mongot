@@ -12,6 +12,7 @@ import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.Sort;
 import com.xgen.mongot.index.query.sort.SortBetaV1;
 import com.xgen.mongot.index.query.sort.SortSpec;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
@@ -109,6 +110,22 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
         parser
             .getGroup()
             .atMostOneOf(parser.getField(Fields.SORT_BETA_V1), parser.getField(Fields.SORT));
+
+    // The sort model preserves scopes, but execution does not support them yet. Reject them here
+    // so neither query planning nor execution can silently treat a scoped sort as unscoped.
+    if (sortSpec.isPresent()) {
+      for (var sortField : sortSpec.get().getSortFields()) {
+        if (sortField.options() instanceof UserFieldSortOptions options
+            && options.embeddedScope().isPresent()) {
+          parser
+              .getContext()
+              .child(getSortBsonField(sortSpec.get()).getName())
+              .child(sortField.field().toString())
+              .child("embeddedDocument")
+              .handleSemanticError("is not yet supported for sorting");
+        }
+      }
+    }
 
     var searchBefore = parser.getField(Fields.SEARCH_BEFORE);
     var searchAfter = parser.getField(Fields.SEARCH_AFTER);

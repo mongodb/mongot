@@ -6,6 +6,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.LinkedHashMap;
@@ -35,6 +36,31 @@ public class IndexSortValidator {
     if (!scoreFields.isEmpty()) {
       throw new BsonParseException(
           String.format("Cannot sort on score for fields: %s", scoreFields), Optional.empty());
+    }
+  }
+
+  /**
+   * An {@code embeddedDocument} scope is a query-time concept (it restricts a sort to the matching
+   * children of an array per query). It has no meaning on an index-level sort, where {@code
+   * LuceneIndexSortFactory} builds an ordinary physical sort that ignores the scope, so reject it
+   * here rather than silently accept-and-ignore it. This is independent of any query-side feature
+   * gate.
+   */
+  static void validateNoEmbeddedScope(Sort sort) throws BsonParseException {
+    Set<String> scopedFields =
+        sort.getSortFields().stream()
+            .filter(
+                f ->
+                    f.options() instanceof UserFieldSortOptions userOptions
+                        && userOptions.embeddedScope().isPresent())
+            .map(f -> f.field().toString())
+            .collect(Collectors.toSet());
+
+    if (!scopedFields.isEmpty()) {
+      throw new BsonParseException(
+          String.format(
+              "embeddedDocument is not supported on an index sort for fields: %s", scopedFields),
+          Optional.empty());
     }
   }
 
@@ -140,6 +166,7 @@ public class IndexSortValidator {
     Sort sort = optionalSort.get();
 
     validateNoScoreFields(sort);
+    validateNoEmbeddedScope(sort);
     validateSortFieldsStaticallyDefined(sort, staticFields);
     validateSortFieldsAreSortable(sort, staticFields);
   }

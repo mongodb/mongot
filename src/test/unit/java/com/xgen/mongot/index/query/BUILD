@@ -14,6 +14,7 @@ java_test_suite(
         "PaginationTest.java",
         "SearchAggregationBucketLimitTest.java",
         "SearchAggregationSortTest.java",
+        "SearchQueryTest.java",
         "SearchQueryTimeMappingChecksTest.java",
         "TrackingTest.java",
         "VectorEmbeddedFilterTest.java",

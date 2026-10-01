@@ -3,23 +3,31 @@ package com.xgen.mongot.index.query.sort;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromValue;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.mongot.index.query.sort.SortOptionsBuilder;
 import java.util.List;
+import java.util.Optional;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.search.SortedSetSelector;
+import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
 import org.junit.experimental.theories.FromDataPoints;
 import org.junit.experimental.theories.Theories;
 import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Suite;
 
@@ -28,7 +36,8 @@ import org.junit.runners.Suite;
     value = {
       SortOptionsTest.DeserializationTest.class,
       SortOptionsTest.SerializationTest.class,
-      SortOptionsTest.ClassTest.class
+      SortOptionsTest.ClassTest.class,
+      SortOptionsTest.EmbeddedScopeTest.class
     })
 public class SortOptionsTest {
 
@@ -258,6 +267,169 @@ public class SortOptionsTest {
               .sortOrder(SortOrder.DESC)
               .nullEmptySortPosition(NullEmptySortPosition.HIGHEST)
               .build());
+    }
+  }
+
+  /**
+   * Parsing of the {@code embeddedDocument} block on a scoped sort key. The parsed {@code path} and
+   * raw operator are retained; interpreting the {@code operator} is a query-layer concern.
+   */
+  @RunWith(JUnit4.class)
+  public static class EmbeddedScopeTest {
+
+    private static BsonDocument operatorDoc() {
+      return new BsonDocument(
+          "equals",
+          new BsonDocument("path", new BsonString("variants.inStock"))
+              .append("value", org.bson.BsonBoolean.TRUE));
+    }
+
+    private static BsonDocument scopedSortValue(int order, BsonDocument embeddedDocument) {
+      return new BsonDocument()
+          .append("order", new BsonInt32(order))
+          .append("embeddedDocument", embeddedDocument);
+    }
+
+    private static BsonDocument fullEmbeddedDocument() {
+      return new BsonDocument()
+          .append("path", new BsonString("variants"))
+          .append("operator", operatorDoc());
+    }
+
+    @Test
+    public void fromBson_embeddedDocument_retainsScope() throws BsonParseException {
+      SortOptions options =
+          SortOptions.fromBson(BsonParseContext.root(), scopedSortValue(1, fullEmbeddedDocument()));
+
+      UserFieldSortOptions userOptions = (UserFieldSortOptions) options;
+      assertEquals(SortOrder.ASC, userOptions.order());
+      assertEquals(
+          Optional.of(new EmbeddedSortScope(FieldPath.parse("variants"), operatorDoc())),
+          userOptions.embeddedScope());
+    }
+
+    @Test
+    public void fromBson_unscopedSort_hasEmptyScope() throws BsonParseException {
+      SortOptions options = SortOptions.fromBson(BsonParseContext.root(), new BsonInt32(1));
+
+      assertEquals(Optional.empty(), ((UserFieldSortOptions) options).embeddedScope());
+    }
+
+    @Test
+    public void testMissingOperatorRejected() {
+      BsonDocument embeddedDocument = new BsonDocument("path", new BsonString("variants"));
+
+      assertThrows(
+          BsonParseException.class,
+          () ->
+              SortOptions.fromBson(BsonParseContext.root(), scopedSortValue(1, embeddedDocument)));
+    }
+
+    @Test
+    public void testMissingPathRejected() {
+      BsonDocument embeddedDocument = new BsonDocument("operator", operatorDoc());
+
+      assertThrows(
+          BsonParseException.class,
+          () ->
+              SortOptions.fromBson(BsonParseContext.root(), scopedSortValue(1, embeddedDocument)));
+    }
+
+    @Test
+    public void fromBson_nonDocumentOperator_rejected() {
+      BsonDocument embeddedDocument = fullEmbeddedDocument().append("operator", new BsonInt32(1));
+
+      assertThrows(
+          BsonParseException.class,
+          () ->
+              SortOptions.fromBson(BsonParseContext.root(), scopedSortValue(1, embeddedDocument)));
+    }
+
+    @Test
+    public void fromBson_unknownScopeField_rejected() {
+      BsonDocument embeddedDocument = fullEmbeddedDocument().append("unknown", new BsonInt32(1));
+
+      assertThrows(
+          BsonParseException.class,
+          () ->
+              SortOptions.fromBson(BsonParseContext.root(), scopedSortValue(1, embeddedDocument)));
+    }
+
+    @Test
+    public void testEmbeddedDocumentWithMetaRejected() {
+      BsonDocument value =
+          new BsonDocument()
+              .append("$meta", new BsonString("searchScore"))
+              .append("embeddedDocument", fullEmbeddedDocument());
+
+      assertThrows(
+          BsonParseException.class, () -> SortOptions.fromBson(BsonParseContext.root(), value));
+    }
+
+    @Test
+    public void invert_scopedSort_preservesScope() throws BsonParseException {
+      UserFieldSortOptions original =
+          (UserFieldSortOptions)
+              SortOptions.fromBson(
+                  BsonParseContext.root(), scopedSortValue(1, fullEmbeddedDocument()));
+
+      UserFieldSortOptions inverted = original.invert();
+
+      assertEquals(SortOrder.DESC, inverted.order());
+      assertEquals(original.embeddedScope(), inverted.embeddedScope());
+      assertEquals(fullEmbeddedDocument(), inverted.toBson().getDocument("embeddedDocument"));
+    }
+
+    @Test
+    public void testToBsonRoundTripPreservesScope() throws BsonParseException {
+      // A scoped sort must survive parse -> toBson -> parse, otherwise SortSpec.toBson() /
+      // SearchQuery.toBson() would silently drop the scope and turn it into an unscoped sort.
+      UserFieldSortOptions original =
+          (UserFieldSortOptions)
+              SortOptions.fromBson(
+                  BsonParseContext.root(), scopedSortValue(1, fullEmbeddedDocument()));
+
+      BsonDocument serialized = original.toBson();
+      assertTrue(serialized.containsKey("embeddedDocument"));
+      assertEquals(fullEmbeddedDocument(), serialized.getDocument("embeddedDocument"));
+
+      UserFieldSortOptions reparsed =
+          (UserFieldSortOptions) SortOptions.fromBson(BsonParseContext.root(), serialized);
+      assertEquals(original.embeddedScope(), reparsed.embeddedScope());
+      assertEquals(FieldPath.parse("variants"), reparsed.embeddedScope().orElseThrow().path());
+    }
+
+    @Test
+    public void toBson_constructedScope_roundTrips() throws BsonParseException {
+      UserFieldSortOptions options =
+          SortOptionsBuilder.user()
+              .sortOrder(SortOrder.ASC)
+              .embeddedScope(new EmbeddedSortScope(FieldPath.parse("variants"), operatorDoc()))
+              .build();
+
+      BsonDocument serialized = options.toBson();
+
+      assertEquals(fullEmbeddedDocument(), serialized.getDocument("embeddedDocument"));
+      assertEquals(options, SortOptions.fromBson(BsonParseContext.root(), serialized));
+    }
+
+    @Test
+    public void toBson_inputScopePathChanged_preservesParsedPath() throws BsonParseException {
+      BsonDocument embeddedDocument = fullEmbeddedDocument();
+      SortOptions options =
+          SortOptions.fromBson(BsonParseContext.root(), scopedSortValue(1, embeddedDocument));
+
+      embeddedDocument.put("path", new BsonString("other"));
+
+      assertEquals(fullEmbeddedDocument(), options.toBson().getDocument("embeddedDocument"));
+    }
+
+    @Test
+    public void testToBsonUnscopedOmitsEmbeddedDocument() throws BsonParseException {
+      UserFieldSortOptions unscoped =
+          (UserFieldSortOptions) SortOptions.fromBson(BsonParseContext.root(), new BsonInt32(1));
+
+      assertFalse(unscoped.toBson().containsKey("embeddedDocument"));
     }
   }
 }
