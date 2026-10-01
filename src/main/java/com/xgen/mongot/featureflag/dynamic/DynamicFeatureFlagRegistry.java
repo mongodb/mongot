@@ -640,7 +640,8 @@ public class DynamicFeatureFlagRegistry {
               + " evaluation mid-process if called from production code paths.",
       link = "https://jira.mongodb.org/browse/CLOUDP-415881",
       allowedOnPath =
-          ".*/index/lucene/vector/.*Test\\.java|.*DynamicFeatureFlagRegistryTest\\.java")
+          ".*/index/lucene/(vector|codec/flat)/.*Test\\.java"
+              + "|.*DynamicFeatureFlagRegistryTest\\.java")
   @VisibleForTesting
   public static synchronized void resetForTest() {
     globalDynamicFeatureFlagRegistry = Optional.empty();

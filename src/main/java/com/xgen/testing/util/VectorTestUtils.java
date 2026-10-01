@@ -14,31 +14,38 @@ public class VectorTestUtils {
 
   /** Create a random vector with floats in range [-1, 1]. */
   public static float[] createFloatVector(int dim) {
+    return createFloatVector(RandomGenerator.getDefault(), dim);
+  }
+
+  /** Create a random vector with floats in range [-1, 1] using the given RNG. */
+  public static float[] createFloatVector(RandomGenerator rng, int dim) {
     float[] v = new float[dim];
-    RandomGenerator rng = RandomGenerator.getDefault();
-
     for (int i = 0; i < v.length; ++i) {
-      v[i] = rng.nextFloat(-1, 1);
+      v[i] = rng.nextFloat(-1f, 1f);
     }
-
     return v;
   }
 
   /** Create a random byte vector with values in range [-128, 127]. */
   public static byte[] createByteVector(int dim) {
+    return createByteVector(RandomGenerator.getDefault(), dim);
+  }
+
+  /** Create a random byte vector with values in range [-128, 127] using the given RNG. */
+  public static byte[] createByteVector(RandomGenerator rng, int dim) {
     byte[] v = new byte[dim];
-    RandomGenerator rng = RandomGenerator.getDefault();
-
-    for (int i = 0; i < v.length; ++i) {
-      v[i] = (byte) rng.nextInt(Byte.MIN_VALUE, Byte.MAX_VALUE + 1);
-    }
-
+    rng.nextBytes(v);
     return v;
   }
 
   /** Create a random unit vector. */
   public static float[] createUnitVector(int dim) {
-    return VectorUtil.l2normalize(createFloatVector(dim));
+    return createUnitVector(RandomGenerator.getDefault(), dim);
+  }
+
+  /** Create a random unit vector using the given RNG. */
+  public static float[] createUnitVector(RandomGenerator rng, int dim) {
+    return VectorUtil.l2normalize(createFloatVector(rng, dim));
   }
 
   /**

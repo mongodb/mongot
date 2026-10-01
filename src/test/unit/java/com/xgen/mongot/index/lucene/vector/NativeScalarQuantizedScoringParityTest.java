@@ -4,6 +4,7 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.util.GlobalMetricFactory;
+import com.xgen.testing.util.VectorTestUtils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -95,22 +96,6 @@ public class NativeScalarQuantizedScoringParityTest {
     }
   }
 
-  private static float[] randomUnitVector(Random rng, int dim) {
-    float[] v = new float[dim];
-    // Accumulate via a single-element array to avoid Error Prone's @Var requirement on a reassigned
-    // scalar.
-    double[] sumSq = {0.0};
-    for (int i = 0; i < dim; i++) {
-      v[i] = rng.nextFloat() * 2f - 1f;
-      sumSq[0] += (double) v[i] * v[i];
-    }
-    float inv = (float) (1.0 / Math.sqrt(Math.max(sumSq[0], 1e-12)));
-    for (int i = 0; i < dim; i++) {
-      v[i] *= inv;
-    }
-    return v;
-  }
-
   /** Maps stored id -> score for all hits of a KnnFloatVectorQuery over the whole index. */
   private static Map<Integer, Float> scoresById(IndexSearcher searcher, float[] query)
       throws IOException {
@@ -195,7 +180,8 @@ public class NativeScalarQuantizedScoringParityTest {
                   dir, new IndexWriterConfig().setCodec(new NativeScalarQuantizedTestCodec()))) {
             for (int i = 0; i < NUM_VECTORS; i++) {
               Document doc = new Document();
-              doc.add(new KnnFloatVectorField(FIELD, randomUnitVector(rng, dim), fn));
+              doc.add(
+                  new KnnFloatVectorField(FIELD, VectorTestUtils.createUnitVector(rng, dim), fn));
               doc.add(new StoredField(ID, Integer.toString(i)));
               w.addDocument(doc);
             }
@@ -205,7 +191,7 @@ public class NativeScalarQuantizedScoringParityTest {
               IndexSearcher searcher = new IndexSearcher(reader);
               QuantizedByteVectorValues qv = quantizedVectorValues(reader, FIELD);
               for (int q = 0; q < NUM_QUERIES; q++) {
-                float[] query = randomUnitVector(rng, dim);
+                float[] query = VectorTestUtils.createUnitVector(rng, dim);
 
                 setNativeScoring(true);
                 assertNativeScorerUsed(fn, qv, query);
@@ -257,7 +243,7 @@ public class NativeScalarQuantizedScoringParityTest {
               dir, new IndexWriterConfig().setCodec(new NativeScalarQuantizedTestCodec()))) {
         for (int i = 0; i < NUM_VECTORS; i++) {
           Document doc = new Document();
-          doc.add(new KnnFloatVectorField(FIELD, randomUnitVector(rng, dim), fn));
+          doc.add(new KnnFloatVectorField(FIELD, VectorTestUtils.createUnitVector(rng, dim), fn));
           doc.add(new StoredField(ID, Integer.toString(i)));
           w.addDocument(doc);
         }
@@ -265,7 +251,7 @@ public class NativeScalarQuantizedScoringParityTest {
 
         try (DirectoryReader reader = DirectoryReader.open(w)) {
           IndexSearcher searcher = new IndexSearcher(reader);
-          float[] query = randomUnitVector(rng, dim);
+          float[] query = VectorTestUtils.createUnitVector(rng, dim);
 
           setNativeScoring(true);
           Map<Integer, Float> flagOnScores = scoresById(searcher, query);
@@ -318,7 +304,7 @@ public class NativeScalarQuantizedScoringParityTest {
                 dir, new IndexWriterConfig().setCodec(new NativeScalarQuantizedTestCodec()))) {
           for (int i = 0; i < NUM_VECTORS; i++) {
             Document doc = new Document();
-            doc.add(new KnnFloatVectorField(FIELD, randomUnitVector(rng, dim), fn));
+            doc.add(new KnnFloatVectorField(FIELD, VectorTestUtils.createUnitVector(rng, dim), fn));
             doc.add(new StoredField(ID, Integer.toString(i)));
             w.addDocument(doc);
           }
@@ -339,7 +325,7 @@ public class NativeScalarQuantizedScoringParityTest {
 
           try (DirectoryReader reader = DirectoryReader.open(w)) {
             IndexSearcher searcher = new IndexSearcher(reader);
-            float[] query = randomUnitVector(rng, dim);
+            float[] query = VectorTestUtils.createUnitVector(rng, dim);
 
             setNativeScoring(true);
             scoresById(searcher, query);

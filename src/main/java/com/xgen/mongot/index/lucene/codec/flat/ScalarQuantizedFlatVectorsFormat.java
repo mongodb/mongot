@@ -1,10 +1,9 @@
 package com.xgen.mongot.index.lucene.codec.flat;
 
 import com.google.auto.service.AutoService;
-import com.mongodb.lang.Nullable;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
+import com.xgen.mongot.index.lucene.vector.NativeScalarQuantizedFlatVectorsFormat;
 import java.io.IOException;
-import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
@@ -13,32 +12,29 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
 /**
- * A {@link KnnVectorsFormat} that supports exhaustive vector search with scalar quantization.
+ * A {@link KnnVectorsFormat} that supports exhaustive vector search with 7-bit scalar quantization,
+ * accelerating scoring with native SIMD via {@link NativeScalarQuantizedFlatVectorsFormat} when the
+ * {@code mongot.featureFlag.enableNativeScalarVectorScoring} flag is enabled and the platform is
+ * accelerated (falling back to Lucene's Java scalar scorer otherwise).
  *
- * <p>This format does <b>NOT</b> build or use HNSW graph structures. Instead, it performs
- * exhaustive brute-force search by scanning all vectors in the index to find the k-nearest
- * neighbors.
- *
- * <p>The format delegates to Lucene's {@link Lucene99ScalarQuantizedVectorsFormat} for the
- * underlying storage and retrieval, which applies scalar quantization to reduce memory footprint
+ * <p>Stored via the stock {@code Lucene99ScalarQuantizedVectorsFormat} layout (this format's own
+ * name is {@code ScalarQuantizedFlatVectorsFormat}); only the in-memory scorer differs, so segments
+ * interoperate and native scoring can be toggled with no reindex.
  *
  * @see KnnVectorsFormat
- * @see Lucene99ScalarQuantizedVectorsFormat
+ * @see NativeScalarQuantizedFlatVectorsFormat
  */
 @AutoService(KnnVectorsFormat.class)
 public class ScalarQuantizedFlatVectorsFormat extends KnnVectorsFormat {
 
   private static final String NAME = "ScalarQuantizedFlatVectorsFormat";
-  private final FlatVectorsFormat format;
+
+  // Native Q7 scoring with Lucene's Java scalar scorer as the flag/acceleration-gated fallback. The
+  // same FlatVectorsFormat already backs the HNSW Q7 path (NativeHnswScalarQuantizedVectorsFormat).
+  private final FlatVectorsFormat format = new NativeScalarQuantizedFlatVectorsFormat();
 
   public ScalarQuantizedFlatVectorsFormat() {
-    this(null, 7, false);
-  }
-
-  public ScalarQuantizedFlatVectorsFormat(
-      @Nullable Float confidenceInterval, int bits, boolean compress) {
     super(NAME);
-    this.format = new Lucene99ScalarQuantizedVectorsFormat(confidenceInterval, bits, compress);
   }
 
   @Override

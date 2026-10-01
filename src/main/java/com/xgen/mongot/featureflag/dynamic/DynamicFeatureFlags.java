@@ -100,9 +100,9 @@ public enum DynamicFeatureFlags {
    */
   INACTIVE_CURSOR_PARKING("mongot.featureFlag.enableInactiveCursorParking", false),
   /**
-   * When enabled, 7-bit scalar-quantized (Q7) HNSW vectors are scored with the native SIMD
-   * implementation ({@code mongot_vecsim}) instead of Lucene's Java scorer. Falls back to the Java
-   * scorer when disabled, on unaccelerated hardware, or for non-memory-mapped inputs. Toggling
+   * When enabled, 7-bit scalar-quantized (Q7) vectors (HNSW and flat) are scored with the native
+   * SIMD implementation ({@code mongot_vecsim}) instead of Lucene's Java scorer. Falls back to the
+   * Java scorer when disabled, on unaccelerated hardware, or for non-memory-mapped inputs. Toggling
    * requires no reindex; the on-disk format is unchanged.
    */
   NATIVE_SCALAR_VECTOR_SCORING("mongot.featureFlag.enableNativeScalarVectorScoring", false),

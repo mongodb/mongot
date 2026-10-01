@@ -20,6 +20,7 @@ import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.lucene.codec.bloom.MongotBloomFilteringPostingsFormat;
 import com.xgen.mongot.index.lucene.codec.flat.Float32AndByteFlatVectorsFormat;
+import com.xgen.mongot.index.lucene.codec.flat.ScalarQuantizedFlatVectorsFormat;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBinaryQuantizedVectorsFormat;
 import com.xgen.mongot.index.lucene.quantization.Mongot01042HnswBitVectorsFormat;
@@ -181,6 +182,20 @@ public class LuceneCodecTest {
   }
 
   @Test
+  public void
+      getKnnVectorsFormatForField_withFlatAlgo_producesScalarQuantizedFlatFormat_forKnnQ7() {
+    FieldPath path = FieldPath.parse("vector");
+    VectorFieldSpecification specification = createFlatScalarQuantizedVectorFieldDefinition();
+
+    LuceneCodec codec = new LuceneCodec(Map.of(path, specification));
+    PerFieldKnnVectorsFormat format = (PerFieldKnnVectorsFormat) codec.knnVectorsFormat();
+    KnnVectorsFormat vectorsFormat =
+        format.getKnnVectorsFormatForField(KNN_F32_Q7.getLuceneFieldName(path, Optional.empty()));
+
+    Assert.assertTrue(vectorsFormat instanceof ScalarQuantizedFlatVectorsFormat);
+  }
+
+  @Test
   public void postingsFormat_idField_bloomFilterEnabled_returnsBloomFilterPostingsFormat() {
     testPostingsFormat(
         true,
@@ -294,6 +309,14 @@ public class LuceneCodecTest {
         1024,
         VectorSimilarity.DOT_PRODUCT,
         VectorQuantization.NONE,
+        new VectorIndexingAlgorithm.FlatIndexingAlgorithm());
+  }
+
+  private VectorFieldSpecification createFlatScalarQuantizedVectorFieldDefinition() {
+    return new VectorFieldSpecification(
+        1024,
+        VectorSimilarity.DOT_PRODUCT,
+        VectorQuantization.SCALAR,
         new VectorIndexingAlgorithm.FlatIndexingAlgorithm());
   }
 }

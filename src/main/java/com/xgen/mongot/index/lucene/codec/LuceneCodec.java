@@ -89,16 +89,22 @@ import org.apache.lucene.store.Directory;
  * com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat} (a drop-in,
  * byte-identical replacement for {@code
  * backward_codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat} that accelerates scoring with
- * native SIMD kernels when available), {@code KNN_VECTOR} uses {@code Lucene99HnswVectorsFormat},
- * and the flat scalar format delegates to {@code
- * backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat}. Per-field KNN formats are
- * SPI-resolved by name on read; the format classes are identical under every write format. {@code
- * KNN_F32_Q7} (like {@code KNN_BYTE}) shares its on-disk name with a stock Lucene class, so {@code
- * bazel/java/spi_service_overrides.tsv} strips the stock SPI registration from the packaged binary
- * at stamp time, making the native format the sole, deterministic {@code forName()} result; see
- * {@link com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat}'s own javadoc
- * for details. Every HNSW format takes the write-format-dependent parameters — the graph write
- * version and the tiny-segment graph threshold — explicitly, grouped and validated as {@link
+ * native SIMD kernels when available), {@code KNN_VECTOR} uses {@code Lucene99HnswVectorsFormat}.
+ * Flat indexes reuse the same flat formats with native scorers wired in place: {@code
+ * Float32AndByteFlatVectorsFormat} accelerates byte vectors natively (no feature flag -- Java
+ * scorer for float, mirroring the {@code KNN_BYTE} HNSW path) and {@code
+ * ScalarQuantizedFlatVectorsFormat} accelerates flat {@code KNN_F32_Q7} via the flag-gated {@link
+ * com.xgen.mongot.index.lucene.vector.NativeScalarQuantizedVectorsScorer} (through {@link
+ * com.xgen.mongot.index.lucene.vector.NativeScalarQuantizedFlatVectorsFormat}). Both keep their
+ * codec names and on-disk layouts unchanged, so enabling native scoring requires no reindex.
+ * Per-field KNN formats are SPI-resolved by name on read; the format classes are identical under
+ * every write format. The HNSW native formats ({@code KNN_BYTE} and {@code KNN_F32_Q7}) share their
+ * on-disk names with stock Lucene classes, so {@code bazel/java/spi_service_overrides.tsv} strips
+ * the stock SPI registration from the packaged binary at stamp time, making the native format the
+ * sole, deterministic {@code forName()} result; see {@link
+ * com.xgen.mongot.index.lucene.vector.NativeHnswScalarQuantizedVectorsFormat}'s own javadoc for
+ * details. Every HNSW format takes the write-format-dependent parameters — the graph write version
+ * and the tiny-segment graph threshold — explicitly, grouped and validated as {@link
  * com.xgen.mongot.index.lucene.vector.HnswWriteParams}; see {@link
  * WriteFormat#getHnswWriteParams()}.
  *
@@ -380,11 +386,14 @@ public class LuceneCodec extends FilterCodec {
 
   private KnnVectorsFormat resolveFlatVectorFormat(String field, FieldName.TypeField typeField) {
     return switch (typeField) {
-      // TODO(CLOUDP-403218): extend native scoring support to flat indexes.
+      // Float32 vectors and raw int8 share one format; native SIMD accelerates byte scoring
+      // (Lucene99NativeMemorySegmentVectorScorer) and float32 falls through to Lucene's Java
+      // scorer. KNN_F32_Q7 delegates to NativeScalarQuantizedFlatVectorsFormat, which injects the
+      // flag-gated NativeScalarQuantizedVectorsScorer.
       case FieldName.TypeField.KNN_VECTOR, FieldName.TypeField.KNN_BYTE ->
           new Float32AndByteFlatVectorsFormat();
       case FieldName.TypeField.KNN_BIT -> new FlatBitVectorsFormat();
-      case FieldName.TypeField.KNN_F32_Q7 -> new ScalarQuantizedFlatVectorsFormat(null, 7, false);
+      case FieldName.TypeField.KNN_F32_Q7 -> new ScalarQuantizedFlatVectorsFormat();
       case FieldName.TypeField.KNN_F32_Q1, FieldName.TypeField.KNN_BYTE_Q1 ->
           new BinaryQuantizedFlatVectorsFormat();
       default -> {

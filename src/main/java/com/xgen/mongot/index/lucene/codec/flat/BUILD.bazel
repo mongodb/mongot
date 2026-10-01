@@ -15,10 +15,9 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/quantization",
+        "//src/main/java/com/xgen/mongot/index/lucene/vector",
         "@maven//:com_google_auto_service_auto_service_annotations",
-        "@maven//:org_apache_lucene_lucene_backward_codecs",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_jetbrains_annotations",
-        "@maven//:org_mongodb_mongodb_driver_core",
     ],
 )

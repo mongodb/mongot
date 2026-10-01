@@ -19,6 +19,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/vector",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/testing/mongot/index/lucene/vector",
+        "//src/main/java/com/xgen/testing/util",
         "@maven//:com_google_truth_truth",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:junit_junit",
