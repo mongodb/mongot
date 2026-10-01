@@ -19,6 +19,8 @@ import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.noop.NoopCounter;
+import io.micrometer.core.instrument.noop.NoopTimer;
 import io.micrometer.core.instrument.search.RequiredSearch;
 import java.util.Arrays;
 import java.util.Collection;
@@ -62,6 +64,20 @@ public class MetricsFactory {
                   unit ->
                       Tags.of(
                           TIME_UNIT_TAG_KEY, Enums.convertNameTo(CaseFormat.LOWER_CAMEL, unit))));
+
+  /**
+   * A {@link Counter} that is never registered with a MeterRegistry and never exported. Use in
+   * place of an optional or null counter.
+   */
+  public static final Counter NOOP_COUNTER =
+      new NoopCounter(new Meter.Id("noop_counter", Tags.empty(), null, null, Meter.Type.COUNTER));
+
+  /**
+   * A {@link Timer} that is never registered with a MeterRegistry and never exported. Use in place
+   * of an optional or null timer.
+   */
+  public static final Timer NOOP_TIMER =
+      new NoopTimer(new Meter.Id("noop_timer", Tags.empty(), null, null, Meter.Type.TIMER));
 
   private final String namespace;
   private final MeterRegistry registry;

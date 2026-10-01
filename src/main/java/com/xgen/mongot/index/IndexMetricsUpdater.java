@@ -675,7 +675,9 @@ public class IndexMetricsUpdater implements Closeable {
         boolean isIndexFeatureVersionFourEnabled,
         boolean isSearchAggregationEnabled) {
       // Search indices don't need per-index vector metrics, and likewise when roles are reversed.
-      boolean isSearchIndex = indexTypeTag == IndexTypeData.IndexTypeTag.TAG_SEARCH;
+      boolean isSearchIndex =
+          indexTypeTag == IndexTypeData.IndexTypeTag.TAG_SEARCH
+              || indexTypeTag == IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING;
       Tags indexFeatureVersionTag =
           isIndexFeatureVersionFourEnabled
               ? Tags.of(INDEX_FEATURE_VERSION_NAME, String.valueOf(indexFeatureVersion))
@@ -700,7 +702,7 @@ public class IndexMetricsUpdater implements Closeable {
       this.searchGetMoreCommandCounter =
           isSearchIndex
               ? metricsFactory.perIndexCounter("getMoreCommandCalls")
-              : metricsFactory.counter("getMoreCommandCalls");
+              : MetricsFactory.NOOP_COUNTER;
       this.vectorCommandCounter =
           processMetricsFactory.counter(
               "vectorCommandCalls", Tags.of(INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue));
@@ -713,7 +715,7 @@ public class IndexMetricsUpdater implements Closeable {
       this.searchResultBatchLatencyTimer =
           isSearchIndex
               ? metricsFactory.perIndexTimer("searchResultBatchLatencies", indexFeatureVersionTag)
-              : metricsFactory.timer("searchResultBatchLatencies");
+              : MetricsFactory.NOOP_TIMER;
       this.vectorResultLatencyTimer =
           processMetricsFactory.timer(
               "vectorResultLatencies",
@@ -747,11 +749,11 @@ public class IndexMetricsUpdater implements Closeable {
       this.tokenFacetsStateRefreshLatencyTimer =
           isSearchIndex
               ? metricsFactory.perIndexTimer("tokenFacetsStateRefreshLatency")
-              : metricsFactory.timer("tokenFacetsStateRefreshLatency");
+              : MetricsFactory.NOOP_TIMER;
       this.stringFacetsStateRefreshLatencyTimer =
           isSearchIndex
               ? metricsFactory.perIndexTimer("stringFacetsStateRefreshLatency")
-              : metricsFactory.timer("stringFacetsStateRefreshLatency");
+              : MetricsFactory.NOOP_TIMER;
       this.numCandidatesUnquantized =
           processMetricsFactory.histogram(
               "numCandidatesPerQuery",
