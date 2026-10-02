@@ -44,6 +44,10 @@ scripts/tests/upgrade/bloom-downgrade-test-info.json
 
 .cache/
 
+# search-system-oncall-triage incident reports (cluster ids, hostnames, customer context)
+# Unanchored: an agent started in a subdirectory writes here too.
+search-system-oncall-triage-reports/
+
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/agent-memory/

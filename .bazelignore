@@ -1,2 +1,5 @@
 node_modules
 packages/search-index-schema/node_modules
+# Symlinks to .agents/skills; without this Bazel loads each skill package three times.
+.claude
+.cursor
