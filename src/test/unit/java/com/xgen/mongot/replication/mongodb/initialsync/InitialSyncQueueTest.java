@@ -18,6 +18,7 @@ import static com.xgen.testing.mongot.mock.index.VectorIndex.MOCK_VECTOR_INDEX_D
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockAutoEmbeddingVectorDefinition;
 import static com.xgen.testing.mongot.mock.index.VectorIndex.mockVectorDefinition;
 import static com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer.mockDocumentIndexer;
+import static com.xgen.testing.mongot.mock.replication.mongodb.common.SessionRefresher.mockSessionRefresher;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,6 +32,7 @@ import static org.mockito.Mockito.when;
 import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.Keep;
 import com.mongodb.MongoNamespace;
+import com.mongodb.client.MongoClient;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
@@ -43,6 +45,7 @@ import com.xgen.mongot.replication.mongodb.common.BufferlessIdOrderInitialSyncRe
 import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
@@ -581,6 +584,27 @@ public class InitialSyncQueueTest {
 
     mocks.mockInitialSyncManagerFactory.completeSync(index);
     FutureUtils.swallowedFuture(future).get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void createInitialSyncMongoClients_labelsEachClientWithItsOwnHost() {
+    String defaultHost = DEFAULT_MONGO_HOST_NAME;
+    String otherHost = "anotherTestHost";
+    Map<String, ClientSessionRecord> clientSessions =
+        Map.of(
+            defaultHost,
+            new ClientSessionRecord(mock(MongoClient.class), mockSessionRefresher()),
+            otherHost,
+            new ClientSessionRecord(mock(MongoClient.class), mockSessionRefresher()));
+
+    Map<String, InitialSyncMongoClient> clients =
+        InitialSyncQueue.createInitialSyncMongoClients(
+            clientSessions, new SimpleMeterRegistry(), false);
+
+    // The non-default client is the regression: before the fix it was labelled with the default
+    // host instead of the host it connects to.
+    assertThat(clients.get(defaultHost).getSyncSourceHost()).isEqualTo(defaultHost);
+    assertThat(clients.get(otherHost).getSyncSourceHost()).isEqualTo(otherHost);
   }
 
   @Test

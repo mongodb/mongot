@@ -245,17 +245,11 @@ public class InitialSyncQueue {
     Check.argIsPositive(
         replicationConfig.getNumConcurrentInitialSyncs(), "numConcurrentInitialSyncs");
 
-    Map<String, InitialSyncMongoClient> initialSyncMongoClients = new HashMap<>();
-    mongoClientSessions.forEach(
-        (host, clientSessionRecord) ->
-            initialSyncMongoClients.put(
-                host,
-                DefaultInitialSyncMongoClient.create(
-                    clientSessionRecord.syncMongoClient(),
-                    clientSessionRecord.sessionRefresher(),
-                    meterRegistry,
-                    syncSourceHost,
-                    replicationConfig.getSplitLargeChangeStreamEventsForInitialSync())));
+    Map<String, InitialSyncMongoClient> initialSyncMongoClients =
+        createInitialSyncMongoClients(
+            mongoClientSessions,
+            meterRegistry,
+            replicationConfig.getSplitLargeChangeStreamEventsForInitialSync());
     MetricsFactory metricsFactory = new MetricsFactory("initialSyncManager", meterRegistry);
     InitialSyncManagerFactory factory =
         getFactory(
@@ -313,6 +307,29 @@ public class InitialSyncQueue {
         dataPath,
         initialSyncGate,
         featureFlags);
+  }
+
+  /**
+   * Builds the per-host initial sync clients, labeling each client with its own map key (the host
+   * it connects to) rather than the node's default sync source.
+   */
+  @VisibleForTesting
+  static Map<String, InitialSyncMongoClient> createInitialSyncMongoClients(
+      Map<String, ClientSessionRecord> mongoClientSessions,
+      MeterRegistry meterRegistry,
+      boolean splitLargeChangeStreamEventsForInitialSync) {
+    Map<String, InitialSyncMongoClient> initialSyncMongoClients = new HashMap<>();
+    mongoClientSessions.forEach(
+        (host, clientSessionRecord) ->
+            initialSyncMongoClients.put(
+                host,
+                DefaultInitialSyncMongoClient.create(
+                    clientSessionRecord.syncMongoClient(),
+                    clientSessionRecord.sessionRefresher(),
+                    meterRegistry,
+                    host,
+                    splitLargeChangeStreamEventsForInitialSync)));
+    return initialSyncMongoClients;
   }
 
   /**
