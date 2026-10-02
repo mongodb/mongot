@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "sort",
     srcs = [
+        "EmbeddedScopedLongSort.java",
         "IndexSortUtils.java",
         "LuceneSortFactory.java",
         "MqlDateSort.java",
@@ -14,6 +15,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/index/lucene/query/sort/comparator",
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_mongodb_bson",
     ],
@@ -34,6 +36,7 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_apache_lucene_lucene_join",
         "@maven//:org_jetbrains_annotations",
         "@maven//:org_mongodb_bson",
         "@maven//:org_slf4j_slf4j_api",

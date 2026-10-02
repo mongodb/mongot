@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "sort",
     srcs = [
+        "EmbeddedScopedLongSortTest.java",
         "IndexSortUtilsTest.java",
         "LuceneSortFactoryTest.java",
         "MqlBooleanSortTest.java",
@@ -55,6 +56,7 @@ java_test_suite(
         "@maven//:junit_junit",
         "@maven//:org_apache_commons_commons_collections4",
         "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_apache_lucene_lucene_join",
         "@maven//:org_mongodb_bson",
     ],
 )

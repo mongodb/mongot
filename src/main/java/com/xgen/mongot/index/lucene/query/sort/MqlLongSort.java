@@ -29,7 +29,7 @@ public class MqlLongSort extends MqlSortedNumericSortField {
       };
 
   private final boolean enablePruning;
-  private final NullEmptySortPosition nullEmptySortPosition;
+  protected final NullEmptySortPosition nullEmptySortPosition;
 
   MqlLongSort(
       FieldName.TypeField fieldType,
@@ -57,15 +57,23 @@ public class MqlLongSort extends MqlSortedNumericSortField {
     Pruning configurePruning = this.enablePruning ? lucenePruning : Pruning.NONE;
 
     return new FieldComparatorBsonWrapper<>(
-        new MqlLongComparator(
-            numHits,
-            getField(),
-            getReverse(),
-            configurePruning,
-            getNumericType(),
-            getSelector(),
-            this.nullEmptySortPosition),
+        createComparator(numHits, configurePruning),
         LONG_CONVERTER,
         this.nullEmptySortPosition.getNullMissingSortValue());
+  }
+
+  /**
+   * Builds the underlying long comparator. Overridden by the embeddedDoc-scoped variant to reduce
+   * the value over a parent's matching children instead of reading the parent's own value.
+   */
+  protected MqlLongComparator createComparator(int numHits, Pruning pruning) {
+    return new MqlLongComparator(
+        numHits,
+        getField(),
+        getReverse(),
+        pruning,
+        getNumericType(),
+        getSelector(),
+        this.nullEmptySortPosition);
   }
 }
