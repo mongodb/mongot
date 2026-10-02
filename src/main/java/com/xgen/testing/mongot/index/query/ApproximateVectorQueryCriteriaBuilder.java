@@ -33,10 +33,10 @@ public class ApproximateVectorQueryCriteriaBuilder {
         new ApproximateVectorQueryCriteriaBuilder()
             .path(criteria.path())
             .queryVector(criteria.queryVector().orElse(null))
-            .numCandidates(criteria.getNumCandidates())
             .limit(criteria.limit())
             .returnStoredSource(criteria.returnStoredSource());
 
+    criteria.getNumCandidates().ifPresent(builder::numCandidates);
     criteria.filter().ifPresent(builder::filter);
     criteria.query().ifPresent(builder::query);
     criteria.parentFilter().ifPresent(builder::parentFilter);

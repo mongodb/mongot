@@ -173,7 +173,10 @@ class VectorSearchQueryFactory {
         // potentially returning fewer than `limit` parent documents. This is expected behavior,
         // consistent with how embeddedDocuments works in search indexes. Users can increase
         // numCandidates to improve recall when documents have many embedded vectors.
-        int numCandidates = approximateCriteria.getNumCandidates();
+        //
+        // In auto mode (user omitted numCandidates) this resolves to clamp(8 * limit, 100, 10000);
+        // otherwise it is the user-supplied value. See ApproximateVectorSearchCriteria.
+        int numCandidates = approximateCriteria.resolveNumCandidates();
         int limit = approximateCriteria.limit();
         ApproximateVectorQueryCreator queryCreator =
             ApproximateVectorQueryCreator.get(

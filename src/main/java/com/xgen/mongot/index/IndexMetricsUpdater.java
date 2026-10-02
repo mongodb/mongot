@@ -600,6 +600,12 @@ public class IndexMetricsUpdater implements Closeable {
     private final DistributionSummary numCandidatesBinaryQuantized;
     private final DistributionSummary limitPerQuery;
 
+    /** Number of queries where numCandidates was auto-computed (omitted by user). */
+    private final Counter autoNumCandidatesCounter;
+
+    /** Distribution of auto-computed numCandidates values. */
+    private final DistributionSummary autoNumCandidatesValues;
+
     /** Distribution of total requested string facet buckets per facet query. */
     private final DistributionSummary totalFacetBucketsPerQuery;
 
@@ -774,6 +780,9 @@ public class IndexMetricsUpdater implements Closeable {
               KnnSearchMode.class,
               (String s) -> processMetricsFactory.counter("knnSearchMode", Tags.of("mode", s)));
       this.limitPerQuery = processMetricsFactory.histogram("limitPerQuery", LIMIT_BUCKETS);
+      this.autoNumCandidatesCounter = processMetricsFactory.counter("autoNumCandidatesQueries");
+      this.autoNumCandidatesValues =
+          processMetricsFactory.histogram("autoNumCandidatesValues", NUM_CANDIDATES_BUCKETS);
       this.totalFacetBucketsPerQuery =
           processMetricsFactory.histogram(
               "totalFacetBucketsPerQuery", Tags.empty(), TOTAL_FACET_BUCKETS_BUCKETS);
@@ -1070,6 +1079,14 @@ public class IndexMetricsUpdater implements Closeable {
 
     public DistributionSummary getNumCandidatesBinaryQuantized() {
       return this.numCandidatesBinaryQuantized;
+    }
+
+    public Counter getAutoNumCandidatesCounter() {
+      return this.autoNumCandidatesCounter;
+    }
+
+    public DistributionSummary getAutoNumCandidatesValues() {
+      return this.autoNumCandidatesValues;
     }
 
     public DistributionSummary getLimitPerQuery() {

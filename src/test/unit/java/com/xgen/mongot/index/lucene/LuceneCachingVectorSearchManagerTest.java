@@ -11,11 +11,14 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.lucene.codec.LuceneCodec;
 import com.xgen.mongot.index.lucene.extension.KnnFloatVectorField;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.quantization.BinaryQuantizedVectorRescorer;
 import com.xgen.mongot.index.lucene.query.custom.MongotKnnFloatQuery;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherFactory;
 import com.xgen.mongot.index.lucene.searcher.LuceneSearcherManager;
 import com.xgen.mongot.index.lucene.searcher.QueryCacheProvider;
+import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
+import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
@@ -158,6 +161,71 @@ public class LuceneCachingVectorSearchManagerTest {
     var searcherMock = mock(LuceneIndexSearcherReference.class);
     var getMoreScoreDocs = manager.getMoreTopDocs(searcherMock, initialScoreDocs[1], 2).scoreDocs;
     assertThat(Arrays.stream(getMoreScoreDocs).map(s -> s.doc)).containsExactly(1, 0).inOrder();
+  }
+
+  @Test
+  public void autoNumCandidatesCriteriaBuildsManagerWithoutThrowing()
+      throws IOException, InvalidQueryException {
+    // Regression for the $search path: the search manager is built from the operator's still-auto
+    // criteria. The manager and its metrics call resolveNumCandidates(), which returns the
+    // clamped auto value (a pure function of limit) instead of throwing.
+    FloatVector queryVector = Vector.fromFloats(new float[] {4f, 4f}, NATIVE);
+    int limit = 2;
+    FieldPath path = FieldPath.newRoot("field");
+    var luceneFieldName = FieldName.TypeField.KNN_VECTOR.getLuceneFieldName(path, Optional.empty());
+
+    var autoCriteria =
+        new ApproximateVectorSearchCriteria(
+            path,
+            Optional.of(queryVector),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            limit,
+            Optional.empty(), // numCandidates omitted -> auto mode
+            Optional.empty(),
+            false,
+            Optional.empty());
+
+    var factory =
+        new LuceneSearchManagerFactory(
+            VectorIndex.MOCK_VECTOR_DEFINITION.createFieldDefinitionResolver(
+                IndexFormatVersion.CURRENT),
+            new BinaryQuantizedVectorRescorer(Optional.empty()),
+            metrics);
+
+    var manager =
+        factory.newVectorQueryManager(
+            new MongotKnnFloatQuery(
+                metrics,
+                luceneFieldName,
+                queryVector.getFloatVector(),
+                autoCriteria.resolveNumCandidates()),
+            autoCriteria);
+
+    insertDocumentsIntoLucene(luceneFieldName);
+
+    LuceneSearcherManager searcherManager =
+        LuceneSearcherManager.create(
+            this.indexWriter,
+            new LuceneSearcherFactory(
+                VectorIndex.MOCK_VECTOR_DEFINITION,
+                false,
+                new QueryCacheProvider.DefaultQueryCacheProvider(),
+                Optional.empty(),
+                VectorIndex.mockQueryMetricsUpdater()),
+            VectorIndex.mockMetricsFactory(),
+            () -> false);
+
+    var searcherReference =
+        LuceneIndexSearcherReference.create(
+            searcherManager,
+            SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH),
+            FeatureFlags.getDefault());
+
+    // Would throw IllegalStateException ("numCandidates is in auto mode ...") without the fix.
+    var scoreDocs = manager.initialSearch(searcherReference, limit).topDocs.scoreDocs;
+    assertThat(scoreDocs.length).isEqualTo(limit);
   }
 
   private void insertDocumentsIntoLucene(String luceneFieldName) throws IOException {

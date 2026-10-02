@@ -100,7 +100,7 @@ public class MaterializedVectorSearchQueryTest {
     assertThat(approximate.path()).isEqualTo(INTERNAL_PATH);
     assertThat(approximate.queryVector()).hasValue(QUERY_VECTOR);
     assertThat(approximate.limit()).isEqualTo(10);
-    assertThat(approximate.getNumCandidates()).isEqualTo(100);
+    assertThat(approximate.getNumCandidates()).hasValue(100);
   }
 
   @Test

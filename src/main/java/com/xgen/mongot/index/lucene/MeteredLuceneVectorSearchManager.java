@@ -44,7 +44,7 @@ public class MeteredLuceneVectorSearchManager<T> implements LuceneSearchManager<
             case VectorQuantization.SCALAR -> this.metricsUpdater.getNumCandidatesScalarQuantized();
             case VectorQuantization.BINARY -> this.metricsUpdater.getNumCandidatesBinaryQuantized();
           };
-      metric.record(approximateCriteria.getNumCandidates());
+      metric.record(approximateCriteria.resolveNumCandidates());
     }
     this.metricsUpdater.getLimitPerQuery().record(this.criteria.limit());
 

@@ -328,6 +328,21 @@
       }
     },
     {
+      "description": "limit > max numCandidates when numCandidates omitted",
+      "errorMessageContains": "limit cannot exceed 10000",
+      "value": {
+        "index": "myVectorIndex",
+        "path": "description",
+        "queryVector": [
+          2,
+          2,
+          2
+        ],
+        "limit": 10001,
+        "returnStoredSource": false
+      }
+    },
+    {
       "description": "zero numCandidates",
       "errorMessageContains": "\"numCandidates\" must be within bounds [1..10000]",
       "value": {

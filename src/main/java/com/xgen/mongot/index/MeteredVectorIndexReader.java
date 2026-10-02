@@ -7,6 +7,7 @@ import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
 import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
+import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
 import java.io.IOException;
 import org.bson.BsonArray;
 
@@ -35,6 +36,7 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
     try {
       BsonArray result = this.indexReader.query(materializedQuery, context);
       this.queryMetricsRecorder.record(materializedQuery.vectorSearchQuery());
+      recordAutoNumCandidatesMetrics(materializedQuery);
       return result;
     } catch (Exception e) {
       this.metricsUpdater.handleQueryException(
@@ -59,11 +61,29 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
           this.indexReader.query(
               query, context, queryCursorOptions, batchSizeStrategy, queryOptimizationFlags);
       this.queryMetricsRecorder.record(query.vectorSearchQuery());
+      recordAutoNumCandidatesMetrics(query);
       return result;
     } catch (Exception e) {
       this.metricsUpdater.handleQueryException(
           e, "from VectorIndexReader.query, shape=" + QueryShape.of(query.vectorSearchQuery()));
       throw e;
+    }
+  }
+
+  /**
+   * Records auto-numCandidates metrics once per user query. The underlying query factory runs once
+   * per index partition (see {@code MultiLuceneVectorIndexReader}), so recording there would scale
+   * the counter and histogram with partition count instead of user queries. This wrapper is the
+   * single query-level metering point, so recording here keeps both metrics query-level. Called
+   * only after a successful query, so queries rejected during resolution (e.g. limit above {@code
+   * MAX_NUM_CANDIDATES}) are not counted.
+   */
+  private void recordAutoNumCandidatesMetrics(MaterializedVectorSearchQuery materializedQuery) {
+    if (materializedQuery.vectorSearchQuery().criteria()
+            instanceof ApproximateVectorSearchCriteria approximate
+        && approximate.isAutoNumCandidates()) {
+      this.metricsUpdater.getAutoNumCandidatesCounter().increment();
+      this.metricsUpdater.getAutoNumCandidatesValues().record(approximate.resolveNumCandidates());
     }
   }
 

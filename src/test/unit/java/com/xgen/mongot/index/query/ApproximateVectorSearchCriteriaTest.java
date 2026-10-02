@@ -53,44 +53,36 @@ public class ApproximateVectorSearchCriteriaTest {
   }
 
   @Test
-  public void getNumCandidates_throwsWhenAuto() {
-    var criteria =
-        new ApproximateVectorSearchCriteria(
-            PATH,
-            QUERY_VECTOR,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            10,
-            Optional.empty(),
-            Optional.empty(),
-            false,
-            Optional.empty());
-
-    assertThrows(IllegalStateException.class, criteria::getNumCandidates);
+  public void getNumCandidates_emptyWhenAuto() {
+    assertThat(autoCriteria(10).getNumCandidates()).isEmpty();
   }
 
   @Test
-  public void withNumCandidates_resolvesAutoMode() {
-    var auto =
-        new ApproximateVectorSearchCriteria(
-            PATH,
-            QUERY_VECTOR,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            10,
-            Optional.empty(),
-            Optional.empty(),
-            false,
-            Optional.empty());
+  public void getNumCandidates_returnsRawValueWhenExplicit() {
+    assertThat(explicitCriteria(10, 200).getNumCandidates()).hasValue(200);
+  }
 
-    var resolved = auto.withNumCandidates(200);
+  @Test
+  public void resolveNumCandidates_explicitReturnsRawValue() {
+    assertThat(explicitCriteria(10, 200).resolveNumCandidates()).isEqualTo(200);
+  }
 
-    assertThat(resolved.isAutoNumCandidates()).isFalse();
-    assertThat(resolved.getNumCandidates()).isEqualTo(200);
-    assertThat(resolved.limit()).isEqualTo(10);
-    assertThat(resolved.path()).isEqualTo(PATH);
+  @Test
+  public void resolveNumCandidates_autoBelowFloorClampsToMin() {
+    // 8 * 5 = 40, below the 100 floor.
+    assertThat(autoCriteria(5).resolveNumCandidates()).isEqualTo(100);
+  }
+
+  @Test
+  public void resolveNumCandidates_autoMidRangeUsesRatio() {
+    // 8 * 500 = 4000, within [100, 10000].
+    assertThat(autoCriteria(500).resolveNumCandidates()).isEqualTo(4000);
+  }
+
+  @Test
+  public void resolveNumCandidates_autoAboveCeilingClampsToMax() {
+    // 8 * 5000 = 40000, above the 10000 ceiling.
+    assertThat(autoCriteria(5000).resolveNumCandidates()).isEqualTo(10_000);
   }
 
   @Test
@@ -129,5 +121,39 @@ public class ApproximateVectorSearchCriteriaTest {
 
     assertThat(criteria.isAutoNumCandidates()).isTrue();
     assertThat(criteria.limit()).isEqualTo(10_000);
+  }
+
+  @Test
+  public void constructor_rejectsAutoWithLimitAboveMax() {
+    // Auto mode has no valid numCandidates for a limit above the maximum.
+    assertThrows(IllegalArgumentException.class, () -> autoCriteria(10_001));
+  }
+
+  private static ApproximateVectorSearchCriteria autoCriteria(int limit) {
+    return new ApproximateVectorSearchCriteria(
+        PATH,
+        QUERY_VECTOR,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        limit,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        Optional.empty());
+  }
+
+  private static ApproximateVectorSearchCriteria explicitCriteria(int limit, int numCandidates) {
+    return new ApproximateVectorSearchCriteria(
+        PATH,
+        QUERY_VECTOR,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        limit,
+        Optional.of(numCandidates),
+        Optional.empty(),
+        false,
+        Optional.empty());
   }
 }
