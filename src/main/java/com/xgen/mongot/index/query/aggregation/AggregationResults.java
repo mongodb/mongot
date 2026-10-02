@@ -1,38 +1,37 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
- * Container of a set of {@link AggregationResult}, ordered and indexed by name.
+ * Container of {@link AggregationResult}s in the producing accumulator's child order.
  *
- * <p>This class along with MultiBucketAggregationResult forms a tree structure that represents the
- * aggregation result.
+ * <p>This class along with {@link MultiBucketAggregationResult} forms a tree structure that
+ * represents the aggregation result.
  */
 public final class AggregationResults implements Iterable<AggregationResult> {
-  // Each result represents a sub-accumulator aggregation result.
+  // Child order of the accumulator that produced these results. Merges match by position (see
+  // Builder). Name lookup scans this list; a node has a handful of children, and production reads
+  // iterate.
   private final List<AggregationResult> results;
 
-  // Map from user set aggregation name to its result.
-  private final Map<String, AggregationResult> resultsByName;
-
   private AggregationResults(List<AggregationResult> results) {
+    checkDistinctNames(results);
     this.results = results;
-    // We don't expect duplicated name for sub-accumulator results.
-    this.resultsByName =
-        results.stream()
-            .collect(
-                Collectors.toUnmodifiableMap(
-                    AggregationResult::getName,
-                    Function.identity(),
-                    (a, b) -> {
-                      throw new IllegalStateException("Duplicate result name: " + a.getName());
-                    }));
+  }
+
+  // Runs once per bucket. A node has a handful of children, and the common single-child case
+  // compares nothing.
+  private static void checkDistinctNames(List<AggregationResult> results) {
+    for (int i = 1; i < results.size(); i++) {
+      String name = results.get(i).getName();
+      for (int j = 0; j < i; j++) {
+        if (name.equals(results.get(j).getName())) {
+          throw new IllegalStateException("Duplicate result name: " + name);
+        }
+      }
+    }
   }
 
   @Override
@@ -40,15 +39,19 @@ public final class AggregationResults implements Iterable<AggregationResult> {
     return this.results.iterator();
   }
 
-  /** Retrieve the result by name. */
+  /**
+   * Returns the result with {@code name}.
+   *
+   * <p>Scans the child list. A node has a handful of children, and production reads iterate.
+   */
   @SuppressWarnings("unchecked")
   public <A extends AggregationResult> A get(String name) {
-    Optional<AggregationResult> result = Optional.ofNullable(this.resultsByName.get(name));
-    return (A) result.orElseThrow(() -> new IllegalStateException("Result not found: " + name));
-  }
-
-  public Map<String, AggregationResult> getResultsByName() {
-    return this.resultsByName;
+    for (AggregationResult result : this.results) {
+      if (result.getName().equals(name)) {
+        return (A) result;
+      }
+    }
+    throw new IllegalStateException("Result not found: " + name);
   }
 
   public static AggregationResults from(List<AggregationResult> results) {
@@ -64,41 +67,63 @@ public final class AggregationResults implements Iterable<AggregationResult> {
   }
 
   /**
-   * Merge state for an {@link AggregationResults}: one {@link AggregationResultBuilder} per named
-   * result, matched by name across partitions (same spec tree on every partition).
+   * Merge state for an {@link AggregationResults}: one {@link AggregationResultBuilder} per child,
+   * matched by position. Producers emit children in a fixed order; the name check fails the merge
+   * if that order is broken.
    *
-   * <p>Starts as the merge identity: the first {@link #add} lays out empty builders (fixing the
-   * order to that container's order) and then folds like any other add, so there is no
-   * first-element special case. Subsequent adds must carry the same names.
+   * <p>Starts as the merge identity. The first non-empty {@link #add} lays out builders and then
+   * folds like any later add, so an empty add leaves the identity in place. Subsequent adds must
+   * carry the same names in the same positions.
    *
    * <p>Not thread-safe: {@link #add} must be called from a single thread. Behavior is undefined if
    * concurrent threads call {@link #add} on the same builder.
    */
   static final class Builder {
-    private final LinkedHashMap<String, AggregationResultBuilder> buildersByName =
-        new LinkedHashMap<>();
+    private record Child(String name, AggregationResultBuilder resultBuilder) {}
+
+    // Empty until the first non-empty add, which fixes child order. An empty add is a no-op.
+    private final List<Child> children = new ArrayList<>();
 
     void add(AggregationResults other) {
-      if (this.buildersByName.isEmpty()) {
-        for (AggregationResult result : other) {
-          this.buildersByName.put(result.getName(), result.toBuilder());
+      List<AggregationResult> incoming = other.results;
+      if (this.children.isEmpty()) {
+        for (AggregationResult result : incoming) {
+          this.children.add(new Child(result.getName(), result.toBuilder()));
+        }
+      } else if (!sameNames(incoming)) {
+        throw differentNames(incoming);
+      }
+      for (int i = 0; i < incoming.size(); i++) {
+        this.children.get(i).resultBuilder().add(incoming.get(i));
+      }
+    }
+
+    private boolean sameNames(List<AggregationResult> incoming) {
+      if (incoming.size() != this.children.size()) {
+        return false;
+      }
+      for (int i = 0; i < this.children.size(); i++) {
+        if (!this.children.get(i).name().equals(incoming.get(i).getName())) {
+          return false;
         }
       }
-      Map<String, AggregationResult> otherByName = other.getResultsByName();
-      if (!this.buildersByName.keySet().equals(otherByName.keySet())) {
-        throw new IllegalArgumentException(
-            String.format(
-                "Cannot merge aggregation results with different result names: %s and %s",
-                this.buildersByName.keySet(), otherByName.keySet()));
-      }
-      this.buildersByName.forEach((name, builder) -> builder.add(otherByName.get(name)));
+      return true;
+    }
+
+    private IllegalArgumentException differentNames(List<AggregationResult> incoming) {
+      return new IllegalArgumentException(
+          String.format(
+              "Cannot merge aggregation results with different result names: %s and %s",
+              this.children.stream().map(Child::name).toList(),
+              incoming.stream().map(AggregationResult::getName).toList()));
     }
 
     AggregationResults build() {
-      return AggregationResults.from(
-          this.buildersByName.values().stream()
-              .map(AggregationResultBuilder::build)
-              .collect(Collectors.toList()));
+      List<AggregationResult> built = new ArrayList<>(this.children.size());
+      for (Child child : this.children) {
+        built.add(child.resultBuilder().build());
+      }
+      return AggregationResults.from(built);
     }
   }
 }

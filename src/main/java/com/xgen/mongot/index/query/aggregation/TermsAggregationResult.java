@@ -7,8 +7,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.PriorityQueue;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.apache.lucene.util.BytesRef;
 import org.bson.BsonString;
 
@@ -24,11 +22,11 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
   // Max number of buckets. Carried through merges at full cardinality; applied exactly once by
   // applyLimit() at the outermost merge point.
   private final int limit;
-  // Buckets keyed by term for the O(1) lookup merges need; ordering is applied at read time in
-  // getBuckets(BucketOrder). Same shape in every scenario: a single (non-partitioned) reader's
-  // result holds the buckets that reader counted; a Builder-built result holds the term-union
-  // with summed counts.
-  private final HashMap<BytesRef, TermsBucket> bucketsByKey;
+  // Distinct buckets in construction order. Read paths iterate or sort; the term-keyed lookup
+  // used while merging lives on Builder, so this result does not keep a second map. Same shape in
+  // every scenario: a single (non-partitioned) reader's result holds the buckets that reader
+  // counted; a Builder-built result holds the term-union with summed counts.
+  private final List<TermsBucket> buckets;
 
   public static final class TermsBucket implements Bucket {
     private final BytesRef key;
@@ -46,8 +44,8 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
       return new BsonString(this.key.utf8ToString());
     }
 
-    // Private on purpose: BytesRef is mutable and this returns the map-key instance, so exposing
-    // it would let callers corrupt bucketsByKey. External readers use getKey().
+    // Private on purpose: BytesRef is mutable, and Builder.bucketsByKey uses this instance as its
+    // key during merges. External readers use getKey().
     private BytesRef getBytesRefKey() {
       return this.key;
     }
@@ -66,16 +64,8 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     super(path);
     this.name = name;
     this.limit = limit;
-    this.bucketsByKey =
-        buckets.stream()
-            .collect(
-                Collectors.toMap(
-                    TermsBucket::getBytesRefKey,
-                    Function.identity(),
-                    (a, b) -> {
-                      throw new IllegalArgumentException("Duplicate bucket key: " + a.getKey());
-                    },
-                    () -> new HashMap<>(buckets.size())));
+    // Callers hand off distinct keys: one bucket per ordinal, or one per Builder map entry.
+    this.buckets = List.copyOf(buckets);
   }
 
   @Override
@@ -85,7 +75,7 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
 
   @Override
   public List<? extends Bucket> getBuckets(BucketOrder order) {
-    return this.bucketsByKey.values().stream().sorted(comparator(order)).toList();
+    return this.buckets.stream().sorted(comparator(order)).toList();
   }
 
   private static Comparator<TermsBucket> comparator(BucketOrder order) {
@@ -113,10 +103,10 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     // of how survivors are later ordered by getBuckets(BucketOrder). Bounded min-heap: O(n log
     // keep) instead of a full sort, matching the legacy string-facet top-N (TopOrdAndIntQueue).
     Comparator<TermsBucket> topKOrder = comparator(BucketOrder.COUNT_DESC);
-    int keep = Math.min(this.limit, this.bucketsByKey.size());
+    int keep = Math.min(this.limit, this.buckets.size());
     // Head = worst-kept bucket (reversed order), so it can be evicted in O(log keep).
     PriorityQueue<TermsBucket> heap = new PriorityQueue<>(topKOrder.reversed());
-    for (TermsBucket b : this.bucketsByKey.values()) {
+    for (TermsBucket b : this.buckets) {
       if (heap.size() < keep) {
         heap.add(b);
       } else if (keep > 0 && topKOrder.compare(b, heap.peek()) < 0) {
@@ -180,14 +170,9 @@ public final class TermsAggregationResult extends MultiBucketAggregationResult {
     }
 
     private void fold(TermsAggregationResult result) {
-      result
-          .bucketsByKey
-          .values()
-          .forEach(
-              bucket ->
-                  this.bucketsByKey
-                      .computeIfAbsent(bucket.getBytesRefKey(), BucketBuilder::new)
-                      .add(bucket));
+      for (TermsBucket bucket : result.buckets) {
+        this.bucketsByKey.computeIfAbsent(bucket.getBytesRefKey(), BucketBuilder::new).add(bucket);
+      }
     }
 
     @Override

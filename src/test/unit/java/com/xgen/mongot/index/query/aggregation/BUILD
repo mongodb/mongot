@@ -24,6 +24,7 @@ java_test_suite(
         "AggregationIntegrationTest.java",
         "AggregationNodeStatsTest.java",
         "AggregationRegistryTest.java",
+        "AggregationResultsTest.java",
         "AggregationTestSupport.java",
         "ApplyLimitTest.java",
         "AvgAccumulatorTest.java",
