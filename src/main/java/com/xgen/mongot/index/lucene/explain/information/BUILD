@@ -65,6 +65,7 @@ java_library(
         "TermInSetQuerySpec.java",
         "TermQuerySpec.java",
         "TermRangeQuerySpec.java",
+        "VectorSearchNumCandidatesSpec.java",
         "VectorSearchSegmentStatsSpec.java",
         "VectorSearchTracingSpec.java",
         "WildcardQuerySpec.java",

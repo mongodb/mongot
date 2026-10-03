@@ -8,6 +8,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.definition.quantization.VectorTypeFieldResolver;
+import com.xgen.mongot.index.lucene.explain.information.VectorSearchNumCandidatesSpec;
 import com.xgen.mongot.index.lucene.explain.knn.InstrumentableKnnByteVectorQuery;
 import com.xgen.mongot.index.lucene.explain.knn.InstrumentableKnnFloatVectorQuery;
 import com.xgen.mongot.index.lucene.explain.knn.KnnInstrumentationHelper;
@@ -167,6 +168,10 @@ class VectorSearchQueryFactory {
               "Query must be run in explain mode, because 'explainOptions' are present.");
         }
 
+        // Whether the user omitted numCandidates. The explain path reports the resolved value as
+        // AUTO; the regular query path ignores this flag.
+        boolean isAutoNumCandidates = approximateCriteria.isAutoNumCandidates();
+
         // Note on numCandidates for embedded vector queries:
         // For embedded vectors, numCandidates limits the number of child documents retrieved.
         // After block-join aggregation, multiple children may collapse into the same parent,
@@ -188,11 +193,29 @@ class VectorSearchQueryFactory {
         childQuery =
             switch (queryVector) {
               case FloatVector floatVector ->
-                  queryCreator.query(floatVector, fieldName, numCandidates, limit, luceneFilter);
+                  queryCreator.query(
+                      floatVector,
+                      fieldName,
+                      numCandidates,
+                      limit,
+                      luceneFilter,
+                      isAutoNumCandidates);
               case ByteVector byteVector ->
-                  queryCreator.query(byteVector, fieldName, numCandidates, limit, luceneFilter);
+                  queryCreator.query(
+                      byteVector,
+                      fieldName,
+                      numCandidates,
+                      limit,
+                      luceneFilter,
+                      isAutoNumCandidates);
               case BitVector bitVector ->
-                  queryCreator.query(bitVector, fieldName, numCandidates, limit, luceneFilter);
+                  queryCreator.query(
+                      bitVector,
+                      fieldName,
+                      numCandidates,
+                      limit,
+                      luceneFilter,
+                      isAutoNumCandidates);
               // float16 query vectors are only supported by the vectorlite engine.
               // This should be unreachable as we catch this condition before we get the lucene
               // field name.
@@ -266,11 +289,29 @@ class VectorSearchQueryFactory {
 
   private interface ApproximateVectorQueryCreator {
 
-    Query query(FloatVector vector, String field, int k, int limit, Optional<Query> filter);
+    Query query(
+        FloatVector vector,
+        String field,
+        int k,
+        int limit,
+        Optional<Query> filter,
+        boolean isAutoNumCandidates);
 
-    Query query(ByteVector vector, String field, int k, int limit, Optional<Query> filter);
+    Query query(
+        ByteVector vector,
+        String field,
+        int k,
+        int limit,
+        Optional<Query> filter,
+        boolean isAutoNumCandidates);
 
-    Query query(BitVector vector, String field, int k, int limit, Optional<Query> filter);
+    Query query(
+        BitVector vector,
+        String field,
+        int k,
+        int limit,
+        Optional<Query> filter,
+        boolean isAutoNumCandidates);
 
     static ApproximateVectorQueryCreator get(
         ApproximateVectorSearchCriteria criteria,
@@ -343,9 +384,17 @@ class VectorSearchQueryFactory {
         this.flags = flags;
       }
 
+      // isAutoNumCandidates is only consumed by the explain path (see
+      // InstrumentableApproximateVectorQueryCreator); the regular query path uses the query-level
+      // resolved k directly.
       @Override
       public Query query(
-          FloatVector vector, String field, int k, int limit, Optional<Query> filter) {
+          FloatVector vector,
+          String field,
+          int k,
+          int limit,
+          Optional<Query> filter,
+          boolean isAutoNumCandidates) {
         float[] target = vector.getFloatVector();
         return new MongotKnnFloatQuery(
             this.metrics, this.flags, field, target, k, filter.orElse(null));
@@ -353,13 +402,24 @@ class VectorSearchQueryFactory {
 
       @Override
       public Query query(
-          ByteVector vector, String field, int k, int limit, Optional<Query> filter) {
+          ByteVector vector,
+          String field,
+          int k,
+          int limit,
+          Optional<Query> filter,
+          boolean isAutoNumCandidates) {
         byte[] target = vector.getByteVector();
         return new MongotKnnByteQuery(this.metrics, field, target, k, filter.orElse(null));
       }
 
       @Override
-      public Query query(BitVector vector, String field, int k, int limit, Optional<Query> filter) {
+      public Query query(
+          BitVector vector,
+          String field,
+          int k,
+          int limit,
+          Optional<Query> filter,
+          boolean isAutoNumCandidates) {
         byte[] target = vector.getBitVector();
         return new MongotKnnByteQuery(this.metrics, field, target, k, filter.orElse(null));
       }
@@ -383,11 +443,25 @@ class VectorSearchQueryFactory {
         this.metrics = metrics;
       }
 
+      private void setAutoNumCandidatesExplain(int k, boolean isAutoNumCandidates) {
+        if (!isAutoNumCandidates) {
+          return;
+        }
+        this.tracingExplainer.setNumCandidates(
+            new VectorSearchNumCandidatesSpec(VectorSearchNumCandidatesSpec.Mode.AUTO, k));
+      }
+
       @Override
       public Query query(
-          FloatVector vector, String field, int k, int limit, Optional<Query> filter) {
+          FloatVector vector,
+          String field,
+          int k,
+          int limit,
+          Optional<Query> filter,
+          boolean isAutoNumCandidates) {
         float[] target = vector.getFloatVector();
         boolean filterPresent = filter.isPresent();
+        setAutoNumCandidatesExplain(k, isAutoNumCandidates);
         KnnInstrumentationHelper instrumentationHelper =
             new KnnInstrumentationHelper(this.tracingExplainer, field, limit, filterPresent);
 
@@ -397,9 +471,15 @@ class VectorSearchQueryFactory {
 
       @Override
       public Query query(
-          ByteVector vector, String field, int k, int limit, Optional<Query> filter) {
+          ByteVector vector,
+          String field,
+          int k,
+          int limit,
+          Optional<Query> filter,
+          boolean isAutoNumCandidates) {
         byte[] target = vector.getByteVector();
         boolean filterPresent = filter.isPresent();
+        setAutoNumCandidatesExplain(k, isAutoNumCandidates);
         KnnInstrumentationHelper instrumentationHelper =
             new KnnInstrumentationHelper(this.tracingExplainer, field, limit, filterPresent);
 
@@ -411,9 +491,16 @@ class VectorSearchQueryFactory {
       }
 
       @Override
-      public Query query(BitVector vector, String field, int k, int limit, Optional<Query> filter) {
+      public Query query(
+          BitVector vector,
+          String field,
+          int k,
+          int limit,
+          Optional<Query> filter,
+          boolean isAutoNumCandidates) {
         byte[] target = vector.getBitVector();
         boolean filterPresent = filter.isPresent();
+        setAutoNumCandidatesExplain(k, isAutoNumCandidates);
         KnnInstrumentationHelper instrumentationHelper =
             new KnnInstrumentationHelper(this.tracingExplainer, field, limit, filterPresent);
 

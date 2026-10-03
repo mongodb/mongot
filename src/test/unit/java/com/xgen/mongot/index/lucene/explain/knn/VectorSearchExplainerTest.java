@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 import com.google.common.base.Ticker;
 import com.google.common.truth.Truth;
 import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformationBuilder;
+import com.xgen.mongot.index.lucene.explain.information.VectorSearchNumCandidatesSpec;
 import com.xgen.mongot.index.lucene.explain.information.VectorSearchSegmentStatsSpec;
 import com.xgen.mongot.index.lucene.explain.information.VectorSearchTracingSpec;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
@@ -251,6 +252,38 @@ public class VectorSearchExplainerTest {
     Truth.assertWithMessage("%s has to be empty", vectorSearchSegmentStatsMap)
         .that(vectorSearchSegmentStatsMap)
         .isEmpty();
+  }
+
+  @Test
+  public void emitExplanation_autoNumCandidatesSetAtQueryPlanner_numCandidatesIsEmitted() {
+    // numCandidates is a plan-time decision, so it must appear even at queryPlanner verbosity.
+    // Execution-level segment stats stay suppressed at this verbosity.
+    VectorSearchExplainer vectorSearchExplainer = new VectorSearchExplainer();
+    vectorSearchExplainer.setNumCandidates(
+        new VectorSearchNumCandidatesSpec(VectorSearchNumCandidatesSpec.Mode.AUTO, 400));
+    vectorSearchExplainer.getSegmentStats("id").setSegmentId(Optional.of("_0")).setDocCount(10);
+
+    SearchExplainInformationBuilder builder = SearchExplainInformationBuilder.newBuilder();
+    vectorSearchExplainer.emitExplanation(Explain.Verbosity.QUERY_PLANNER, builder);
+    var explain = builder.build();
+
+    Truth.assertThat(explain.numCandidates())
+        .hasValue(new VectorSearchNumCandidatesSpec(VectorSearchNumCandidatesSpec.Mode.AUTO, 400));
+    Truth.assertWithMessage("segment stats must stay suppressed at queryPlanner")
+        .that(explain.vectorSearchSegmentStats())
+        .isEmpty();
+  }
+
+  @Test
+  public void emitExplanation_numCandidatesNotSet_numCandidatesIsAbsentAtQueryPlanner() {
+    // Explicit-numCandidates queries never set the spec, so nothing is emitted.
+    VectorSearchExplainer vectorSearchExplainer = new VectorSearchExplainer();
+    vectorSearchExplainer.getSegmentStats("id").setSegmentId(Optional.of("_0")).setDocCount(10);
+
+    SearchExplainInformationBuilder builder = SearchExplainInformationBuilder.newBuilder();
+    vectorSearchExplainer.emitExplanation(Explain.Verbosity.QUERY_PLANNER, builder);
+
+    Truth.assertThat(builder.build().numCandidates()).isEmpty();
   }
 
   private static KnnCollector getMockKnnCollector(long visitedCount) {

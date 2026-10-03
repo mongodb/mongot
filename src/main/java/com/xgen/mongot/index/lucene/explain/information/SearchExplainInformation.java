@@ -24,6 +24,7 @@ public record SearchExplainInformation(
     Optional<List<VectorSearchSegmentStatsSpec>> vectorSearchSegmentStats,
     Optional<BsonDocument> vectorliteStats,
     Optional<BsonDocument> vectorliteTrace,
+    Optional<VectorSearchNumCandidatesSpec> numCandidates,
     Optional<List<SearchExplainInformation>> indexPartitionExplainInformation,
     Optional<List<FeatureFlagEvaluationSpec>> dynamicFeatureFlags,
     Optional<List<String>> optimizerRulesFired)
@@ -105,6 +106,12 @@ public record SearchExplainInformation(
 
     static final Field.Optional<BsonDocument> VECTORLITE_TRACE =
         Field.builder("vectorliteTrace").documentField().optional().noDefault();
+    static final Field.Optional<VectorSearchNumCandidatesSpec> NUM_CANDIDATES =
+        Field.builder("numCandidates")
+            .classField(VectorSearchNumCandidatesSpec::fromBson)
+            .disallowUnknownFields()
+            .optional()
+            .noDefault();
 
     static final Field.Optional<List<SearchExplainInformation>>
         INDEX_PARTITION_EXPLAIN_INFORMATION =
@@ -141,6 +148,7 @@ public record SearchExplainInformation(
         parser.getField(Fields.VECTOR_SEARCH_LUCENE_SEGMENT_STATS).unwrap(),
         parser.getField(Fields.VECTORLITE_STATS).unwrap(),
         parser.getField(Fields.VECTORLITE_TRACE).unwrap(),
+        parser.getField(Fields.NUM_CANDIDATES).unwrap(),
         parser.getField(Fields.INDEX_PARTITION_EXPLAIN_INFORMATION).unwrap(),
         parser.getField(Fields.DYNAMIC_FEATURE_FLAGS).unwrap(),
         parser.getField(Fields.OPTIMIZER_RULES_FIRED).unwrap());
@@ -165,6 +173,7 @@ public record SearchExplainInformation(
         .field(Fields.VECTOR_SEARCH_LUCENE_SEGMENT_STATS, this.vectorSearchSegmentStats)
         .field(Fields.VECTORLITE_STATS, this.vectorliteStats)
         .field(Fields.VECTORLITE_TRACE, this.vectorliteTrace)
+        .field(Fields.NUM_CANDIDATES, this.numCandidates)
         .field(Fields.INDEX_PARTITION_EXPLAIN_INFORMATION, this.indexPartitionExplainInformation)
         .field(Fields.DYNAMIC_FEATURE_FLAGS, this.dynamicFeatureFlags)
         .field(Fields.OPTIMIZER_RULES_FIRED, this.optimizerRulesFired)

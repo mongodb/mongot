@@ -5,6 +5,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformationBuilder;
+import com.xgen.mongot.index.lucene.explain.information.VectorSearchNumCandidatesSpec;
 import com.xgen.mongot.index.lucene.explain.information.VectorSearchSegmentStatsSpec;
 import com.xgen.mongot.index.lucene.explain.information.VectorSearchTracingSpec;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
@@ -23,6 +24,8 @@ public class VectorSearchExplainer implements FeatureExplainer {
 
   private final Map<Object, SegmentStatistics> segmentStats = new ConcurrentHashMap<>();
 
+  private Optional<VectorSearchNumCandidatesSpec> numCandidates = Optional.empty();
+
   private final ImmutableMap<Integer, TracingInformation> tracingInfos;
 
   public VectorSearchExplainer() {
@@ -39,6 +42,10 @@ public class VectorSearchExplainer implements FeatureExplainer {
     return this.segmentStats.computeIfAbsent(contextId, unused -> new SegmentStatistics());
   }
 
+  public void setNumCandidates(VectorSearchNumCandidatesSpec numCandidates) {
+    this.numCandidates = Optional.of(numCandidates);
+  }
+
   public Collection<TracingInformation> getTracingInformationWithVectors() {
     return this.tracingInfos.values().stream().filter(info -> !info.target.hasNoVector()).toList();
   }
@@ -50,6 +57,12 @@ public class VectorSearchExplainer implements FeatureExplainer {
   @Override
   public void emitExplanation(
       Explain.Verbosity verbosity, SearchExplainInformationBuilder builder) {
+    // The resolved numCandidates is a query-planning decision (computed before execution), so
+    // surface it even at queryPlanner verbosity. It is only set in auto mode (see
+    // VectorSearchQueryFactory#setAutoNumCandidatesExplain), so explicit-numCandidates queries emit
+    // nothing here. Segment stats and tracing below are execution-level and stay behind the guard.
+    this.numCandidates.ifPresent(builder::numCandidates);
+
     if (!verbosity.isGreaterThan(Explain.Verbosity.QUERY_PLANNER)) {
       return;
     }
@@ -160,7 +173,6 @@ public class VectorSearchExplainer implements FeatureExplainer {
       return this;
     }
 
-    @VisibleForTesting
     Optional<Integer> getFilterMatchedDocsCount() {
       return this.filterMatchedDocsCount;
     }

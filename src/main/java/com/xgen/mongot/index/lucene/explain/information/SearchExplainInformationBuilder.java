@@ -15,6 +15,7 @@ public class SearchExplainInformationBuilder {
   private Optional<List<VectorSearchSegmentStatsSpec>> vectorSearchSegmentStats = Optional.empty();
   private Optional<BsonDocument> vectorliteStats = Optional.empty();
   private Optional<BsonDocument> vectorliteTrace = Optional.empty();
+  private Optional<VectorSearchNumCandidatesSpec> numCandidates = Optional.empty();
   private Optional<SortStats> sortStats = Optional.empty();
   private final List<SearchExplainInformation> indexPartitionExplainInformations =
       new ArrayList<>();
@@ -115,6 +116,12 @@ public class SearchExplainInformationBuilder {
     return this;
   }
 
+  public SearchExplainInformationBuilder numCandidates(
+      VectorSearchNumCandidatesSpec numCandidates) {
+    this.numCandidates = Optional.of(numCandidates);
+    return this;
+  }
+
   public SearchExplainInformationBuilder dynamicFeatureFlags(
       List<FeatureFlagEvaluationSpec> dynamicFeatureFlags) {
     this.dynamicFeatureFlags = Optional.of(dynamicFeatureFlags);
@@ -166,6 +173,7 @@ public class SearchExplainInformationBuilder {
           this.vectorSearchSegmentStats,
           this.vectorliteStats,
           this.vectorliteTrace,
+          this.numCandidates,
           Optional.empty(),
           this.dynamicFeatureFlags,
           this.optimizerRulesFired);
@@ -187,6 +195,7 @@ public class SearchExplainInformationBuilder {
         Optional.empty(),
         this.vectorliteStats,
         this.vectorliteTrace,
+        Optional.empty(),
         Optional.of(this.indexPartitionExplainInformations),
         this.dynamicFeatureFlags,
         this.optimizerRulesFired);
