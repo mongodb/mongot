@@ -23,6 +23,8 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
+import com.xgen.mongot.index.PreparableWriter;
+import com.xgen.mongot.index.PrepareResult;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.StaleStatusReason;
@@ -43,6 +45,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -89,16 +92,225 @@ public class RecyclableReplicationIndexManagerTest {
   }
 
   @Test
-  public void leaderSignal_idempotent() {
+  public void duplicateLeaderSignal_recyclesSession() {
+    // A duplicate LEADER bumps the leadership epoch, so the session created under
+    // the older epoch is stopped and re-prepared rather than coalesced away
+    // (CLOUDP-446295: leadership edges are not trusted to be deduplicated).
     var factory = mockWrappedFactory();
-    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    var innerRim1 = stubShutdown(mock(ReplicationIndexManager.class));
+    var innerRim2 = mock(ReplicationIndexManager.class);
+    when(factory.get()).thenReturn(innerRim1, innerRim2);
     var rrim = createManager(factory);
 
     rrim.onLeaderStatusChange(LeaderStatus.LEADER);
     rrim.onLeaderStatusChange(LeaderStatus.LEADER);
 
-    verify(factory, times(1)).get();
+    verify(factory, times(2)).get();
+    verify(innerRim1).shutdown();
     assertTrue(rrim.isLeader());
+  }
+
+  // ── prepare-before-create (CLOUDP-446295) ───────────────────────────────────
+
+  @Test
+  public void prepare_ready_createsWrapped() {
+    var factory = mockWrappedFactory();
+    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    var rrim =
+        createManagerWithWriter(factory, () -> new PrepareResult.Ready(EncodedUserData.EMPTY));
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    verify(factory).get();
+    assertTrue(rrim.isLeader());
+  }
+
+  @Test
+  public void prepare_runsBeforeFactory() throws Exception {
+    // The native writer must be prepared before the inner manager is created, so
+    // RIM.init reads the prepared token.
+    var factory = mockWrappedFactory();
+    when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+    var prepared = new java.util.concurrent.atomic.AtomicBoolean(false);
+    PreparableWriter writer =
+        () -> {
+          prepared.set(true);
+          return new PrepareResult.Ready(EncodedUserData.EMPTY);
+        };
+    when(factory.get())
+        .thenAnswer(
+            invocation -> {
+              assertTrue("factory.get() ran before prepareWriter()", prepared.get());
+              return mock(ReplicationIndexManager.class);
+            });
+    var rrim = createManagerWithWriter(factory, writer);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    verify(factory).get();
+    assertTrue(rrim.isLeader());
+  }
+
+  @Test
+  public void prepare_superseded_doesNotCreateWrapped() {
+    var factory = mockWrappedFactory();
+    var rrim = createManagerWithWriter(factory, PrepareResult.Superseded::new);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    verify(factory, never()).get();
+    assertFalse(rrim.isLeader());
+    assertThat(rrim.prepareSupersededCount()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void prepare_error_doesNotCreateWrapped_countsFailure() {
+    var factory = mockWrappedFactory();
+    PreparableWriter writer =
+        () -> {
+          throw new IOException("prepare boom");
+        };
+    var rrim = createManagerWithWriter(factory, writer);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    verify(factory, never()).get();
+    assertFalse(rrim.isLeader());
+    assertThat(rrim.leadershipTransitionFailureCount()).isEqualTo(1.0);
+  }
+
+  // ── prepare currency & executor (CLOUDP-446295) ──────────────────────────────
+
+  @Test
+  public void prepare_runsOnPrepareExecutor() throws Exception {
+    // Native prepare is I/O-bound: it must run on the dedicated prepare executor,
+    // never the caller (FFM upcall) or the transition-chain thread.
+    ThreadFactory named =
+        runnable -> {
+          Thread thread = new Thread(runnable, "rrim-prepare-test");
+          thread.setDaemon(true);
+          return thread;
+        };
+    ExecutorService prepares = Executors.newSingleThreadExecutor(named);
+    try {
+      var factory = mockWrappedFactory();
+      when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
+      AtomicReference<String> prepareThread = new AtomicReference<>();
+      String callerThread = Thread.currentThread().getName();
+      PreparableWriter writer =
+          () -> {
+            prepareThread.set(Thread.currentThread().getName());
+            return new PrepareResult.Ready(EncodedUserData.EMPTY);
+          };
+      // Transitions run synchronously on the caller; only prepare should hop threads.
+      var rrim =
+          RecyclableReplicationIndexManager.createForTesting(
+              factory, Runnable::run, writer, prepares);
+
+      rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+      fence(prepares); // prepareAndPromote (Ready) runs and creates the wrapped manager
+
+      assertThat(prepareThread.get()).isEqualTo("rrim-prepare-test");
+      assertThat(prepareThread.get()).isNotEqualTo(callerThread);
+      verify(factory).get();
+      assertTrue(rrim.isLeader());
+    } finally {
+      prepares.shutdownNow();
+    }
+  }
+
+  @Test
+  public void followerDuringPrepare_doesNotCreateWrapped() throws Exception {
+    // A FOLLOWER signal that arrives while prepare is in flight must win: the now
+    // stale Ready result is discarded and no inner manager is created.
+    ExecutorService transitions = Executors.newSingleThreadExecutor();
+    ExecutorService prepares = Executors.newSingleThreadExecutor();
+    try {
+      var factory = mockWrappedFactory();
+      CountDownLatch prepareEntered = new CountDownLatch(1);
+      CountDownLatch releasePrepare = new CountDownLatch(1);
+      var rrim =
+          RecyclableReplicationIndexManager.createForTesting(
+              factory, transitions, gatedReadyWriter(prepareEntered, releasePrepare), prepares);
+
+      rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+      assertTrue(prepareEntered.await(5, TimeUnit.SECONDS)); // prepare running, blocked
+
+      rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // leadership moves away mid-prepare
+      releasePrepare.countDown(); // prepare returns Ready, but currency has changed
+
+      fence(prepares); // prepareAndPromote's post-prepare currency re-check runs
+      fence(transitions); // and any reconcile it re-drives settles
+
+      verify(factory, never()).get();
+      assertFalse(rrim.isLeader());
+    } finally {
+      transitions.shutdownNow();
+      prepares.shutdownNow();
+    }
+  }
+
+  @Test
+  public void shutdownDuringPrepare_doesNotCreateWrappedAndSettlesShutDown() throws Exception {
+    // A shutdown while prepare is in flight must settle it: the in-flight prepare
+    // observes SHUT_DOWN on completion and installs nothing.
+    ExecutorService transitions = Executors.newSingleThreadExecutor();
+    ExecutorService prepares = Executors.newSingleThreadExecutor();
+    try {
+      var factory = mockWrappedFactory();
+      CountDownLatch prepareEntered = new CountDownLatch(1);
+      CountDownLatch releasePrepare = new CountDownLatch(1);
+      var rrim =
+          RecyclableReplicationIndexManager.createForTesting(
+              factory, transitions, gatedReadyWriter(prepareEntered, releasePrepare), prepares);
+
+      rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+      assertTrue(prepareEntered.await(5, TimeUnit.SECONDS));
+
+      CompletableFuture<Void> shutdown = rrim.shutdown(); // SHUT_DOWN while prepare is in flight
+      releasePrepare.countDown();
+
+      fence(prepares); // prepare completes, observes SHUT_DOWN, and creates nothing
+
+      assertTrue(shutdown.isDone());
+      verify(factory, never()).get();
+      assertFalse(rrim.isLeader());
+      assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+    } finally {
+      transitions.shutdownNow();
+      prepares.shutdownNow();
+    }
+  }
+
+  @Test
+  public void dropDuringPrepare_doesNotCreateWrappedAndSettlesShutDown() throws Exception {
+    // Same as the shutdown case, via drop().
+    ExecutorService transitions = Executors.newSingleThreadExecutor();
+    ExecutorService prepares = Executors.newSingleThreadExecutor();
+    try {
+      var factory = mockWrappedFactory();
+      CountDownLatch prepareEntered = new CountDownLatch(1);
+      CountDownLatch releasePrepare = new CountDownLatch(1);
+      var rrim =
+          RecyclableReplicationIndexManager.createForTesting(
+              factory, transitions, gatedReadyWriter(prepareEntered, releasePrepare), prepares);
+
+      rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+      assertTrue(prepareEntered.await(5, TimeUnit.SECONDS));
+
+      CompletableFuture<Void> drop = rrim.drop(); // dropped while prepare is in flight
+      releasePrepare.countDown();
+
+      fence(prepares);
+
+      assertTrue(drop.isDone());
+      verify(factory, never()).get();
+      assertFalse(rrim.isLeader());
+      assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+    } finally {
+      transitions.shutdownNow();
+      prepares.shutdownNow();
+    }
   }
 
   @Test
@@ -1062,8 +1274,39 @@ public class RecyclableReplicationIndexManagerTest {
     return rim;
   }
 
+  /** Submits a no-op and waits for it, so all prior tasks on {@code executor} have run. */
+  private static void fence(ExecutorService executor) throws Exception {
+    executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+  }
+
+  /**
+   * A {@link PreparableWriter} that signals {@code entered} on entry, blocks until {@code release}
+   * is counted down, then returns {@link PrepareResult.Ready}. Lets a test land a leadership signal
+   * (or shutdown/drop) while prepare is in flight.
+   */
+  private static PreparableWriter gatedReadyWriter(CountDownLatch entered, CountDownLatch release) {
+    return () -> {
+      entered.countDown();
+      try {
+        if (!release.await(5, TimeUnit.SECONDS)) {
+          throw new IOException("gated prepare was not released within timeout");
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("interrupted while gated in prepare", e);
+      }
+      return new PrepareResult.Ready(EncodedUserData.EMPTY);
+    };
+  }
+
   private RecyclableReplicationIndexManager createManager(
       Supplier<ReplicationIndexManager> wrappedFactory) {
     return RecyclableReplicationIndexManager.createForTesting(wrappedFactory);
+  }
+
+  private RecyclableReplicationIndexManager createManagerWithWriter(
+      Supplier<ReplicationIndexManager> wrappedFactory, PreparableWriter preparableWriter) {
+    return RecyclableReplicationIndexManager.createForTesting(
+        wrappedFactory, Runnable::run, preparableWriter, Runnable::run);
   }
 }

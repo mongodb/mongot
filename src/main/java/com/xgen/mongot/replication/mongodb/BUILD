@@ -11,6 +11,7 @@ java_library(
         "RecyclableReplicationIndexManager.java",
         "ReplicationIndexManager.java",
         "ReplicationIndexManagerFactory.java",
+        "VectorlitePrepareExecutor.java",
     ],
     visibility = ["//visibility:public"],
     exports = [

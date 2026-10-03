@@ -49,6 +49,8 @@ java_library(
         "MeteredStagingIndexWriter.java",
         "MeteredVectorIndexReader.java",
         "MicrometerSearchAggregationMetricsReporter.java",
+        "PreparableWriter.java",
+        "PrepareResult.java",
         "QuarantinedIndexException.java",
         "QueryMetricsRecorder.java",
         "QueryShape.java",

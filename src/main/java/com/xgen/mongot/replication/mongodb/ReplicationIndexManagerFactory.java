@@ -4,6 +4,7 @@ import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.PreparableWriter;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
@@ -76,6 +77,10 @@ public interface ReplicationIndexManagerFactory {
                         "Custom vector engine index "
                             + generation.getGenerationId()
                             + " requires a LeaderStatusRegistrar, but none was configured"));
+        // A custom vector engine index's writer is a preparable writer: RRIM
+        // prepares it on promotion before creating the RIM (CLOUDP-446295), on the
+        // shared, bounded prepare executor.
+        PreparableWriter preparableWriter = (PreparableWriter) index.getWriter();
         RecyclableReplicationIndexManager manager =
             RecyclableReplicationIndexManager.create(
                 executor,
@@ -91,7 +96,9 @@ public interface ReplicationIndexManagerFactory {
                 requestRateLimitBackoff,
                 meterRegistry,
                 featureFlags,
-                enableNaturalOrderScan);
+                enableNaturalOrderScan,
+                preparableWriter,
+                VectorlitePrepareExecutor.get());
         registrar.register(generation, manager::onLeaderStatusChange);
         return manager;
       };

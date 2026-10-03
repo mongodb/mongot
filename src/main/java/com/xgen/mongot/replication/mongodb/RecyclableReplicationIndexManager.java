@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.Var;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
@@ -8,6 +9,8 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.PreparableWriter;
+import com.xgen.mongot.index.PrepareResult;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
@@ -89,6 +92,20 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   static final String FOLLOWER_REFRESH_FAILURE_COUNTER_NAME = "recyclableFollowerRefreshFailures";
 
   /**
+   * Counts prepares that returned {@link PrepareResult.Superseded} (leadership moved away during
+   * prepare). Benign: the node waits for the next leadership signal.
+   */
+  @VisibleForTesting
+  static final String PREPARE_SUPERSEDED_COUNTER_NAME = "recyclablePrepareSuperseded";
+
+  /**
+   * Default fake writer for the wrapped-factory-only test factories, which have no real index:
+   * always Ready with no token, so promotion proceeds straight to creating the wrapped manager.
+   */
+  private static final PreparableWriter TEST_ALWAYS_READY_WRITER =
+      () -> new PrepareResult.Ready(EncodedUserData.EMPTY);
+
+  /**
    * How often the safety-net reconcile tick re-drives actual state toward {@link #desiredStatus}.
    */
   private static final Duration DEFAULT_RECONCILE_INTERVAL = Duration.ofSeconds(30);
@@ -112,10 +129,40 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   /** Runs reconcile steps. Never blocked on a shutdown future (see {@link #reconcile}). */
   private final Executor transitionExecutor;
 
+  /**
+   * The index's native writer, prepared before each leadership session (CLOUDP-446295). Present
+   * only for production and index-taking test factories; the wrapped-factory-only test factories
+   * inject a fake.
+   */
+  private final PreparableWriter preparableWriter;
+
+  /**
+   * Dedicated, bounded executor for {@link #prepareAndPromote}: native prepare is I/O-bound and
+   * must not occupy the shared lifecycle threads. See {@link VectorlitePrepareExecutor}.
+   */
+  private final Executor prepareExecutor;
+
   private final MeterRegistry meterRegistry;
 
   @GuardedBy("this")
   private Optional<ReplicationIndexManager> wrapped;
+
+  /**
+   * Monotonic leadership epoch, bumped on EVERY upcall (LEADER or FOLLOWER). Each running session
+   * records the epoch it was created under in {@link #sessionEpoch}; a session older than this is
+   * stopped and re-prepared even when the desired role is still LEADER, so a leadership flap faster
+   * than a reconcile no longer collapses into a stale session.
+   */
+  @GuardedBy("this")
+  private long leadershipEpoch;
+
+  /** The {@link #leadershipEpoch} the current {@link #wrapped} session was created under. */
+  @GuardedBy("this")
+  private long sessionEpoch;
+
+  /** True while a {@link #prepareAndPromote} is in flight, so at most one runs per index. */
+  @GuardedBy("this")
+  private boolean preparing;
 
   /**
    * The most recently signaled desired role; the single source of truth reconcile drives toward.
@@ -163,11 +210,18 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   private RecyclableReplicationIndexManager(
       Supplier<ReplicationIndexManager> wrappedFactory,
       Executor transitionExecutor,
+      PreparableWriter preparableWriter,
+      Executor prepareExecutor,
       MeterRegistry meterRegistry) {
     this.wrappedFactory = wrappedFactory;
     this.transitionExecutor = transitionExecutor;
+    this.preparableWriter = preparableWriter;
+    this.prepareExecutor = prepareExecutor;
     this.meterRegistry = meterRegistry;
     this.wrapped = Optional.empty();
+    this.leadershipEpoch = 0;
+    this.sessionEpoch = 0;
+    this.preparing = false;
     this.desiredStatus = LeaderStatus.FOLLOWER;
     this.transitionChain = CompletableFuture.completedFuture(null);
     this.shutdownFuture = Optional.empty();
@@ -244,6 +298,10 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     if (this.state == State.SHUT_DOWN) {
       return;
     }
+    // Treat every upcall as a session boundary: bump the epoch so a running
+    // session created under an older epoch is recycled even when the desired role
+    // is LEADER again (a leadership flap faster than a reconcile). CLOUDP-446295.
+    this.leadershipEpoch++;
     this.desiredStatus = newStatus;
     enqueueReconcile();
   }
@@ -268,67 +326,148 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   }
 
   /**
-   * Idempotent reconcile toward {@link #desiredStatus}. Creates the inner manager only when we
-   * should be leader and are not; shuts it down (returning the shutdown future so the chain awaits
-   * full completion before the next step) only when we should be follower and are leader; otherwise
-   * a no-op. Never crashes: unexpected failures are recorded and retried by the periodic tick.
+   * Idempotent reconcile toward {@link #desiredStatus}. On promotion it prepares the native writer
+   * (off the chain, see {@link #prepareAndPromote}) before creating the inner manager; on demotion
+   * it shuts the inner manager down (returning the shutdown future so the chain awaits full
+   * completion before the next step); a running session from an older leadership epoch is recycled
+   * (stopped, then re-prepared) even when the desired role is still LEADER. Never crashes:
+   * unexpected failures are recorded and retried by the periodic tick.
    */
   private CompletableFuture<Void> reconcile() {
     ReplicationIndexManager toShutdown;
+    @Var boolean rePrepareAfterShutdown = false;
     synchronized (this) {
       if (this.state == State.SHUT_DOWN) {
         return CompletableFuture.completedFuture(null);
       }
       boolean leaderNow = this.wrapped.isPresent();
-      if (this.desiredStatus == LeaderStatus.LEADER && !leaderNow) {
-        // Finish follower status recovery before promoting, so the leader init does not race the
-        // follower init. Non-blocking: re-drive reconcile once the init completes.
-        // followerInitFuture always completes normally (see scheduleFollowerInit), so this
-        // continuation never skips.
-        if (!this.followerInitFuture.isDone()) {
-          return this.followerInitFuture.thenComposeAsync(
-              ignored -> reconcile(), this.transitionExecutor);
+      if (this.desiredStatus == LeaderStatus.LEADER) {
+        if (leaderNow) {
+          if (this.sessionEpoch == this.leadershipEpoch) {
+            return CompletableFuture.completedFuture(null); // converged
+          }
+          // A running session from an older epoch (a leadership flap): stop it,
+          // then re-prepare the new term (below, off the monitor).
+          toShutdown = this.wrapped.get();
+          this.wrapped = Optional.empty();
+          this.lastPublishedUserData = Optional.empty();
+          rePrepareAfterShutdown = true;
+        } else {
+          // Finish follower status recovery before promoting, so the leader init does not race the
+          // follower init. Non-blocking: re-drive reconcile once the init completes.
+          // followerInitFuture always completes normally (see scheduleFollowerInit).
+          if (!this.followerInitFuture.isDone()) {
+            return this.followerInitFuture.thenComposeAsync(
+                ignored -> reconcile(), this.transitionExecutor);
+          }
+          if (this.preparing) {
+            // A prepare is already in flight for this index; its completion re-drives.
+            return CompletableFuture.completedFuture(null);
+          }
+          // Prepare the native write path BEFORE creating the RIM, so a promoted
+          // follower rebuilds its write base from the latest durable checkpoint
+          // and RIM.init resumes from the prepared token (CLOUDP-446295). Prepare
+          // runs OFF this chain on the dedicated prepare executor, so a FOLLOWER/
+          // terminal signal arriving mid-prepare is seen immediately by the next
+          // chain step.
+          this.preparing = true;
+          long epoch = this.leadershipEpoch;
+          try {
+            this.prepareExecutor.execute(() -> prepareAndPromote(epoch));
+          } catch (RuntimeException e) {
+            // Executor rejected (e.g. shutting down): retry on the periodic tick.
+            this.preparing = false;
+            handleTransitionFailure(e);
+          }
+          return CompletableFuture.completedFuture(null);
         }
-        // Promote. create() only schedules async init (VectorLite indexes have no synonym
-        // managers), so it does not block while this monitor is held.
-        //
-        // No pin refresh here. The storage layer's leadership takeover is materialization-frontier
-        // gated: it publishes LEADER only once this node's read pin already covers the latest
-        // durable checkpoint root, so the inner manager's getCommitUserData() init read is already
-        // the latest durable token and resumes replication from it. This manager must NEVER
-        // force-advance the pin -- jumping it past the materialized frontier could read
-        // unmaterialized pages. TODO(CLOUDP-446295): the promoted node's native worker write base
-        // is still frozen at index-open, so its first commit can orphan docs the old leader indexed
-        // during this process's uptime (leadership-scoped worker reseed).
-        try {
-          this.wrapped = Optional.of(this.wrappedFactory.get());
-        } catch (Throwable t) {
-          handleTransitionFailure(t);
+      } else {
+        // desired == FOLLOWER
+        if (!leaderNow) {
+          return CompletableFuture.completedFuture(null); // converged
         }
-        return CompletableFuture.completedFuture(null);
+        // Demote. Reflect follower immediately, but shut the inner manager down OUTSIDE this
+        // monitor
+        // (below): shutdown() can block synchronously while the read loop drains, and holding the
+        // monitor across it would stall a concurrent onLeaderStatusChange() on the FFM upcall
+        // thread. Running that drain on transitionExecutor is acceptable: the inner manager already
+        // runs its whole lifecycle there, the drain is bounded (~5-10s), and transitions are rare.
+        toShutdown = this.wrapped.get();
+        this.wrapped = Optional.empty();
+        // Force the first post-demotion poll to republish even if the committed data equals what
+        // this node last published as a follower: the inner manager owned (and may have
+        // overwritten)
+        // the index status in between.
+        this.lastPublishedUserData = Optional.empty();
       }
-      if (this.desiredStatus != LeaderStatus.FOLLOWER || !leaderNow) {
-        return CompletableFuture.completedFuture(null); // converged / coalesced no-op
-      }
-      // Demote. Reflect follower immediately, but shut the inner manager down OUTSIDE this monitor
-      // (below): shutdown() can block synchronously while the read loop drains, and holding the
-      // monitor across it would stall a concurrent onLeaderStatusChange() on the FFM upcall thread.
-      // Running that drain on transitionExecutor (the shared lifecycleExecutor, possibly a single
-      // thread) is acceptable: the inner ReplicationIndexManager already runs its whole lifecycle
-      // (build/init and steady-state orchestration) on that pool, so tearing it down there is
-      // consistent with where this index's blocking work already lives. The pool already carries
-      // blocking build work for every index, the drain is bounded (~5-10s), and transitions are
-      // infrequent.
-      toShutdown = this.wrapped.get();
-      this.wrapped = Optional.empty();
-      // Force the first post-demotion poll to republish even if the committed data equals what this
-      // node last published as a follower: the inner manager owned (and may have overwritten) the
-      // index status in between.
-      this.lastPublishedUserData = Optional.empty();
     }
     // The transition chain awaits this future, so a subsequent LEADER only starts once the prior
     // shutdown has fully completed.
-    return recordShutdownFuture(safeShutdown(toShutdown));
+    CompletableFuture<Void> shutdown = recordShutdownFuture(safeShutdown(toShutdown));
+    if (rePrepareAfterShutdown) {
+      // Once the stale session has fully drained, re-drive to prepare the new term.
+      return shutdown.thenComposeAsync(ignored -> reconcile(), this.transitionExecutor);
+    }
+    return shutdown;
+  }
+
+  /**
+   * Prepare the native write path for leadership {@code epoch}, then create the inner manager on a
+   * Ready result. Runs on {@link #prepareExecutor} (never the reconcile chain or an FFM upcall
+   * thread): native prepare is I/O-bound and the RRIM monitor is not held across it. On completion
+   * it re-checks currency under the monitor, so a newer signal that arrived during prepare wins.
+   * CLOUDP-446295.
+   */
+  private void prepareAndPromote(long epoch) {
+    PrepareResult result;
+    try {
+      result = this.preparableWriter.prepareWriter();
+    } catch (Throwable t) {
+      synchronized (this) {
+        this.preparing = false;
+      }
+      this.meterRegistry
+          .counter(LEADERSHIP_TRANSITION_FAILURE_COUNTER_NAME, "direction", "PROMOTE")
+          .increment();
+      LOG.atWarn()
+          .setCause(t)
+          .log("native writer prepare failed; will retry on periodic reconcile");
+      // needsReconcile() re-drives on the periodic tick (Idle && desired LEADER).
+      return;
+    }
+    synchronized (this) {
+      this.preparing = false;
+      // A newer signal (or shutdown) may have arrived while prepare ran: let the
+      // latest state win instead of installing a stale session.
+      if (this.state == State.SHUT_DOWN
+          || this.desiredStatus != LeaderStatus.LEADER
+          || epoch != this.leadershipEpoch
+          || this.wrapped.isPresent()) {
+        if (this.state != State.SHUT_DOWN) {
+          enqueueReconcile();
+        }
+        return;
+      }
+      if (result instanceof PrepareResult.Ready) {
+        // Promote: create the RIM exactly as before; its init reads the prepared
+        // token from the pin. create() only schedules async init, so it does not
+        // block while the monitor is held.
+        try {
+          this.wrapped = Optional.of(this.wrappedFactory.get());
+          this.sessionEpoch = epoch;
+          LOG.atInfo().log("native writer prepared; replication resumes from the prepared token");
+        } catch (Throwable t) {
+          handleTransitionFailure(t);
+        }
+      } else if (result instanceof PrepareResult.Superseded) {
+        // Leadership moved away during prepare; wait for the next signal.
+        this.meterRegistry.counter(PREPARE_SUPERSEDED_COUNTER_NAME).increment();
+      } else if (result instanceof PrepareResult.Failed failed) {
+        // Not produced; PR 3 in CLOUDP-446295 publishes FAILED and halts. Defensive until then.
+        handleTransitionFailure(
+            new IllegalStateException("native writer terminal: " + failed.message()));
+      }
+    }
   }
 
   /** Invokes {@code inner.shutdown()} off the monitor, recording a failure instead of throwing. */
@@ -451,10 +590,16 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   @GuardedBy("this")
   private boolean needsReconcile() {
+    if (this.state == State.SHUT_DOWN) {
+      return false;
+    }
     boolean leaderNow = this.wrapped.isPresent();
-    return this.state != State.SHUT_DOWN
-        && ((this.desiredStatus == LeaderStatus.LEADER && !leaderNow)
-            || (this.desiredStatus == LeaderStatus.FOLLOWER && leaderNow));
+    if (this.desiredStatus == LeaderStatus.LEADER) {
+      // Re-drive when not leader yet, or the running session is from an older
+      // epoch; skip while a prepare is already in flight (it will re-drive).
+      return !this.preparing && (!leaderNow || this.sessionEpoch != this.leadershipEpoch);
+    }
+    return leaderNow; // desired FOLLOWER but still leader
   }
 
   @GuardedBy("this")
@@ -668,7 +813,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       Duration requestRateLimitBackoff,
       MeterRegistry meterRegistry,
       FeatureFlags featureFlags,
-      boolean enableNaturalOrderScan) {
+      boolean enableNaturalOrderScan,
+      PreparableWriter preparableWriter,
+      Executor prepareExecutor) {
     Supplier<ReplicationIndexManager> wrappedFactory =
         () ->
             ReplicationIndexManager.create(
@@ -687,7 +834,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
                 featureFlags,
                 enableNaturalOrderScan);
     RecyclableReplicationIndexManager manager =
-        new RecyclableReplicationIndexManager(wrappedFactory, lifecycleExecutor, meterRegistry);
+        new RecyclableReplicationIndexManager(
+            wrappedFactory, lifecycleExecutor, preparableWriter, prepareExecutor, meterRegistry);
     synchronized (manager) {
       // Recover and publish this follower's index status from the committed checkpoint (for
       // VectorLite, read from SLS) so queries see the correct status without replicating. Runs on
@@ -707,7 +855,11 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   public static RecyclableReplicationIndexManager createForTesting(
       Supplier<ReplicationIndexManager> wrappedFactory) {
     return new RecyclableReplicationIndexManager(
-        wrappedFactory, Runnable::run, new SimpleMeterRegistry());
+        wrappedFactory,
+        Runnable::run,
+        TEST_ALWAYS_READY_WRITER,
+        Runnable::run,
+        new SimpleMeterRegistry());
   }
 
   /**
@@ -718,7 +870,30 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   public static RecyclableReplicationIndexManager createForTesting(
       Supplier<ReplicationIndexManager> wrappedFactory, Executor transitionExecutor) {
     return new RecyclableReplicationIndexManager(
-        wrappedFactory, transitionExecutor, new SimpleMeterRegistry());
+        wrappedFactory,
+        transitionExecutor,
+        TEST_ALWAYS_READY_WRITER,
+        Runnable::run,
+        new SimpleMeterRegistry());
+  }
+
+  /**
+   * Like {@link #createForTesting(Supplier, Executor)} but with an injected preparable writer and
+   * prepare executor, so tests can drive prepare outcomes (Ready / Superseded / error) and the
+   * epoch/recycle behavior.
+   */
+  @VisibleForTesting
+  public static RecyclableReplicationIndexManager createForTesting(
+      Supplier<ReplicationIndexManager> wrappedFactory,
+      Executor transitionExecutor,
+      PreparableWriter preparableWriter,
+      Executor prepareExecutor) {
+    return new RecyclableReplicationIndexManager(
+        wrappedFactory,
+        transitionExecutor,
+        preparableWriter,
+        prepareExecutor,
+        new SimpleMeterRegistry());
   }
 
   /**
@@ -750,7 +925,11 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       IndexGeneration indexGeneration) {
     RecyclableReplicationIndexManager manager =
         new RecyclableReplicationIndexManager(
-            wrappedFactory, transitionExecutor, new SimpleMeterRegistry());
+            wrappedFactory,
+            transitionExecutor,
+            TEST_ALWAYS_READY_WRITER,
+            Runnable::run,
+            new SimpleMeterRegistry());
     synchronized (manager) {
       manager.scheduleFollowerInit(index, featureFlags, indexGeneration);
     }
@@ -783,6 +962,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @VisibleForTesting
   double followerRefreshFailureCount() {
     return this.meterRegistry.find(FOLLOWER_REFRESH_FAILURE_COUNTER_NAME).counters().stream()
+        .mapToDouble(Counter::count)
+        .sum();
+  }
+
+  /** Total count recorded on {@link #PREPARE_SUPERSEDED_COUNTER_NAME}. */
+  @VisibleForTesting
+  double prepareSupersededCount() {
+    return this.meterRegistry.find(PREPARE_SUPERSEDED_COUNTER_NAME).counters().stream()
         .mapToDouble(Counter::count)
         .sum();
   }
