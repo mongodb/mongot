@@ -13,6 +13,7 @@ import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalo
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.DocumentEvent;
+import com.xgen.mongot.index.autoembedding.AutoEmbeddingResyncHashJoinClassifier;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.GenerationId;
@@ -463,5 +464,130 @@ public class AutoEmbeddingSortedIdCollectionScannerTest {
     assertThat(thrown).isNotNull();
     assertThat(thrown.getMessage()).contains("id-order tripwire");
     assertThat(metricsFactory.get("resyncIdOrderInversions").counter().count()).isEqualTo(1.0);
+  }
+
+  private static List<BsonValue> matchedIdsOf(
+      AutoEmbeddingResyncHashJoinClassifier.Classification classification) {
+    return classification.matched().stream()
+        .map(AutoEmbeddingResyncHashJoinClassifier.MatchedPair::id)
+        .collect(Collectors.toList());
+  }
+
+  // CLOUDP-449412: the hash-join shadow, the acting hash-join path, and the mismatch detector.
+
+  /** The event (type, id) pairs of a batch, so flag-on and flag-off batches compare as sets. */
+  private static List<String> eventsOf(List<DocumentEvent> events) {
+    return events.stream()
+        .map(event -> event.getEventType() + ":" + event.getDocumentId())
+        .collect(Collectors.toList());
+  }
+
+  private static List<BsonValue> idsOf(List<DocumentEvent> events, DocumentEvent.EventType type) {
+    return events.stream()
+        .filter(event -> event.getEventType().equals(type))
+        .map(DocumentEvent::getDocumentId)
+        .collect(Collectors.toList());
+  }
+
+  private static List<RawBsonDocument> sourceWindow(int... ids) {
+    return Arrays.stream(ids)
+        .mapToObj(AutoEmbeddingSortedIdCollectionScannerTest::sourceDocWithNamespace)
+        .collect(Collectors.toList());
+  }
+
+  private static List<RawBsonDocument> matViewWindow(int... ids) {
+    return Arrays.stream(ids)
+        .mapToObj(AutoEmbeddingSortedIdCollectionScannerTest::matViewDoc)
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * The set-based classification the sort-merge shadow computes must partition the window exactly
+   * as the events the sort-merge acts on do: otherwise the mismatch detector compares the hash join
+   * against a classification that does not describe the acting path.
+   */
+  @Test
+  public void sortMergeClassification_partitionsTheWindowLikeTheSortMergeEvents() {
+    AutoEmbeddingSortedIdCollectionScanner scanner = newViewIndexScanner();
+
+    var source = sourceWindow(1, 2, 3);
+    var matView = matViewWindow(2, 3, 4);
+    var classification = scanner.sortMergeClassification(source, matView);
+    List<DocumentEvent> events = scanner.sortMergeEvents(source, matView);
+
+    assertThat(classification.insertIds()).containsExactly(new BsonInt32(1));
+    assertThat(classification.deleteIds()).containsExactly(new BsonInt32(4));
+    assertThat(matchedIdsOf(classification)).containsExactly(new BsonInt32(2), new BsonInt32(3));
+
+    assertThat(idsOf(events, DocumentEvent.EventType.INSERT)).containsExactly(new BsonInt32(1));
+    assertThat(idsOf(events, DocumentEvent.EventType.DELETE)).containsExactly(new BsonInt32(4));
+  }
+
+  /**
+   * Acting on the hash join must produce the same event set as acting on the sort-merge, so
+   * flipping the flag changes which comparator classifies the window but not what the resync does.
+   * The hash join emits its events grouped by category rather than in the sort-merge's scan order,
+   * so this compares them as sets.
+   */
+  @Test
+  public void applyHashJoinEvents_producesTheSameEventsAsTheSortMerge() {
+    AutoEmbeddingSortedIdCollectionScanner scanner = newViewIndexScanner();
+
+    var source = sourceWindow(1, 2, 3);
+    var matView = matViewWindow(2, 3, 4);
+    List<DocumentEvent> hashJoinEvents =
+        scanner.applyHashJoinEvents(scanner.hashJoinClassification(source, matView));
+    List<DocumentEvent> sortMergeEvents = scanner.sortMergeEvents(source, matView);
+
+    assertThat(eventsOf(hashJoinEvents)).containsExactlyElementsIn(eventsOf(sortMergeEvents));
+  }
+
+  /** Classifications that partition the window the same way are not a mismatch. */
+  @Test
+  public void differingIds_agreeingClassifications_returnsEmpty() {
+    var source = sourceWindow(1, 2);
+    var matView = matViewWindow(1, 2);
+    var sortMerge = newViewIndexScanner().sortMergeClassification(source, matView);
+    var hashJoin = newViewIndexScanner().hashJoinClassification(source, matView);
+
+    assertThat(AutoEmbeddingSortedIdCollectionScanner.differingIds(sortMerge, hashJoin)).isEmpty();
+  }
+
+  /**
+   * A disagreement is an id classified into a different category (insert/delete/match) by one
+   * classification than by the other, or present in only one of them.
+   */
+  @Test
+  public void differingIds_disagreeingClassifications_returnsTheDifferingIds() {
+    // The sort-merge sees a source-only doc 1 and a mat-view-only doc 2; the hash join sees 1
+    // present in both and nothing to delete.
+    var sortMerge =
+        newViewIndexScanner().sortMergeClassification(sourceWindow(1), matViewWindow(2));
+    var hashJoin = newViewIndexScanner().hashJoinClassification(sourceWindow(1), matViewWindow(1));
+
+    assertThat(AutoEmbeddingSortedIdCollectionScanner.differingIds(sortMerge, hashJoin))
+        .containsExactly(new BsonInt32(1), new BsonInt32(2));
+  }
+
+  /** A mismatch between the two classifications increments the counter; agreement does not. */
+  @Test
+  public void recordClassificationMismatch_countersTrackTheClassificationAgreement() {
+    MetricsFactory metricsFactory = new MetricsFactory("test", new SimpleMeterRegistry());
+    AutoEmbeddingSortedIdCollectionScanner scanner = newScanner(true, metricsFactory);
+
+    var agreeingSortMerge =
+        newViewIndexScanner().sortMergeClassification(sourceWindow(1), matViewWindow(1));
+    var agreeingHashJoin =
+        newViewIndexScanner().hashJoinClassification(sourceWindow(1), matViewWindow(1));
+    var disagreeingSortMerge =
+        newViewIndexScanner().sortMergeClassification(sourceWindow(1), matViewWindow(2));
+
+    scanner.recordClassificationMismatch(agreeingSortMerge, agreeingHashJoin);
+    assertThat(metricsFactory.get("resyncMergeClassificationMismatches").counter().count())
+        .isEqualTo(0.0);
+
+    scanner.recordClassificationMismatch(disagreeingSortMerge, agreeingHashJoin);
+    assertThat(metricsFactory.get("resyncMergeClassificationMismatches").counter().count())
+        .isEqualTo(1.0);
   }
 }

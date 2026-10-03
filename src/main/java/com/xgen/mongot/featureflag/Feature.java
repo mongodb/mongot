@@ -119,7 +119,13 @@ public enum Feature {
   ALWAYS_BOOTSTRAP_SNAPSHOTTER_RESOURCES("alwaysBootstrapSnapshotterResources", State.DISABLED),
   // CLOUDP-447390: escalates the AE resync id-order tripwire from REPORT (metric + warning,
   // default) to FAIL — aborting the resync on the first source _id ordering inversion.
-  AE_RESYNC_ID_ORDER_TRIPWIRE_FAIL_FAST("aeResyncIdOrderTripwireFailFast", State.DISABLED);
+  AE_RESYNC_ID_ORDER_TRIPWIRE_FAIL_FAST("aeResyncIdOrderTripwireFailFast", State.DISABLED),
+  // CLOUDP-449412: selects which AE resync classification acts — the sort-merge (default) or the
+  // per-window hash join. The other one always runs in the background as a cheap, set-based shadow
+  // (no compareDocuments). When the two disagree, resyncMergeClassificationMismatches is
+  // incremented
+  // and the index id plus the first few differing _ids are logged.
+  AE_RESYNC_HASH_JOIN("aeResyncHashJoin", State.DISABLED);
 
   private final String name;
   private final State defaultState;

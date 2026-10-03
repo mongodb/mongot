@@ -18,6 +18,7 @@ import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
+import com.xgen.mongot.index.autoembedding.AutoEmbeddingResyncHashJoinClassifier;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.query.pushdown.ArrayComparator;
@@ -35,8 +36,12 @@ import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
@@ -45,6 +50,7 @@ import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.bson.RawBsonDocument;
 import org.bson.conversions.Bson;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * This class is responsible for implementing the initial sync for an auto-embedding materialized
@@ -70,6 +76,7 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private final Counter resyncStaleDocuments;
   private final Optional<RuleBasedCollator> stringCollator;
   private final Counter resyncIdOrderInversions;
+  private final Counter resyncMergeClassificationMismatches;
   private TripwireMode tripwireMode = TripwireMode.REPORT;
   private boolean tripwireModeResolved;
   private final List<BsonValue> sourceBatchIds = new ArrayList<>();
@@ -95,6 +102,8 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     this.resyncSurplusDocuments = metricsFactory.counter("resyncSurplusDocuments");
     this.resyncStaleDocuments = metricsFactory.counter("resyncStaleDocuments");
     this.resyncIdOrderInversions = metricsFactory.counter("resyncIdOrderInversions");
+    this.resyncMergeClassificationMismatches =
+        metricsFactory.counter("resyncMergeClassificationMismatches");
     Check.checkState(
         !context.useNaturalOrderScan(),
         "AutoEmbeddingSortedIdCollectionScanner should not be used with natural order scan");
@@ -209,7 +218,12 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   protected List<DocumentEvent> bufferNextBatch(
       CollectionScanMongoClient<InitialSyncException> mongoClient) throws InitialSyncException {
     List<RawBsonDocument> batch = mongoClient.getNext();
+    // Collect the source ids up front (in scan order) so the id-order tripwire runs regardless of
+    // which classification acts; sortMergeEvents no longer records them (avoid double-counting).
     this.sourceBatchIds.clear();
+    for (RawBsonDocument sourceDoc : batch) {
+      recordSourceId(getDocumentMetadata(sourceDoc).getId());
+    }
 
     // The last scanned doc's id bounds both the mat-view query and the resume token; see
     // lastScannedIdOf for which id (metadata namespace vs root) is used and why.
@@ -221,7 +235,22 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     // docs from the mat view collection and do the sort merge.
     var preprocessingTimer = Stopwatch.createStarted();
     List<RawBsonDocument> matViewBatch = getMatViewDocsInRange(upperBound);
-    List<DocumentEvent> documentEvents = new ArrayList<>(sortMergeEvents(batch, matViewBatch));
+    boolean useHashJoin = this.context.getFeatureFlags().isEnabled(Feature.AE_RESYNC_HASH_JOIN);
+    // Act on the path the feature flag selects, then compare it against the other classification as
+    // a diagnostic shadow. A disagreement means the in-memory comparator mis-ordered or
+    // mis-compared
+    // _ids (the ICU parity bugs this change removes). The shadow only reports, so its failure must
+    // not fail the resync — only the acting classification is load-bearing.
+    List<DocumentEvent> documentEvents;
+    if (useHashJoin) {
+      AutoEmbeddingResyncHashJoinClassifier.Classification hashJoinClass =
+          hashJoinClassification(batch, matViewBatch);
+      documentEvents = applyHashJoinEvents(hashJoinClass);
+      runShadowClassificationMismatch(batch, matViewBatch, hashJoinClass);
+    } else {
+      documentEvents = sortMergeEvents(batch, matViewBatch);
+      runShadowClassificationMismatch(batch, matViewBatch, null);
+    }
     // Include the previous batch's last id so the boundary pair that straddles a getMore boundary
     // (batch sizes are arbitrary) is checked too, not just pairs within one batch.
     runIdOrderTripwire(
@@ -273,7 +302,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     this.resyncIdOrderInversions.increment();
     LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
         "AE resync source batch _id order is not monotonic under the MV-window comparator "
-            + "(id-order mismatch, CLOUDP-444644): previous=%s, current=%s at index %d, mode=%s.",
+            + "(id-order mismatch, CLOUDP-444644): indexId=%s; previous=%s, current=%s at index %d,"
+            + " mode=%s.",
+        this.context.getIndexId(),
         LoggableIdUtils.getLoggableId(found.previous()),
         LoggableIdUtils.getLoggableId(found.current()),
         found.index(),
@@ -398,7 +429,6 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         continue;
       }
       BsonValue sourceDocId = sourceDocMetadata.getId().get();
-      recordSourceId(Optional.of(sourceDocId));
 
       BsonValue matViewDocId = matViewDocMetadata.getId().get();
 
@@ -453,7 +483,6 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
         baseIdx++;
         continue;
       }
-      recordSourceId(metadata.getId());
       operations.add(DocumentEvent.createInsert(metadata, sourceDoc));
       baseIdx++;
     }
@@ -471,6 +500,209 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
     }
     recordDivergenceMetrics(operations);
     return operations;
+  }
+
+  // CLOUDP-449412: classifies a (source, mat-view) window with the sort-merge interleave but only
+  // computes the insert/delete/matched id sets — no compareDocuments, no events. It is the cheap
+  // set-based shadow of the sort-merge, used to compare against the hash-join classification.
+  @VisibleForTesting
+  AutoEmbeddingResyncHashJoinClassifier.Classification sortMergeClassification(
+      List<RawBsonDocument> baseBatch, List<RawBsonDocument> matViewBatch) {
+    @Var int baseIdx = 0;
+    @Var int matViewIdx = 0;
+    List<BsonValue> insertIds = new ArrayList<>();
+    List<RawBsonDocument> insertDocs = new ArrayList<>();
+    List<BsonValue> deleteIds = new ArrayList<>();
+    List<RawBsonDocument> deleteDocs = new ArrayList<>();
+    List<AutoEmbeddingResyncHashJoinClassifier.MatchedPair> matched = new ArrayList<>();
+    while (baseIdx < baseBatch.size() && matViewIdx < matViewBatch.size()) {
+      RawBsonDocument sourceDoc = baseBatch.get(baseIdx);
+      RawBsonDocument matViewDoc = matViewBatch.get(matViewIdx);
+      DocumentMetadata sourceDocMetadata = getDocumentMetadata(sourceDoc);
+      DocumentMetadata matViewDocMetadata =
+          DocumentMetadata.fromOriginalDocument(Optional.of(matViewDoc));
+      if (sourceDocMetadata.getId().isEmpty()) {
+        recordSkippedDocumentWithoutMetadataNamespace(sourceDoc);
+        baseIdx++;
+        continue;
+      }
+      BsonValue sourceDocId = sourceDocMetadata.getId().get();
+      BsonValue matViewDocId = matViewDocMetadata.getId().get();
+      int comparison = compareIds(sourceDocId, matViewDocId);
+      if (comparison < 0) {
+        insertIds.add(sourceDocId);
+        insertDocs.add(sourceDoc);
+        baseIdx++;
+      } else if (comparison > 0) {
+        deleteIds.add(matViewDocId);
+        deleteDocs.add(matViewDoc);
+        matViewIdx++;
+      } else {
+        matched.add(
+            new AutoEmbeddingResyncHashJoinClassifier.MatchedPair(
+                sourceDocId, sourceDoc, matViewDoc));
+        baseIdx++;
+        matViewIdx++;
+      }
+    }
+    while (baseIdx < baseBatch.size()) {
+      RawBsonDocument sourceDoc = baseBatch.get(baseIdx);
+      DocumentMetadata metadata = getDocumentMetadata(sourceDoc);
+      if (metadata.getId().isEmpty()) {
+        recordSkippedDocumentWithoutMetadataNamespace(sourceDoc);
+        baseIdx++;
+        continue;
+      }
+      insertIds.add(metadata.getId().get());
+      insertDocs.add(sourceDoc);
+      baseIdx++;
+    }
+    while (matViewIdx < matViewBatch.size()) {
+      DocumentMetadata metadata =
+          DocumentMetadata.fromOriginalDocument(Optional.of(matViewBatch.get(matViewIdx)));
+      deleteIds.add(metadata.getId().get());
+      deleteDocs.add(matViewBatch.get(matViewIdx));
+      matViewIdx++;
+    }
+    return new AutoEmbeddingResyncHashJoinClassifier.Classification(
+        List.copyOf(insertIds),
+        List.copyOf(insertDocs),
+        List.copyOf(deleteIds),
+        List.copyOf(deleteDocs),
+        List.copyOf(matched));
+  }
+
+  // CLOUDP-449412: the per-window hash-join classification. It is the acting path when the
+  // AE_RESYNC_HASH_JOIN flag is set, and the set-based shadow (vs the sort-merge) otherwise.
+  @VisibleForTesting
+  AutoEmbeddingResyncHashJoinClassifier.Classification hashJoinClassification(
+      List<RawBsonDocument> sourceWindow, List<RawBsonDocument> matViewWindow) {
+    return AutoEmbeddingResyncHashJoinClassifier.classify(
+        sourceWindow, matViewWindow, this::sourceIdOf);
+  }
+
+  private Optional<BsonValue> sourceIdOf(RawBsonDocument sourceDoc) {
+    return getDocumentMetadata(sourceDoc).getId();
+  }
+
+  // CLOUDP-449412: produces the resync events from a hash-join classification, running
+  // compareDocuments only on the matched pairs. Records the divergence metrics so the default sort
+  // merge and the hash-join expose the same per-class counters when one acts as the other's shadow.
+  @VisibleForTesting
+  List<DocumentEvent> applyHashJoinEvents(
+      AutoEmbeddingResyncHashJoinClassifier.Classification classification) {
+    List<DocumentEvent> operations = new ArrayList<>();
+    for (RawBsonDocument sourceDoc : classification.insertDocs()) {
+      operations.add(DocumentEvent.createInsert(getDocumentMetadata(sourceDoc), sourceDoc));
+    }
+    for (RawBsonDocument matViewDoc : classification.deleteDocs()) {
+      DocumentMetadata metadata = DocumentMetadata.fromOriginalDocument(Optional.of(matViewDoc));
+      operations.add(DocumentEvent.createDelete(metadata.getId().get()));
+    }
+    for (AutoEmbeddingResyncHashJoinClassifier.MatchedPair pair : classification.matched()) {
+      var comparisonResult =
+          AutoEmbeddingDocumentUtils.compareDocuments(
+              pair.sourceDoc(),
+              pair.matViewDoc(),
+              this.autoEmbedMapping,
+              this.matViewAutoEmbedMapping,
+              this.matViewCollectionMetadata.schemaMetadata(),
+              this.sourceNestedRoot);
+      if (comparisonResult.needsReIndexing()) {
+        var rawDocumentEvent =
+            DocumentEvent.createUpdate(getDocumentMetadata(pair.sourceDoc()), pair.sourceDoc());
+        if (comparisonResult.reusableEmbeddings().isEmpty()) {
+          operations.add(rawDocumentEvent);
+        } else {
+          operations.add(
+              DocumentEvent.createFromDocumentEventAndVectors(
+                  rawDocumentEvent, comparisonResult.reusableEmbeddings()));
+        }
+      }
+    }
+    recordDivergenceMetrics(operations);
+    return operations;
+  }
+
+  // CLOUDP-449412: compares the acting classification against the other one as a diagnostic shadow.
+  // The shadow only reports, so a failure in it must not fail the resync: log (rate-limited) and
+  // move on, like the id-order tripwire's REPORT mode. The acting hash-join classification is
+  // passed
+  // in when the hash join acts — it is load-bearing, so it is never computed under this guard.
+  private void runShadowClassificationMismatch(
+      List<RawBsonDocument> sourceWindow,
+      List<RawBsonDocument> matViewWindow,
+      @Nullable AutoEmbeddingResyncHashJoinClassifier.Classification actingHashJoin) {
+    try {
+      var sortMergeClass = sortMergeClassification(sourceWindow, matViewWindow);
+      var hashJoinClass =
+          actingHashJoin != null
+              ? actingHashJoin
+              : hashJoinClassification(sourceWindow, matViewWindow);
+      recordClassificationMismatch(sortMergeClass, hashJoinClass);
+    } catch (Exception e) {
+      LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).withCause(e).log(
+          "indexId=%s; AE resync classification shadow failed; ignoring.",
+          this.context.getIndexId());
+    }
+  }
+
+  // CLOUDP-449412: if the sort-merge and hash-join classify the window differently, the in-memory
+  // comparator mis-ordered or mis-compared _ids. Increment the counter and log the index id plus
+  // the
+  // first few differing _ids (rate-limited). The comparison is set-based and cheap: it never runs
+  // compareDocuments.
+  @VisibleForTesting
+  void recordClassificationMismatch(
+      AutoEmbeddingResyncHashJoinClassifier.Classification sortMerge,
+      AutoEmbeddingResyncHashJoinClassifier.Classification hashJoin) {
+    List<BsonValue> differing = differingIds(sortMerge, hashJoin);
+    if (differing.isEmpty()) {
+      return;
+    }
+    this.resyncMergeClassificationMismatches.increment();
+    List<String> samples = differing.stream().limit(5).map(LoggableIdUtils::getLoggableId).toList();
+    LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+        "AE resync classification mismatch (CLOUDP-449412): indexId=%s; sort-merge and hash-join"
+            + " disagree on %d _ids; first few: %s.",
+        this.context.getIndexId(), differing.size(), samples);
+  }
+
+  // The _ids on which the two classifications disagree, i.e. classified into a different category
+  // (insert/delete/match) by one than by the other. An id present in only one classification is
+  // also
+  // a disagreement.
+  @VisibleForTesting
+  static List<BsonValue> differingIds(
+      AutoEmbeddingResyncHashJoinClassifier.Classification a,
+      AutoEmbeddingResyncHashJoinClassifier.Classification b) {
+    Map<BsonValue, String> leftCategories = classificationCategories(a);
+    Map<BsonValue, String> rightCategories = classificationCategories(b);
+    Set<BsonValue> ids = new HashSet<>();
+    ids.addAll(leftCategories.keySet());
+    ids.addAll(rightCategories.keySet());
+    List<BsonValue> differing = new ArrayList<>();
+    for (BsonValue id : ids) {
+      if (!Objects.equals(leftCategories.get(id), rightCategories.get(id))) {
+        differing.add(id);
+      }
+    }
+    return differing;
+  }
+
+  private static Map<BsonValue, String> classificationCategories(
+      AutoEmbeddingResyncHashJoinClassifier.Classification classification) {
+    Map<BsonValue, String> categories = new HashMap<>();
+    for (BsonValue id : classification.insertIds()) {
+      categories.put(id, "insert");
+    }
+    for (BsonValue id : classification.deleteIds()) {
+      categories.put(id, "delete");
+    }
+    for (AutoEmbeddingResyncHashJoinClassifier.MatchedPair pair : classification.matched()) {
+      categories.put(pair.id(), "match");
+    }
+    return categories;
   }
 
   /**
@@ -526,9 +758,9 @@ public class AutoEmbeddingSortedIdCollectionScanner extends BufferlessCollection
   private void recordSkippedDocumentWithoutMetadataNamespace(RawBsonDocument doc) {
     this.skippedDocumentsWithoutMetadataNamespaceCounter.increment();
     LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
-        "Document %s did not contain metadata namespace, likely due to "
+        "indexId=%s; Document %s did not contain metadata namespace, likely due to "
             + "presence of duplicate fields, skipping indexing this document",
-        Optional.ofNullable(doc).map(DocumentMetadata::extractId));
+        this.context.getIndexId(), Optional.ofNullable(doc).map(DocumentMetadata::extractId));
   }
 
   private CollectionScanMongoClient<InitialSyncException> getFindCommandClient(
