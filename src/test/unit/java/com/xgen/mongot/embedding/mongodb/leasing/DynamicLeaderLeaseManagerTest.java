@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.bson.BsonArray;
@@ -1895,6 +1896,37 @@ public class DynamicLeaderLeaseManagerTest {
 
     // Assert - a renewal that matches zero rows (lease taken by another host) demotes the leader.
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
+  }
+
+  @Test
+  public void heartbeat_leaseHeartbeatPartialUpdate_evaluatedPerTickNotCachedOnce() {
+    // Arrange - the gating supplier must be consulted on every renewal tick so a flag flip takes
+    // effect without a restart. Count evaluations across two renewals.
+    AtomicInteger supplierEvaluations = new AtomicInteger();
+    this.leaseManager =
+        new DynamicLeaderLeaseManager(
+            this.mockAutoEmbeddingMongoClient,
+            this.metricsFactory,
+            HOSTNAME,
+            DB_RESOLVER,
+            this.mvMetadataCatalog,
+            () -> {
+              supplierEvaluations.incrementAndGet();
+              return false;
+            });
+    MaterializedViewGenerationId generationId = acquireLeadership();
+
+    putLeaseInRenewalWindow(generationId);
+    this.leaseManager.heartbeat();
+
+    assertThat(supplierEvaluations.get()).isEqualTo(1);
+
+    // The first tick's renewal moved the lease out of the renewal window, so re-enter it.
+    putLeaseInRenewalWindow(generationId);
+    this.leaseManager.heartbeat();
+
+    // Assert - the second tick re-evaluated the supplier rather than reusing the first answer.
+    assertThat(supplierEvaluations.get()).isEqualTo(2);
   }
 
   @Test

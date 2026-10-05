@@ -42,6 +42,7 @@ import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -386,6 +387,8 @@ public class CommonUtils {
    * @param hostname the hostname of this mongot instance
    * @param mvMetadataCatalog the materialized view collection metadata catalog
    * @param opsCommands ops commands for lease manager
+   * @param leaseHeartbeatPartialUpdateEnabled evaluated per heartbeat tick, never cached; wires the
+   *     {@link DynamicFeatureFlags#LEASE_HEARTBEAT_PARTIAL_UPDATE} gating of the lease renewal
    * @return a DynamicLeaderLeaseManager for dynamic leader election
    */
   public static LeaseManager getDynamicLeaseManager(
@@ -394,7 +397,8 @@ public class CommonUtils {
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       String hostname,
       MaterializedViewCollectionMetadataCatalog mvMetadataCatalog,
-      LeaseManagerOpsCommands opsCommands) {
+      LeaseManagerOpsCommands opsCommands,
+      BooleanSupplier leaseHeartbeatPartialUpdateEnabled) {
     LOG.info("Creating DynamicLeaderLeaseManager for dynamic per-index leader election");
     return DynamicLeaderLeaseManager.create(
         autoEmbeddingMongoClient,
@@ -402,6 +406,7 @@ public class CommonUtils {
         hostname,
         dbResolver,
         mvMetadataCatalog,
-        opsCommands);
+        opsCommands,
+        leaseHeartbeatPartialUpdateEnabled);
   }
 }

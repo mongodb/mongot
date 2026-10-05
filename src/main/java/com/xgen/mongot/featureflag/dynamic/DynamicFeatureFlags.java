@@ -114,6 +114,15 @@ public enum DynamicFeatureFlags {
    */
   MV_GC_ENABLED("mongot.featureFlag.enableMvGc", false),
   /**
+   * When enabled, the auto-embedding lease heartbeat renews with a field-scoped {@code updateOne}
+   * ({@code $max} on {@code leaseExpiration}, {@code $set} on {@code cleanupState}) instead of a
+   * whole-document {@code replaceOne}, so it no longer bumps {@code leaseVersion} or rewrites
+   * {@code commitInfo}. Because the version stops advancing on renewal, this is only safe once
+   * every possible acquirer in the cluster runs a binary that also fences takeover on lease
+   * expiration. Evaluated per heartbeat tick, so a flip needs no restart. Off by default.
+   */
+  LEASE_HEARTBEAT_PARTIAL_UPDATE("mongot.featureFlag.enableLeaseHeartbeatPartialUpdate", false),
+  /**
    * Gates only the destructive step of the auto-embedding GC sweep — dropping the superseded MV
    * collection and deleting its lease — separately from {@link #MV_GC_ENABLED}. With GC on but this
    * off, the sweep runs mark-only: it flags stale leases eligible for cleanup (for observability)

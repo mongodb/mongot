@@ -979,6 +979,17 @@ public class DynamicFeatureFlagRegistryTest {
     }
 
     @Test
+    public void leaseHeartbeatPartialUpdate_hasExpectedNameAndFallback() {
+      // The name is the Atlas control-plane contract: it is what a per-group rollout targets, so
+      // renaming it silently would strand the rollout at its fallback. Off by default because the
+      // gated renewal is only safe once every acquirer runs the expiration-gated takeover filter.
+      assertEquals(
+          "mongot.featureFlag.enableLeaseHeartbeatPartialUpdate",
+          DynamicFeatureFlags.LEASE_HEARTBEAT_PARTIAL_UPDATE.getName());
+      assertFalse(DynamicFeatureFlags.LEASE_HEARTBEAT_PARTIAL_UPDATE.getFallback());
+    }
+
+    @Test
     public void updateDynamicFeatureFlags_updatesGlobalObject() {
       DynamicFeatureFlagConfig testFeature =
           new DynamicFeatureFlagConfig(
