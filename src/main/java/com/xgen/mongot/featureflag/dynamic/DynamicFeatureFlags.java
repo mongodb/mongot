@@ -146,6 +146,16 @@ public enum DynamicFeatureFlags {
    */
   AUTO_EMBEDDING_CHANGE_STREAM_FULL_UPDATE(
       "mongot.featureFlag.autoEmbeddingChangeStreamFullUpdate", false),
+  /**
+   * Rollout gate for the {@code materializeVectorSearch} command, which embeds a sharded {@code
+   * $vectorSearch} query's text once on the router instead of once per shard. When disabled, mongot
+   * answers the command with {@code CommandNotFound}, so the mongos extension falls back to
+   * per-shard embedding. Temporary: once the command is on fleet-wide, delete this constant, the
+   * check at the top of {@code MaterializeVectorSearchCommand.run}, the community/enterprise
+   * default entries, and the mms flag definition.
+   */
+  AUTO_EMBEDDING_MATERIALIZE_VECTOR_SEARCH(
+      "mongot.featureFlag.autoEmbeddingMaterializeVectorSearch", false),
   ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false),
   /**
    * When enabled, {@link com.xgen.mongot.server.executors.BulkheadCommandExecutor} deliberately

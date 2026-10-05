@@ -159,7 +159,8 @@ public class DynamicFeatureFlagRegistry {
             List.of(
                 communityEnabled(DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD),
                 communityEnabled(DynamicFeatureFlags.MV_GC_ENABLED),
-                communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED))),
+                communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED),
+                communityEnabled(DynamicFeatureFlags.AUTO_EMBEDDING_MATERIALIZE_VECTOR_SEARCH))),
         Optional.empty(),
         Optional.empty(),
         Optional.of(ONPREM_SENTINEL_CLUSTER_ID));
@@ -174,7 +175,8 @@ public class DynamicFeatureFlagRegistry {
             List.of(
                 communityEnabled(DynamicFeatureFlags.BLOOM_FILTER_FOR_ID_FIELD),
                 communityEnabled(DynamicFeatureFlags.MV_GC_ENABLED),
-                communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED))),
+                communityEnabled(DynamicFeatureFlags.MV_GC_DELETION_ENABLED),
+                communityEnabled(DynamicFeatureFlags.AUTO_EMBEDDING_MATERIALIZE_VECTOR_SEARCH))),
         Optional.empty(),
         Optional.empty(),
         Optional.of(ONPREM_SENTINEL_CLUSTER_ID));
