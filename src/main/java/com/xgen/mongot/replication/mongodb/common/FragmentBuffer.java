@@ -166,7 +166,7 @@ public class FragmentBuffer {
       return ResumeTokenUtils.opTimeFromResumeToken(resumeToken);
     } catch (DecoderException e) {
       throw new FragmentProcessingException("Failed to extract opTime from resume token", e);
-    } catch (IllegalStateException e) {
+    } catch (IllegalArgumentException e) {
       throw new FragmentProcessingException("Invalid resume token format: " + e.getMessage(), e);
     }
   }

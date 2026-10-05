@@ -439,6 +439,20 @@ public class FragmentBufferTest {
     assertThat(e.getMessage()).contains("Missing resume token");
   }
 
+  @Test
+  public void testMalformedResumeTokenThrowsFragmentProcessingException() {
+    // A _data too short to hold an optime is rejected by ResumeTokenUtils with an
+    // IllegalArgumentException, which must surface as a FragmentProcessingException.
+    BsonDocument fragment = createFragment("8200", 1, 2, "operationType", "insert");
+
+    FragmentProcessingException e =
+        Assert.assertThrows(
+            FragmentProcessingException.class,
+            () -> this.buffer.processEvent(new RawBsonDocument(fragment, CODEC)));
+
+    assertThat(e.getMessage()).contains("Invalid resume token format");
+  }
+
   // Helper Methods
 
   private BsonDocument createResumeToken(String base) {
