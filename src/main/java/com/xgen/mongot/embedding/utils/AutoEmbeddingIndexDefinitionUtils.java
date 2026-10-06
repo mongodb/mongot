@@ -92,6 +92,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
         rawDefinition.getParsedIndexFeatureVersion(),
         rawDefinition.getDefinitionVersion(),
         rawDefinition.getDefinitionVersionCreatedAt(),
+        rawDefinition.getDefinitionVersionId(),
         Optional.empty(), // TODO(CLOUDP-363302)
         // Remap nestedRoot so it lives in the same namespace as the (possibly remapped) vector
         // field paths on the materialized view. Without this, embedded-vector detection at query
@@ -138,6 +139,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
         rawDefinition.getSort(),
         rawDefinition.getDefinitionVersion(),
         rawDefinition.getDefinitionVersionCreatedAt(),
+        rawDefinition.getDefinitionVersionId(),
         rawDefinition.getIndexIdAtCreationTime(),
         rawDefinition.getAutoEmbeddingDefinitionVersion(),
         rawDefinition.getMaterializedViewNameFormatVersion());

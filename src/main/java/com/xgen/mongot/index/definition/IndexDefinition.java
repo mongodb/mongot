@@ -83,6 +83,9 @@ public sealed interface IndexDefinition extends DocumentEncodable
     static final Field.Optional<String> DEFINITION_VERSION_CREATED_AT =
         Field.builder("definitionVersionCreatedAt").stringField().optional().noDefault();
 
+    public static final Field.Optional<ObjectId> DEFINITION_VERSION_ID =
+        Field.builder("definitionVersionId").objectIdField().optional().noDefault();
+
     static final Field.Optional<StoredSourceDefinition> STORED_SOURCE =
         Field.builder("storedSource")
             .classField(StoredSourceDefinition::fromBson)
@@ -149,6 +152,8 @@ public sealed interface IndexDefinition extends DocumentEncodable
   Optional<Long> getDefinitionVersion();
 
   Optional<Instant> getDefinitionVersionCreatedAt();
+
+  Optional<ObjectId> getDefinitionVersionId();
 
   /**
    * The index_feature_version specified in the {@link SearchIndexDefinition} or in the {@link

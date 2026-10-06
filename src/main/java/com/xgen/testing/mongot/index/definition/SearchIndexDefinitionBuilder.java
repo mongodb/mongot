@@ -41,6 +41,7 @@ public class SearchIndexDefinitionBuilder {
       Optional.of(SearchIndexDefinition.Fields.INDEX_FEATURE_VERSION.getDefaultValue());
   private Optional<Long> definitionVersion = Optional.empty();
   private Optional<Instant> definitionVersionCreatedAt = Optional.empty();
+  private Optional<ObjectId> definitionVersionId = Optional.empty();
   private Optional<ObjectId> indexIdAtCreationTime = Optional.empty();
   private Optional<Long> autoEmbeddingDefinitionVersion = Optional.empty();
   private Optional<Long> materializedViewNameFormatVersion = Optional.empty();
@@ -78,6 +79,7 @@ public class SearchIndexDefinitionBuilder {
     protoType.getSearchAnalyzerName().ifPresent(builder::searchAnalyzerName);
     protoType.getDefinitionVersion().ifPresent(builder::definitionVersion);
     protoType.getDefinitionVersionCreatedAt().ifPresent(builder::definitionVersionCreatedAt);
+    protoType.getDefinitionVersionId().ifPresent(builder::definitionVersionId);
     return builder;
   }
 
@@ -199,6 +201,11 @@ public class SearchIndexDefinitionBuilder {
     return this;
   }
 
+  public SearchIndexDefinitionBuilder definitionVersionId(ObjectId definitionVersionId) {
+    this.definitionVersionId = Optional.ofNullable(definitionVersionId);
+    return this;
+  }
+
   public SearchIndexDefinitionBuilder indexIdAtCreationTime(ObjectId indexIdAtCreationTime) {
     this.indexIdAtCreationTime = Optional.ofNullable(indexIdAtCreationTime);
     return this;
@@ -236,6 +243,7 @@ public class SearchIndexDefinitionBuilder {
         this.sort,
         this.definitionVersion,
         this.definitionVersionCreatedAt,
+        this.definitionVersionId,
         this.indexIdAtCreationTime,
         this.autoEmbeddingDefinitionVersion,
         this.materializedViewNameFormatVersion);

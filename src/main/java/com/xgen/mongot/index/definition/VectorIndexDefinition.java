@@ -79,6 +79,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
   private final int indexFeatureVersion;
   private final Optional<Long> definitionVersion;
   private final Optional<Instant> definitionVersionCreatedAt;
+  private final Optional<ObjectId> definitionVersionId;
   private final Optional<StoredSourceDefinition> storedSource;
   private final boolean isAutoEmbeddingIndex;
   private final boolean isCustomVectorEngineIndex;
@@ -103,6 +104,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
       int parsedIndexFeatureVersion,
       Optional<Long> definitionVersion,
       Optional<Instant> definitionVersionCreatedAt,
+      Optional<ObjectId> definitionVersionId,
       Optional<StoredSourceDefinition> storedSource,
       Optional<FieldPath> nestedRoot,
       Optional<IndexNamespaceDefinition> indexNamespace,
@@ -122,6 +124,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
     this.indexFeatureVersion = parsedIndexFeatureVersion;
     this.definitionVersion = definitionVersion;
     this.definitionVersionCreatedAt = definitionVersionCreatedAt;
+    this.definitionVersionId = definitionVersionId;
     this.storedSource = storedSource;
     this.mappings = VectorIndexFieldMapping.create(fields, nestedRoot);
     this.isAutoEmbeddingIndex = calculateIsAutoEmbeddingIndex(fields);
@@ -237,6 +240,11 @@ public final class VectorIndexDefinition implements IndexDefinition {
   }
 
   @Override
+  public Optional<ObjectId> getDefinitionVersionId() {
+    return this.definitionVersionId;
+  }
+
+  @Override
   public StoredSourceDefinition getStoredSource() {
     return this.storedSource.orElse(StoredSourceDefinition.defaultValue());
   }
@@ -318,6 +326,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
             .field(
                 IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT,
                 this.definitionVersionCreatedAt.map(DATE_FORMAT::format))
+            .field(IndexDefinition.Fields.DEFINITION_VERSION_ID, this.definitionVersionId)
             .field(Fields.INDEX_FEATURE_VERSION, this.indexFeatureVersion)
             .field(IndexDefinition.Fields.STORED_SOURCE, this.storedSource)
             .fieldOmitDefaultValue(
@@ -400,6 +409,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         parser.getField(IndexDefinition.Fields.DEFINITION_VERSION).unwrap(),
         DateUtil.parseInstantFromString(
             parser, DATE_FORMAT, IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT),
+        parser.getField(IndexDefinition.Fields.DEFINITION_VERSION_ID).unwrap(),
         storedSource,
         parser.getField(Fields.NESTED_ROOT).unwrap(),
         indexNamespace,
@@ -461,6 +471,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         this.indexFeatureVersion,
         this.definitionVersion,
         this.definitionVersionCreatedAt,
+        this.definitionVersionId,
         this.storedSource,
         this.nestedRoot,
         this.indexNamespace,
@@ -493,6 +504,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         && Objects.equal(
             this.definitionVersionCreatedAt.map(Instant::getEpochSecond),
             that.definitionVersionCreatedAt.map(Instant::getEpochSecond))
+        && Objects.equal(this.definitionVersionId, that.definitionVersionId)
         && Objects.equal(this.storedSource, that.storedSource)
         && Objects.equal(this.mappings, that.mappings)
         && Objects.equal(
@@ -519,6 +531,7 @@ public final class VectorIndexDefinition implements IndexDefinition {
         this.indexFeatureVersion,
         this.definitionVersion,
         this.definitionVersionCreatedAt.map(Instant::getEpochSecond),
+        this.definitionVersionId,
         this.storedSource,
         this.mappings,
         this.indexIdAtCreationTime.orElse(this.indexId),

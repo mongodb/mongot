@@ -36,6 +36,7 @@ public class VectorIndexDefinitionBuilder {
   private UUID collectionUuid = UUID.fromString("eb6c40ca-f25e-47e8-b48c-02a05b64a5aa");
   private Optional<Long> definitionVersion = Optional.empty();
   private Optional<Instant> definitionVersionCreatedAt = Optional.empty();
+  private Optional<ObjectId> definitionVersionId = Optional.empty();
   private List<VectorIndexFieldDefinition> fields = new ArrayList<>();
   private int indexFeatureVersion =
       VectorIndexDefinition.Fields.INDEX_FEATURE_VERSION.getDefaultValue();
@@ -61,7 +62,8 @@ public class VectorIndexDefinitionBuilder {
             .lastObservedCollectionName(definition.getLastObservedCollectionName())
             .numPartitions(definition.getNumPartitions())
             .withDefinitionVersion(definition.getDefinitionVersion())
-            .withDefinitionVersionCreatedAt(definition.getDefinitionVersionCreatedAt());
+            .withDefinitionVersionCreatedAt(definition.getDefinitionVersionCreatedAt())
+            .withDefinitionVersionId(definition.getDefinitionVersionId());
 
     definition
         .getFields()
@@ -174,6 +176,12 @@ public class VectorIndexDefinitionBuilder {
   public VectorIndexDefinitionBuilder withDefinitionVersionCreatedAt(
       Optional<Instant> definitionVersionCreatedAt) {
     this.definitionVersionCreatedAt = definitionVersionCreatedAt;
+    return this;
+  }
+
+  public VectorIndexDefinitionBuilder withDefinitionVersionId(
+      Optional<ObjectId> definitionVersionId) {
+    this.definitionVersionId = definitionVersionId;
     return this;
   }
 
@@ -333,6 +341,7 @@ public class VectorIndexDefinitionBuilder {
         this.indexFeatureVersion,
         this.definitionVersion,
         this.definitionVersionCreatedAt,
+        this.definitionVersionId,
         this.storedSource,
         this.nestedRoot,
         this.indexNamespace,

@@ -106,6 +106,34 @@ public class IndexMapperTest {
     assertEquals(Optional.of(indexNamespace), internal.asVectorDefinition().getIndexNamespace());
   }
 
+  /** definitionVersionId is not assigned for definitions built from user commands. */
+  @Test
+  public void testToInternal_LeavesDefinitionVersionIdEmpty() {
+    UserVectorIndexDefinition userDef =
+        UserVectorIndexDefinitionBuilder.builder()
+            .addVectorField(
+                256,
+                com.xgen.mongot.index.definition.VectorSimilarity.COSINE,
+                VectorQuantization.NONE,
+                "embedding")
+            .build();
+
+    IndexDefinition internal =
+        IndexMapper.toInternal(
+            INDEX_NAME,
+            Optional.of(INDEX_ID),
+            userDef,
+            COLLECTION_UUID,
+            DB,
+            COLLECTION,
+            Optional.empty(),
+            DEFINITION_VERSION,
+            DEFINITION_VERSION_CREATED_AT,
+            Optional.empty());
+
+    assertEquals(Optional.empty(), internal.getDefinitionVersionId());
+  }
+
   /** Internal definition with indexNamespace → user definition preserves indexNamespace. */
   @Test
   public void testToExternal_PreservesIndexNamespace() {

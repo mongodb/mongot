@@ -421,6 +421,32 @@ public class VectorIndexDefinitionTest {
       Truth.assertThat(parsed.getIndexIdAtCreationTime().get()).isEqualTo(indexIdAtCreationTime);
       assertEquals(original, parsed);
     }
+
+    @Test
+    public void testDefinitionVersionId_roundTrip() throws Exception {
+      var definitionVersionId = new ObjectId("707f191e810c19729de860ec");
+      VectorIndexDefinition original =
+          VectorIndexDefinitionBuilder.builder()
+              .withDefinitionVersionId(Optional.of(definitionVersionId))
+              .withCosineVectorField("my.vector.field", 128)
+              .build();
+
+      VectorIndexDefinition parsed = VectorIndexDefinition.fromBson(original.toBson());
+
+      Truth.assertThat(parsed.getDefinitionVersionId()).hasValue(definitionVersionId);
+      assertEquals(original, parsed);
+    }
+
+    @Test
+    public void testDefinitionVersionId_whenNotSet_omittedFromBson() {
+      VectorIndexDefinition definition =
+          VectorIndexDefinitionBuilder.builder()
+              .withCosineVectorField("my.vector.field", 128)
+              .build();
+
+      Truth.assertThat(definition.getDefinitionVersionId()).isEmpty();
+      Truth.assertThat(definition.toBson().containsKey("definitionVersionId")).isFalse();
+    }
   }
 
   private static void setupRegistry() {

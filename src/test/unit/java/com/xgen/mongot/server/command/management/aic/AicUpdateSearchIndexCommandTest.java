@@ -83,6 +83,7 @@ public class AicUpdateSearchIndexCommandTest {
 
     // Return an existing search index.
     var indexId = new ObjectId();
+    var oldDefinitionVersionId = new ObjectId();
     Instant now = Instant.now();
     when(mockAic.listIndexes(COLLECTION_UUID))
         .thenReturn(
@@ -104,6 +105,7 @@ public class AicUpdateSearchIndexCommandTest {
                                 .build())
                         .definitionVersion(1L)
                         .definitionVersionCreatedAt(now)
+                        .definitionVersionId(oldDefinitionVersionId)
                         .build())));
 
     // Make the index dynamic, don't specify index type
@@ -154,6 +156,7 @@ public class AicUpdateSearchIndexCommandTest {
         captor.getValue().getMappings());
     assertEquals(2L, (long) captor.getValue().getDefinitionVersion().get());
     assertTrue(captor.getValue().getDefinitionVersionCreatedAt().get().isAfter(now));
+    assertTrue(captor.getValue().getDefinitionVersionId().isEmpty());
     assertEquals(updateDefinition.definitionBson(), definitionBsonCaptor.getValue());
   }
 

@@ -69,6 +69,8 @@ public class IndexMapper {
               searchIndexDefinition.sort(),
               Optional.of(definitionVersion),
               Optional.of(definitionVersionCreatedAt),
+              // Older releases reject the field, so definitionVersionId is not assigned here.
+              Optional.empty(),
               Optional.of(newIndexId),
               Optional.empty(),
               // Preserve prior value on update; stamp v1 on create
@@ -86,6 +88,8 @@ public class IndexMapper {
               VectorIndexCapabilities.CURRENT_FEATURE_VERSION,
               Optional.of(definitionVersion),
               Optional.of(definitionVersionCreatedAt),
+              // Older releases reject the field, so definitionVersionId is not assigned here.
+              Optional.empty(),
               vectorIndexDefinition.storedSource(),
               vectorIndexDefinition.nestedRoot(),
               vectorIndexDefinition.indexNamespace(),

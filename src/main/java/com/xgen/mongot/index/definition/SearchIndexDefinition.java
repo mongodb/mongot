@@ -130,6 +130,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
   private final Map<String, TypeSetDefinition> typeSetsMap;
   private final Optional<Long> definitionVersion;
   private final Optional<Instant> definitionVersionCreatedAt;
+  private final Optional<ObjectId> definitionVersionId;
   private final boolean isAutoEmbeddingIndex;
   private final ImmutableMap<FieldPath, String> modelNamePerPath;
   private final Optional<Long> autoEmbeddingDefinitionVersion;
@@ -165,6 +166,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
       Optional<Sort> sort,
       Optional<Long> definitionVersion,
       Optional<Instant> definitionVersionCreatedAt,
+      Optional<ObjectId> definitionVersionId,
       Optional<ObjectId> indexIdAtCreationTime,
       Optional<Long> autoEmbeddingDefinitionVersion,
       Optional<Long> materializedViewNameFormatVersion) {
@@ -197,6 +199,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
             .orElse(Collections.emptyMap());
     this.definitionVersion = definitionVersion;
     this.definitionVersionCreatedAt = definitionVersionCreatedAt;
+    this.definitionVersionId = definitionVersionId;
     this.isAutoEmbeddingIndex = calculateIsAutoEmbeddingIndex(mappings);
     this.modelNamePerPath = calculateModelNamePerPath(mappings);
     this.indexIdAtCreationTime = indexIdAtCreationTime;
@@ -223,6 +226,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
       Optional<Sort> sort,
       Optional<Long> definitionVersion,
       Optional<Instant> definitionVersionCreatedAt,
+      Optional<ObjectId> definitionVersionId,
       Optional<ObjectId> indexIdAtCreationTime,
       Optional<Long> autoEmbeddingDefinitionVersion,
       Optional<Long> materializedViewNameFormatVersion) {
@@ -264,6 +268,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         sort,
         definitionVersion,
         definitionVersionCreatedAt,
+        definitionVersionId,
         indexIdAtCreationTime,
         autoEmbeddingDefinitionVersion,
         materializedViewNameFormatVersion);
@@ -297,6 +302,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         this.sort,
         this.definitionVersion,
         this.definitionVersionCreatedAt,
+        this.definitionVersionId,
         this.indexIdAtCreationTime,
         this.autoEmbeddingDefinitionVersion,
         this.materializedViewNameFormatVersion);
@@ -351,6 +357,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         parser.getField(IndexDefinition.Fields.DEFINITION_VERSION).unwrap(),
         DateUtil.parseInstantFromString(
             parser, DATE_FORMAT, IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT),
+        parser.getField(IndexDefinition.Fields.DEFINITION_VERSION_ID).unwrap(),
         parser.getField(IndexDefinition.Fields.INDEX_ID_AT_CREATION_TIME).unwrap(),
         parser.getField(IndexDefinition.Fields.AUTO_EMBEDDING_DEFINITION_VERSION).unwrap(),
         parser.getField(IndexDefinition.Fields.MATERIALIZED_VIEW_NAME_FORMAT_VERSION).unwrap());
@@ -380,6 +387,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         .field(
             IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT,
             this.definitionVersionCreatedAt.map(DATE_FORMAT::format))
+        .field(IndexDefinition.Fields.DEFINITION_VERSION_ID, this.definitionVersionId)
         .fieldOmitDefaultValue(
             IndexDefinition.Fields.INDEX_ID_AT_CREATION_TIME,
             this.indexIdAtCreationTime,
@@ -497,6 +505,11 @@ public final class SearchIndexDefinition implements IndexDefinition {
   @Override
   public Optional<Instant> getDefinitionVersionCreatedAt() {
     return this.definitionVersionCreatedAt;
+  }
+
+  @Override
+  public Optional<ObjectId> getDefinitionVersionId() {
+    return this.definitionVersionId;
   }
 
   @Override
@@ -702,6 +715,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         && Objects.equal(
             this.definitionVersionCreatedAt.map(Instant::getEpochSecond),
             that.definitionVersionCreatedAt.map(Instant::getEpochSecond))
+        && Objects.equal(this.definitionVersionId, that.definitionVersionId)
         && Objects.equal(this.staticFieldDefinitions, that.staticFieldDefinitions)
         && Objects.equal(this.nonStockAnalyzerNames, that.nonStockAnalyzerNames)
         && Objects.equal(
@@ -733,6 +747,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         this.sort,
         this.definitionVersion,
         this.definitionVersionCreatedAt.map(Instant::getEpochSecond),
+        this.definitionVersionId,
         this.staticFieldDefinitions,
         this.nonStockAnalyzerNames,
         this.indexIdAtCreationTime.orElse(this.indexId),
@@ -741,8 +756,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   /**
-   * True when {@code other} differs from this definition at most by definitionVersion and its
-   * createdAt stamp.
+   * True when {@code other} differs from this definition at most by definitionVersion, its
+   * createdAt stamp, and its definitionVersionId.
    */
   public boolean equalsIgnoringDefinitionVersion(SearchIndexDefinition other) {
     BsonDocument thisBson = toBson();
@@ -751,6 +766,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
     otherBson.remove(IndexDefinition.Fields.DEFINITION_VERSION.getName());
     thisBson.remove(IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT.getName());
     otherBson.remove(IndexDefinition.Fields.DEFINITION_VERSION_CREATED_AT.getName());
+    thisBson.remove(IndexDefinition.Fields.DEFINITION_VERSION_ID.getName());
+    otherBson.remove(IndexDefinition.Fields.DEFINITION_VERSION_ID.getName());
     return thisBson.equals(otherBson);
   }
 

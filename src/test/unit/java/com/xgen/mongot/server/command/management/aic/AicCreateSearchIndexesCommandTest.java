@@ -111,6 +111,7 @@ public class AicCreateSearchIndexesCommandTest {
     assertNotNull(captor.getValue());
     assertTrue(IndexMapper.areEquivalent(expected, captor.getValue()));
     assertEquals(0L, (long) captor.getValue().getDefinitionVersion().orElseThrow());
+    assertTrue(captor.getValue().getDefinitionVersionId().isEmpty());
     assertTrue(captor.getValue().getDefinitionVersionCreatedAt().isPresent());
     assertEquals(definition.indexes().getFirst().definitionBson(), rawDefCaptor.getValue());
   }

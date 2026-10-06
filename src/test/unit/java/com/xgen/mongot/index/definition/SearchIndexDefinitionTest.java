@@ -1731,5 +1731,47 @@ public class SearchIndexDefinitionTest {
       Truth.assertThat(parsed.getIndexIdAtCreationTime().get()).isEqualTo(indexIdAtCreationTime);
       assertEquals(original, parsed);
     }
+
+    @Test
+    public void testDefinitionVersionId_roundTrip() throws Exception {
+      var definitionVersionId = new ObjectId("707f191e810c19729de860ec");
+      SearchIndexDefinition original =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .dynamicMapping()
+              .definitionVersionId(definitionVersionId)
+              .build();
+
+      SearchIndexDefinition parsed = SearchIndexDefinition.fromBson(original.toBson());
+
+      Truth.assertThat(parsed.getDefinitionVersionId()).hasValue(definitionVersionId);
+      assertEquals(original, parsed);
+    }
+
+    @Test
+    public void testDefinitionVersionId_whenNotSet_omittedFromBson() {
+      SearchIndexDefinition definition =
+          SearchIndexDefinitionBuilder.builder().defaultMetadata().dynamicMapping().build();
+
+      Truth.assertThat(definition.getDefinitionVersionId()).isEmpty();
+      Truth.assertThat(definition.toBson().containsKey("definitionVersionId")).isFalse();
+    }
+
+    @Test
+    public void testDefinitionVersionId_differentValue_affectsEquality() {
+      SearchIndexDefinition base =
+          SearchIndexDefinitionBuilder.builder().defaultMetadata().dynamicMapping().build();
+      SearchIndexDefinition first =
+          SearchIndexDefinitionBuilder.from(base)
+              .definitionVersionId(new ObjectId("707f191e810c19729de860ec"))
+              .build();
+      SearchIndexDefinition second =
+          SearchIndexDefinitionBuilder.from(base)
+              .definitionVersionId(new ObjectId("707f191e810c19729de860ed"))
+              .build();
+
+      Assert.assertNotEquals(first, second);
+      Assert.assertTrue(first.equalsIgnoringDefinitionVersion(second));
+    }
   }
 }
