@@ -350,6 +350,17 @@ public class IndexDirectoryHelperTest {
   }
 
   @Test
+  public void isGenerationDirectoryName_tracksGeneratedNameFormat() {
+    GenerationId generationId = generationId(new ObjectId(), 6, 3);
+
+    assertTrue(
+        IndexDirectoryHelper.isGenerationDirectoryName(
+            IndexDirectoryHelper.getNameForGeneration(generationId)));
+    assertFalse(IndexDirectoryHelper.isGenerationDirectoryName(generationId.indexId.toHexString()));
+    assertFalse(IndexDirectoryHelper.isGenerationDirectoryName(generationId.uniqueString()));
+  }
+
+  @Test
   public void getIndexDirectoryPath_unsupportedFormatVersion_throws() {
     GenerationId generationId = generationId(new ObjectId(), 4, 0);
 

@@ -16,6 +16,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.IndexFormatTooNewException;
@@ -25,6 +26,9 @@ import org.slf4j.LoggerFactory;
 
 public class IndexDirectoryHelper {
   private static final Logger LOG = LoggerFactory.getLogger(IndexDirectoryHelper.class);
+  private static final Pattern GENERATION_DIRECTORY_NAME =
+      Pattern.compile("[0-9a-f]{24}_f\\d+_u\\d+_a\\d+");
+
   private final AtomicDirectoryRemover indexRemover;
   private final MetricsFactory metricsFactory;
   private final Path rootPath;
@@ -290,6 +294,15 @@ public class IndexDirectoryHelper {
         generationId.generation.formatVersion.versionNumber(),
         generationId.generation.userIndexVersion.versionNumber,
         generationId.generation.attemptNumber);
+  }
+
+  /**
+   * Returns whether {@code name} uses the generation-encoded index directory format.
+   *
+   * <p>Keep this recognition format in sync with {@link #getNameForGeneration(GenerationId)}.
+   */
+  public static boolean isGenerationDirectoryName(String name) {
+    return GENERATION_DIRECTORY_NAME.matcher(name).matches();
   }
 
   public AtomicDirectoryRemover getIndexRemover() {
