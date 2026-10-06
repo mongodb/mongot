@@ -15,7 +15,7 @@ BAZELISK := $(DIR)/scripts/tools/bazelisk/run.sh
 BAZEL = $(BAZELISK)
 RED = \033[0;31m
 NOCOLOR = \033[0m
-COMMUNITY_CONTAINER_VERSION ?= preview
+ONPREM_CONTAINER_VERSION ?= preview
 
 DOCKER_BUILD_OPTS ?=
 
