@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGeneration;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -14,15 +15,19 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.CommitDataStagingWriter;
 import com.xgen.mongot.index.EncodedUserData;
+import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexWriter;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
+import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.PreparableWriter;
 import com.xgen.mongot.index.PrepareResult;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
@@ -32,14 +37,21 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.replication.mongodb.RecyclableReplicationIndexManager.LeaderStatus;
 import com.xgen.mongot.replication.mongodb.common.BufferlessIdOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.IndexStateInfo;
 import com.xgen.mongot.replication.mongodb.common.StaleStateInfo;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -47,7 +59,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
@@ -131,7 +145,7 @@ public class RecyclableReplicationIndexManagerTest {
     // RIM.init reads the prepared token.
     var factory = mockWrappedFactory();
     when(factory.get()).thenReturn(mock(ReplicationIndexManager.class));
-    var prepared = new java.util.concurrent.atomic.AtomicBoolean(false);
+    var prepared = new AtomicBoolean(false);
     PreparableWriter writer =
         () -> {
           prepared.set(true);
@@ -1167,11 +1181,344 @@ public class RecyclableReplicationIndexManagerTest {
     verify(index.writer, times(1)).getCommitUserData(); // only the init read; the poll was skipped
   }
 
+  // ── per-session document indexer ─────────────
+
+  @Test
+  public void promote_handsSessionIndexerToFactory() {
+    var fixture = new SessionFencingFixture();
+    AtomicReference<DocumentIndexer> handed = new AtomicReference<>();
+    var rrim =
+        fixture.rrim(
+            indexer -> {
+              handed.set(indexer);
+              return mock(ReplicationIndexManager.class);
+            });
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    assertThat(handed.get()).isInstanceOf(SessionFencedDocumentIndexer.class);
+  }
+
+  @Test
+  public void promote_beginsTenureBeforeFactory() throws Exception {
+    // RIM.init may write immediately, so the session indexer must already be tenured when the
+    // factory runs: a stage from within the factory reaches the writer instead of being dropped.
+    var fixture = new SessionFencingFixture();
+    var rrim =
+        fixture.rrim(
+            indexer -> {
+              try {
+                indexer.stageCommitUserData();
+              } catch (IOException e) {
+                throw new UncheckedIOException(e);
+              }
+              return mock(ReplicationIndexManager.class);
+            });
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    verify(fixture.stagingWriter).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(0.0);
+  }
+
+  @Test
+  public void staleStageAfterShutdownFuture_isDropped_nextSessionUnaffected() throws Exception {
+    // Scenario 10 / C6: an old session's stage that lands after its RIM's shutdown future completed
+    // and the next session started is dropped by the ended tenure; the next session is unaffected.
+    var fixture = new SessionFencingFixture();
+    ArrayDeque<ReplicationIndexManager> rims =
+        new ArrayDeque<>(
+            List.of(
+                stubShutdown(mock(ReplicationIndexManager.class)),
+                mock(ReplicationIndexManager.class)));
+    var rrim = fixture.rrim(indexer -> rims.poll());
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + RIM 1
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // RIM 1 shutdown completes -> session 1 ends
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 2 + RIM 2
+
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+    SessionFencedDocumentIndexer session2 = fixture.created.get(1);
+    session1.stageCommitUserData(); // stale: lands on the dead session -> dropped
+    session2.stageCommitUserData(); // the live session's own stage still works
+
+    verify(fixture.stagingWriter, times(1)).stageUserData(any()); // only session 2's
+    assertThat(fixture.staleWrites()).isEqualTo(1.0); // only session 1's dropped stage
+  }
+
+  @Test
+  public void tenureEnds_whenShutdownFutureCompletesExceptionally() throws Exception {
+    var fixture = new SessionFencingFixture();
+    CompletableFuture<Void> rim1Shutdown = new CompletableFuture<>();
+    var rim1 = mock(ReplicationIndexManager.class);
+    when(rim1.shutdown()).thenReturn(rim1Shutdown);
+    ArrayDeque<ReplicationIndexManager> rims = new ArrayDeque<>(List.of(rim1));
+    var rrim = fixture.rrim(indexer -> rims.poll());
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + rim 1
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // demote: rim 1 shutdown is pending
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+
+    rim1Shutdown.completeExceptionally(new RuntimeException("drain failed"));
+
+    // The tenure ends on exceptional completion too, so stale work is dropped.
+    session1.stageCommitUserData();
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void tenureEnds_whenRrimShutdownThrowsSynchronously() throws Exception {
+    var fixture = new SessionFencingFixture();
+    var rim1 = mock(ReplicationIndexManager.class);
+    when(rim1.shutdown()).thenThrow(new RuntimeException("boom"));
+    ArrayDeque<ReplicationIndexManager> rims = new ArrayDeque<>(List.of(rim1));
+    var rrim = fixture.rrim(indexer -> rims.poll());
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + rim 1
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+
+    assertThrows(RuntimeException.class, rrim::shutdown);
+
+    // The tenure was ended before the synchronous throw escaped.
+    session1.stageCommitUserData();
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void tenureEnds_whenSessionRecycledForStaleEpoch() throws Exception {
+    var fixture = new SessionFencingFixture();
+    ArrayDeque<ReplicationIndexManager> rims =
+        new ArrayDeque<>(
+            List.of(
+                stubShutdown(mock(ReplicationIndexManager.class)),
+                mock(ReplicationIndexManager.class)));
+    var rrim = fixture.rrim(indexer -> rims.poll());
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + rim 1
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // duplicate LEADER recycles session 1
+
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+    session1.stageCommitUserData(); // stale: session 1 was recycled -> dropped
+
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void tenureEnds_whenRrimShutdownRuns() throws Exception {
+    var fixture = new SessionFencingFixture();
+    var rrim = fixture.rrim(indexer -> stubShutdown(mock(ReplicationIndexManager.class)));
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+
+    rrim.shutdown();
+
+    session1.stageCommitUserData();
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void tenureEnds_whenRrimDropRuns() throws Exception {
+    var fixture = new SessionFencingFixture();
+    var rrim =
+        fixture.rrim(
+            indexer -> {
+              var rim = mock(ReplicationIndexManager.class);
+              when(rim.drop()).thenReturn(CompletableFuture.completedFuture(null));
+              return rim;
+            });
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+
+    rrim.drop();
+
+    session1.stageCommitUserData();
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void recycle_endsOldTenureBeforeNextPrepare() throws Exception {
+    // Finding 1: session N's tenure must end BEFORE prepare for N+1 runs. Observe the recycled
+    // session from INSIDE the re-prepare: the writer probes session 1 and records whether a stage
+    // through it was dropped at that moment. On the fixed code the tenure has already ended, so the
+    // probe sees a drop; a version that ran prepare first (tenure ending a moment later) would see
+    // the stage reach the writer, failing this test.
+    var fixture = new SessionFencingFixture();
+    CompletableFuture<Void> rim1Shutdown = new CompletableFuture<>();
+    var rim1 = mock(ReplicationIndexManager.class);
+    when(rim1.shutdown()).thenReturn(rim1Shutdown);
+    ArrayDeque<ReplicationIndexManager> rims =
+        new ArrayDeque<>(List.of(rim1, mock(ReplicationIndexManager.class)));
+    AtomicBoolean recycledTenureEndedAtRePrepare = new AtomicBoolean();
+    PreparableWriter prepareWriter =
+        () -> {
+          // The indexer is added to created after prepareWriter() returns, so a non-empty list
+          // means
+          // this is the re-prepare for the next session. Probe the recycled (first) session now.
+          if (!fixture.created.isEmpty()) {
+            SessionFencedDocumentIndexer recycled = fixture.created.get(0);
+            double droppedBefore = fixture.staleWrites();
+            try {
+              recycled.stageCommitUserData();
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
+            recycledTenureEndedAtRePrepare.set(fixture.staleWrites() > droppedBefore);
+          }
+          return new PrepareResult.Ready(EncodedUserData.EMPTY);
+        };
+    var rrim = fixture.rrim(indexer -> rims.poll(), prepareWriter);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + rim 1
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // recycle, but rim 1 shutdown is pending
+
+    // The next session is not prepared while the old shutdown is pending.
+    assertThat(fixture.created).hasSize(1);
+
+    rim1Shutdown.complete(null);
+
+    // The next session is prepared, and the recycled tenure had ended before that prepare ran.
+    assertThat(fixture.created).hasSize(2);
+    assertThat(recycledTenureEndedAtRePrepare.get()).isTrue();
+  }
+
+  @Test
+  public void tenureEnds_whenDemotionInnerShutdownThrows() throws Exception {
+    // Finding 2: reconcile()'s demote path runs the inner shutdown through safeShutdown, which
+    // catches a synchronous throw and returns a completed future. The tenure must still end.
+    var fixture = new SessionFencingFixture();
+    var rim1 = mock(ReplicationIndexManager.class);
+    when(rim1.shutdown()).thenThrow(new RuntimeException("drain boom"));
+    ArrayDeque<ReplicationIndexManager> rims = new ArrayDeque<>(List.of(rim1));
+    var rrim = fixture.rrim(indexer -> rims.poll());
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + rim 1
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // demote: inner shutdown throws, swallowed
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+
+    session1.stageCommitUserData(); // tenure ended despite the swallowed throw -> dropped
+
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void tenureStaysActive_untilShutdownFutureCompletes() throws Exception {
+    // Finding 3: the tenure must NOT end while the inner shutdown is still draining -- RIM issues
+    // its shutdown-time status commits through this indexer during the drain, and they must reach
+    // the writer. Only once the shutdown future completes does the tenure end.
+    var fixture = new SessionFencingFixture();
+    CompletableFuture<Void> rim1Shutdown = new CompletableFuture<>();
+    var rim1 = mock(ReplicationIndexManager.class);
+    when(rim1.shutdown()).thenReturn(rim1Shutdown);
+    ArrayDeque<ReplicationIndexManager> rims = new ArrayDeque<>(List.of(rim1));
+    var rrim = fixture.rrim(indexer -> rims.poll());
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // session 1 + rim 1
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // demote: rim 1 shutdown is pending
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+
+    // While the shutdown drains, the tenure is still active: a stage reaches the writer, no drop.
+    session1.stageCommitUserData();
+    verify(fixture.stagingWriter, times(1)).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(0.0);
+
+    rim1Shutdown.complete(null);
+
+    // Once the shutdown completes the tenure ends, so further work is dropped.
+    session1.stageCommitUserData();
+    verify(fixture.stagingWriter, times(1)).stageUserData(any()); // no new stage reached the writer
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void factoryThrows_endsOrphanTenureAndCountsFailure() throws Exception {
+    // Finding 4: when the RIM factory throws after beginTenure, the catch must end the orphan
+    // tenure (so the unpublished indexer accepts no work) and count the promotion failure.
+    var fixture = new SessionFencingFixture();
+    var rrim =
+        fixture.rrim(
+            indexer -> {
+              throw new RuntimeException("factory boom");
+            });
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // prepare tenures session 1; factory throws
+
+    SessionFencedDocumentIndexer session1 = fixture.created.get(0);
+    session1.stageCommitUserData(); // orphan tenure was ended -> dropped
+
+    verify(fixture.stagingWriter, never()).stageUserData(any());
+    assertThat(fixture.staleWrites()).isEqualTo(1.0);
+    assertThat(rrim.leadershipTransitionFailureCount()).isEqualTo(1.0);
+    assertFalse(rrim.isLeader());
+  }
+
   // ── helpers ─────────────────────────────────────────────────────────────────
 
   @SuppressWarnings("unchecked")
   private static Supplier<ReplicationIndexManager> mockWrappedFactory() {
     return mock(Supplier.class);
+  }
+
+  /**
+   * Builds an {@link RecyclableReplicationIndexManager} whose promotions create real {@link
+   * SessionFencedDocumentIndexer}s against a mock VectorLite index, so tests can assert the
+   * per-session tenure wiring (CLOUDP-446295). Transitions and prepares run synchronously.
+   */
+  private static final class SessionFencingFixture {
+    final InitializedVectorIndex index = mock(InitializedVectorIndex.class);
+    final IndexWriter writer =
+        mock(IndexWriter.class, withSettings().extraInterfaces(CommitDataStagingWriter.class));
+    final CommitDataStagingWriter stagingWriter = (CommitDataStagingWriter) this.writer;
+    final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    final List<SessionFencedDocumentIndexer> created = new ArrayList<>();
+    private final IndexGeneration generation;
+
+    SessionFencingFixture() {
+      var definition =
+          VectorIndexDefinitionBuilder.builder().withCustomEngineVectorField("vector", 3).build();
+      this.generation = mockIndexGeneration(definition);
+      when(this.index.getDefinition()).thenReturn(definition);
+      when(this.index.getGenerationId()).thenReturn(this.generation.getGenerationId());
+      when(this.index.getWriter()).thenReturn(this.writer);
+      when(this.writer.getCommitUserData()).thenReturn(IndexCommitUserData.EMPTY.toEncodedData());
+    }
+
+    RecyclableReplicationIndexManager rrim(
+        Function<DocumentIndexer, ReplicationIndexManager> factory) {
+      return rrim(factory, () -> new PrepareResult.Ready(EncodedUserData.EMPTY));
+    }
+
+    RecyclableReplicationIndexManager rrim(
+        Function<DocumentIndexer, ReplicationIndexManager> factory,
+        PreparableWriter preparableWriter) {
+      Function<EncodedUserData, SessionFencedDocumentIndexer> sessionIndexerFactory =
+          token -> {
+            var indexer =
+                new SessionFencedDocumentIndexer(
+                    this.index,
+                    IndexCommitUserData.fromEncodedData(
+                        token, Optional.of(this.generation.getGenerationId())),
+                    this.meterRegistry);
+            this.created.add(indexer);
+            return indexer;
+          };
+      return RecyclableReplicationIndexManager.createForTesting(
+          factory,
+          sessionIndexerFactory,
+          Runnable::run,
+          preparableWriter,
+          Runnable::run,
+          this.meterRegistry);
+    }
+
+    double staleWrites() {
+      return this.meterRegistry
+          .find(SessionFencedDocumentIndexer.STALE_SESSION_WRITE_COUNTER_NAME)
+          .counters()
+          .stream()
+          .mapToDouble(Counter::count)
+          .sum();
+    }
   }
 
   private static RecyclableReplicationIndexManager createFollowerManager(

@@ -9,6 +9,7 @@ java_test_suite(
         "RecyclableReplicationIndexManagerTest.java",
         "ReplicationIndexManagerFactoryTest.java",
         "ReplicationIndexManagerTest.java",
+        "SessionFencedDocumentIndexerTest.java",
     ],
     data = ["//src/test/unit/resources/replication/mongodb:srcs"],
     tags = ["unit"],

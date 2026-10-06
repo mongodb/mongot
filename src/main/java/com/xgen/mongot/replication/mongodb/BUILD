@@ -11,10 +11,13 @@ java_library(
         "RecyclableReplicationIndexManager.java",
         "ReplicationIndexManager.java",
         "ReplicationIndexManagerFactory.java",
+        "SessionFencedDocumentIndexer.java",
         "VectorlitePrepareExecutor.java",
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/index",
+        "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/replication/mongodb/common",
         "//src/main/java/com/xgen/mongot/replication/mongodb/steadystate/changestream",
         "//src/main/java/com/xgen/mongot/util/mongodb",

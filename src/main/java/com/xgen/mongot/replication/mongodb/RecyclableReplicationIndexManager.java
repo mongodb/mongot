@@ -6,12 +6,15 @@ import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.EncodedUserData;
+import com.xgen.mongot.index.ExceededLimitsException;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.PreparableWriter;
 import com.xgen.mongot.index.PrepareResult;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
+import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
@@ -27,6 +30,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -35,6 +39,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.bson.BsonTimestamp;
 import org.slf4j.Logger;
@@ -106,6 +111,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       () -> new PrepareResult.Ready(EncodedUserData.EMPTY);
 
   /**
+   * Placeholder document indexer handed to the wrapped-factory-only test factories, whose inner
+   * manager ignores its document indexer. Never reachable in production, where {@link
+   * #sessionIndexerFactory} is always present and a real {@link SessionFencedDocumentIndexer} is
+   * created per session; it throws on every call to keep that invariant loud.
+   */
+  private static final DocumentIndexer UNUSABLE_DOCUMENT_INDEXER = new UnusableDocumentIndexer();
+
+  /**
    * How often the safety-net reconcile tick re-drives actual state toward {@link #desiredStatus}.
    */
   private static final Duration DEFAULT_RECONCILE_INTERVAL = Duration.ofSeconds(30);
@@ -124,7 +137,17 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   private record FollowerContext(
       InitializedIndex index, FeatureFlags featureFlags, IndexGeneration indexGeneration) {}
 
-  private final Supplier<ReplicationIndexManager> wrappedFactory;
+  private final Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory;
+
+  /**
+   * Builds a fresh per-session document indexer seeded from the prepared token, one per leadership
+   * session. Present for production and the index-taking test factories; absent for the
+   * wrapped-factory-only test factories, which have no index to build one from and whose inner
+   * manager ignores the indexer. Mirrors {@link #followerContext}'s present-in-production
+   * convention.
+   */
+  private final Optional<Function<EncodedUserData, SessionFencedDocumentIndexer>>
+      sessionIndexerFactory;
 
   /** Runs reconcile steps. Never blocked on a shutdown future (see {@link #reconcile}). */
   private final Executor transitionExecutor;
@@ -146,6 +169,15 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   @GuardedBy("this")
   private Optional<ReplicationIndexManager> wrapped;
+
+  /**
+   * The current leadership session's document indexer, present while {@link #wrapped} is
+   * (production and index-taking test factories only). Its tenure begins before the session's
+   * manager and ends when that manager's shutdown future completes, so stale work from a prior
+   * session is dropped rather than reaching this session's write path.
+   */
+  @GuardedBy("this")
+  private Optional<SessionFencedDocumentIndexer> currentSessionIndexer;
 
   /**
    * Monotonic leadership epoch, bumped on EVERY upcall (LEADER or FOLLOWER). Each running session
@@ -208,17 +240,20 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   private State state;
 
   private RecyclableReplicationIndexManager(
-      Supplier<ReplicationIndexManager> wrappedFactory,
+      Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory,
+      Optional<Function<EncodedUserData, SessionFencedDocumentIndexer>> sessionIndexerFactory,
       Executor transitionExecutor,
       PreparableWriter preparableWriter,
       Executor prepareExecutor,
       MeterRegistry meterRegistry) {
     this.wrappedFactory = wrappedFactory;
+    this.sessionIndexerFactory = sessionIndexerFactory;
     this.transitionExecutor = transitionExecutor;
     this.preparableWriter = preparableWriter;
     this.prepareExecutor = prepareExecutor;
     this.meterRegistry = meterRegistry;
     this.wrapped = Optional.empty();
+    this.currentSessionIndexer = Optional.empty();
     this.leadershipEpoch = 0;
     this.sessionEpoch = 0;
     this.preparing = false;
@@ -253,6 +288,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @Override
   public CompletableFuture<Void> shutdown() {
     ReplicationIndexManager toShutdown;
+    Optional<SessionFencedDocumentIndexer> endedSession;
     synchronized (this) {
       this.desiredStatus = LeaderStatus.FOLLOWER;
       cancelReconcileTick();
@@ -263,15 +299,27 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       }
       toShutdown = this.wrapped.get();
       this.wrapped = Optional.empty();
+      endedSession = this.currentSessionIndexer;
+      this.currentSessionIndexer = Optional.empty();
     }
     // Off monitor: shutdown() can block while the change-stream read loop drains, and holding this
     // monitor across it would stall a concurrent onLeaderStatusChange() on the FFM upcall thread.
-    return recordShutdownFuture(toShutdown.shutdown());
+    CompletableFuture<Void> future;
+    try {
+      future = toShutdown.shutdown();
+    } catch (Throwable t) {
+      // End the tenure even on a synchronous throw, before it escapes, so every stop path is
+      // uniform.
+      endedSession.ifPresent(SessionFencedDocumentIndexer::endTenure);
+      throw t;
+    }
+    return recordShutdownFuture(endTenureWhenComplete(endedSession, future));
   }
 
   @Override
   public CompletableFuture<Void> drop() {
     ReplicationIndexManager toDrop;
+    Optional<SessionFencedDocumentIndexer> endedSession;
     synchronized (this) {
       this.desiredStatus = LeaderStatus.FOLLOWER;
       cancelReconcileTick();
@@ -281,9 +329,20 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       }
       toDrop = this.wrapped.get();
       this.wrapped = Optional.empty();
+      endedSession = this.currentSessionIndexer;
+      this.currentSessionIndexer = Optional.empty();
     }
     // Off monitor: drop() -> shutdown() can block while the change-stream read loop drains.
-    return recordShutdownFuture(toDrop.drop());
+    CompletableFuture<Void> future;
+    try {
+      future = toDrop.drop();
+    } catch (Throwable t) {
+      // End the tenure even on a synchronous throw, before it escapes, so every stop path is
+      // uniform.
+      endedSession.ifPresent(SessionFencedDocumentIndexer::endTenure);
+      throw t;
+    }
+    return recordShutdownFuture(endTenureWhenComplete(endedSession, future));
   }
 
   /**
@@ -335,6 +394,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    */
   private CompletableFuture<Void> reconcile() {
     ReplicationIndexManager toShutdown;
+    Optional<SessionFencedDocumentIndexer> endedSession;
     @Var boolean rePrepareAfterShutdown = false;
     synchronized (this) {
       if (this.state == State.SHUT_DOWN) {
@@ -350,6 +410,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
           // then re-prepare the new term (below, off the monitor).
           toShutdown = this.wrapped.get();
           this.wrapped = Optional.empty();
+          endedSession = this.currentSessionIndexer;
+          this.currentSessionIndexer = Optional.empty();
           this.lastPublishedUserData = Optional.empty();
           rePrepareAfterShutdown = true;
         } else {
@@ -394,6 +456,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         // runs its whole lifecycle there, the drain is bounded (~5-10s), and transitions are rare.
         toShutdown = this.wrapped.get();
         this.wrapped = Optional.empty();
+        endedSession = this.currentSessionIndexer;
+        this.currentSessionIndexer = Optional.empty();
         // Force the first post-demotion poll to republish even if the committed data equals what
         // this node last published as a follower: the inner manager owned (and may have
         // overwritten)
@@ -402,8 +466,11 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       }
     }
     // The transition chain awaits this future, so a subsequent LEADER only starts once the prior
-    // shutdown has fully completed.
-    CompletableFuture<Void> shutdown = recordShutdownFuture(safeShutdown(toShutdown));
+    // shutdown has fully completed. Record the tenure-end dependent future (not the raw shutdown),
+    // so
+    // the re-prepare below and the next chained reconcile run only after the old tenure has ended.
+    CompletableFuture<Void> shutdown =
+        recordShutdownFuture(endTenureWhenComplete(endedSession, safeShutdown(toShutdown)));
     if (rePrepareAfterShutdown) {
       // Once the stale session has fully drained, re-drive to prepare the new term.
       return shutdown.thenComposeAsync(ignored -> reconcile(), this.transitionExecutor);
@@ -423,22 +490,34 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     try {
       result = this.preparableWriter.prepareWriter();
     } catch (Throwable t) {
-      synchronized (this) {
-        this.preparing = false;
-      }
-      this.meterRegistry
-          .counter(LEADERSHIP_TRANSITION_FAILURE_COUNTER_NAME, "direction", "PROMOTE")
-          .increment();
-      LOG.atWarn()
-          .setCause(t)
-          .log("native writer prepare failed; will retry on periodic reconcile");
+      clearPreparingAndCountPromoteFailure(
+          t, "native writer prepare failed; will retry on periodic reconcile");
       // needsReconcile() re-drives on the periodic tick (Idle && desired LEADER).
       return;
     }
+
+    // Build the per-session document indexer OUTSIDE the monitor (CLOUDP-446295): its delegate
+    // constructor does a native commit-user-data read, and holding the RRIM monitor across it would
+    // block a concurrent FFM leadership upcall (and the Rust leadership task behind it). If the
+    // session turns out not to be current below, this indexer is discarded unused -- its tenure is
+    // never begun. Empty for a non-Ready result or the wrapped-factory-only test factories.
+    Optional<SessionFencedDocumentIndexer> sessionIndexer;
+    try {
+      sessionIndexer =
+          result instanceof PrepareResult.Ready ready
+              ? this.sessionIndexerFactory.map(factory -> factory.apply(ready.userData()))
+              : Optional.empty();
+    } catch (Throwable t) {
+      clearPreparingAndCountPromoteFailure(
+          t, "building the per-session document indexer failed; will retry on periodic reconcile");
+      return;
+    }
+
     synchronized (this) {
       this.preparing = false;
-      // A newer signal (or shutdown) may have arrived while prepare ran: let the
-      // latest state win instead of installing a stale session.
+      // A newer signal (or shutdown) may have arrived while prepare ran: let the latest state win
+      // instead of installing a stale session. Any indexer built above is discarded here; its
+      // tenure was never begun.
       if (this.state == State.SHUT_DOWN
           || this.desiredStatus != LeaderStatus.LEADER
           || epoch != this.leadershipEpoch
@@ -449,14 +528,26 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         return;
       }
       if (result instanceof PrepareResult.Ready) {
-        // Promote: create the RIM exactly as before; its init reads the prepared
-        // token from the pin. create() only schedules async init, so it does not
-        // block while the monitor is held.
+        // Promote. Begin the session's tenure BEFORE creating the RIM (RIM.init may write
+        // immediately); the shared per-generation indexer is ignored for VectorLite
+        // Stale work from a prior session is dropped once that
+        // session's tenure ends, so it never reaches this session's write path. create() only
+        // schedules async init, so it does not block under the monitor; the new indexer is
+        // unpublished, so taking its monitor here cannot deadlock.
         try {
-          this.wrapped = Optional.of(this.wrappedFactory.get());
+          sessionIndexer.ifPresent(indexer -> indexer.beginTenure(epoch));
+          DocumentIndexer documentIndexer =
+              sessionIndexer
+                  .map(indexer -> (DocumentIndexer) indexer)
+                  .orElse(UNUSABLE_DOCUMENT_INDEXER);
+          this.wrapped = Optional.of(this.wrappedFactory.apply(documentIndexer));
+          this.currentSessionIndexer = sessionIndexer;
           this.sessionEpoch = epoch;
           LOG.atInfo().log("native writer prepared; replication resumes from the prepared token");
         } catch (Throwable t) {
+          // The inner manager failed before a session was installed: end the just-begun tenure so
+          // the orphaned indexer accepts no work, and retry on the periodic tick.
+          sessionIndexer.ifPresent(SessionFencedDocumentIndexer::endTenure);
           handleTransitionFailure(t);
         }
       } else if (result instanceof PrepareResult.Superseded) {
@@ -468,6 +559,20 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             new IllegalStateException("native writer terminal: " + failed.message()));
       }
     }
+  }
+
+  /**
+   * Clears the in-flight {@link #preparing} flag and records a promotion failure (counter + log),
+   * so a failed prepare or indexer build is retried on the periodic reconcile tick.
+   */
+  private void clearPreparingAndCountPromoteFailure(Throwable t, String message) {
+    synchronized (this) {
+      this.preparing = false;
+    }
+    this.meterRegistry
+        .counter(LEADERSHIP_TRANSITION_FAILURE_COUNTER_NAME, "direction", "PROMOTE")
+        .increment();
+    LOG.atWarn().setCause(t).log(message);
   }
 
   /** Invokes {@code inner.shutdown()} off the monitor, recording a failure instead of throwing. */
@@ -485,6 +590,22 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       this.shutdownFuture = Optional.of(future);
     }
     return future;
+  }
+
+  /**
+   * Ends {@code endedSession}'s tenure once its manager's {@code shutdownFuture} completes (success
+   * or failure), off any monitor, and returns the dependent future that completes only after the
+   * tenure has ended. Callers must record and chain on the returned future, not the input: the next
+   * session's reconcile/prepare is composed on the recorded shutdown future, and this makes "the
+   * old tenure ends before the next prepare" structural rather than a race between two independent
+   * callbacks on the same future. {@code endTenure()} is a non-blocking flag flip that preserves
+   * the original completion, so a session-less caller gets the future unchanged.
+   */
+  private static CompletableFuture<Void> endTenureWhenComplete(
+      Optional<SessionFencedDocumentIndexer> endedSession, CompletableFuture<Void> shutdownFuture) {
+    return endedSession
+        .map(indexer -> shutdownFuture.whenComplete((ignored, throwable) -> indexer.endTenure()))
+        .orElse(shutdownFuture);
   }
 
   /**
@@ -807,7 +928,6 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       Optional<SynonymManager> synonymManager,
       IndexGeneration indexGeneration,
       InitializedIndex initializedIndex,
-      DocumentIndexer documentIndexer,
       ScheduledExecutorService commitExecutor,
       Duration commitInterval,
       Duration requestRateLimitBackoff,
@@ -816,8 +936,13 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       boolean enableNaturalOrderScan,
       PreparableWriter preparableWriter,
       Executor prepareExecutor) {
-    Supplier<ReplicationIndexManager> wrappedFactory =
-        () ->
+    // Each leadership session gets its own document indexer, so a late token update or a stale
+    // stage
+    // from an old session cannot poison the next session. The shared
+    // per-generation DocumentIndexer that MongoDbReplicationManager passes into the factory is
+    // therefore ignored for VectorLite: the factory takes this session's indexer instead.
+    Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory =
+        sessionIndexer ->
             ReplicationIndexManager.create(
                 lifecycleExecutor,
                 cursorManager,
@@ -826,16 +951,28 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
                 synonymManager,
                 indexGeneration,
                 initializedIndex,
-                documentIndexer,
+                sessionIndexer,
                 commitExecutor,
                 commitInterval,
                 requestRateLimitBackoff,
                 meterRegistry,
                 featureFlags,
                 enableNaturalOrderScan);
+    Function<EncodedUserData, SessionFencedDocumentIndexer> sessionIndexerFactory =
+        preparedToken ->
+            new SessionFencedDocumentIndexer(
+                initializedIndex,
+                IndexCommitUserData.fromEncodedData(
+                    preparedToken, Optional.of(indexGeneration.getGenerationId())),
+                meterRegistry);
     RecyclableReplicationIndexManager manager =
         new RecyclableReplicationIndexManager(
-            wrappedFactory, lifecycleExecutor, preparableWriter, prepareExecutor, meterRegistry);
+            wrappedFactory,
+            Optional.of(sessionIndexerFactory),
+            lifecycleExecutor,
+            preparableWriter,
+            prepareExecutor,
+            meterRegistry);
     synchronized (manager) {
       // Recover and publish this follower's index status from the committed checkpoint (for
       // VectorLite, read from SLS) so queries see the correct status without replicating. Runs on
@@ -847,6 +984,17 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   }
 
   /**
+   * Adapts a document-indexer-agnostic {@link Supplier} factory to the {@link Function} the manager
+   * now takes, for the wrapped-factory-only test seams: their inner manager is a mock that ignores
+   * its document indexer, so the argument is discarded. Paired with an absent {@link
+   * #sessionIndexerFactory}, so no real per-session indexer is built.
+   */
+  private static Function<DocumentIndexer, ReplicationIndexManager> ignoringIndexer(
+      Supplier<ReplicationIndexManager> wrappedFactory) {
+    return documentIndexer -> wrappedFactory.get();
+  }
+
+  /**
    * Creates a manager whose transitions run synchronously on the calling thread and without the
    * periodic reconcile tick, so tests are deterministic. Use {@link #triggerReconcileTick()} to
    * exercise the periodic path explicitly.
@@ -855,7 +1003,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   public static RecyclableReplicationIndexManager createForTesting(
       Supplier<ReplicationIndexManager> wrappedFactory) {
     return new RecyclableReplicationIndexManager(
-        wrappedFactory,
+        ignoringIndexer(wrappedFactory),
+        Optional.empty(),
         Runnable::run,
         TEST_ALWAYS_READY_WRITER,
         Runnable::run,
@@ -870,7 +1019,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   public static RecyclableReplicationIndexManager createForTesting(
       Supplier<ReplicationIndexManager> wrappedFactory, Executor transitionExecutor) {
     return new RecyclableReplicationIndexManager(
-        wrappedFactory,
+        ignoringIndexer(wrappedFactory),
+        Optional.empty(),
         transitionExecutor,
         TEST_ALWAYS_READY_WRITER,
         Runnable::run,
@@ -889,11 +1039,36 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       PreparableWriter preparableWriter,
       Executor prepareExecutor) {
     return new RecyclableReplicationIndexManager(
-        wrappedFactory,
+        ignoringIndexer(wrappedFactory),
+        Optional.empty(),
         transitionExecutor,
         preparableWriter,
         prepareExecutor,
         new SimpleMeterRegistry());
+  }
+
+  /**
+   * Like {@link #createForTesting(Supplier, Executor, PreparableWriter, Executor)} but with a
+   * document-indexer-taking factory and a real per-session indexer factory, so tests can assert the
+   * session indexer is created, tenured before the factory runs, handed to it, and ended when the
+   * session's shutdown future completes. The {@code meterRegistry} is shared with the session
+   * indexers so a test can read {@code recyclableStaleSessionWrites}.
+   */
+  @VisibleForTesting
+  static RecyclableReplicationIndexManager createForTesting(
+      Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory,
+      Function<EncodedUserData, SessionFencedDocumentIndexer> sessionIndexerFactory,
+      Executor transitionExecutor,
+      PreparableWriter preparableWriter,
+      Executor prepareExecutor,
+      MeterRegistry meterRegistry) {
+    return new RecyclableReplicationIndexManager(
+        wrappedFactory,
+        Optional.of(sessionIndexerFactory),
+        transitionExecutor,
+        preparableWriter,
+        prepareExecutor,
+        meterRegistry);
   }
 
   /**
@@ -925,7 +1100,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       IndexGeneration indexGeneration) {
     RecyclableReplicationIndexManager manager =
         new RecyclableReplicationIndexManager(
-            wrappedFactory,
+            ignoringIndexer(wrappedFactory),
+            Optional.empty(),
             transitionExecutor,
             TEST_ALWAYS_READY_WRITER,
             Runnable::run,
@@ -972,5 +1148,62 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     return this.meterRegistry.find(PREPARE_SUPERSEDED_COUNTER_NAME).counters().stream()
         .mapToDouble(Counter::count)
         .sum();
+  }
+
+  /**
+   * A {@link DocumentIndexer} that throws on every call: handed to the wrapped-factory-only test
+   * factories as a placeholder (their inner manager ignores it) and never reachable in production,
+   * where a real {@link SessionFencedDocumentIndexer} is always built per session.
+   */
+  private static final class UnusableDocumentIndexer implements DocumentIndexer {
+    private static UnsupportedOperationException unusable() {
+      return new UnsupportedOperationException(
+          "wrapped-factory-only test document indexer must not be used");
+    }
+
+    @Override
+    public void indexDocumentEvent(DocumentEvent event) {
+      throw unusable();
+    }
+
+    @Override
+    public List<DocumentEvent> prepareBatch(List<DocumentEvent> events) {
+      throw unusable();
+    }
+
+    @Override
+    public void updateCommitUserData(IndexCommitUserData commitUserData) {
+      throw unusable();
+    }
+
+    @Override
+    public void updateCommitUserDataSupplier(Supplier<IndexCommitUserData> commitUserDataSupplier) {
+      throw unusable();
+    }
+
+    @Override
+    public void stageCommitUserData() {
+      throw unusable();
+    }
+
+    @Override
+    public void commit() {
+      throw unusable();
+    }
+
+    @Override
+    public void clearIndex(IndexCommitUserData commitUserData) {
+      throw unusable();
+    }
+
+    @Override
+    public Optional<ExceededLimitsException> exceededLimits() {
+      throw unusable();
+    }
+
+    @Override
+    public IndexDefinition getIndexDefinition() {
+      throw unusable();
+    }
   }
 }
