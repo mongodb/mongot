@@ -585,6 +585,41 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void getOwnedTenure_ownedLease_returnsBothValuesFromOneRead() {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    // The post-checkpoint shape: leaseVersion has moved past epoch, the ordinary state for most
+    // of a tenure. Right after acquisition the two are equal, which would not distinguish an
+    // epoch populated from leaseVersion().
+    Lease checkpointed =
+        this.leaseManager
+            .getLeases()
+            .get(getLeaseKeyFromCatalog(generationId))
+            .withUpdatedCheckpoint(EncodedUserData.EMPTY);
+    this.leaseManager.putLease(getLeaseKeyFromCatalog(generationId), checkpointed);
+
+    LeaseManager.OwnedTenure tenure = this.leaseManager.getOwnedTenure(generationId);
+
+    assertThat(tenure.leaseVersion()).isEqualTo(checkpointed.leaseVersion());
+    assertThat(tenure.epoch()).isEqualTo(checkpointed.epoch());
+    // The two really do differ, so the epoch assertion above could catch an epoch copied from
+    // leaseVersion().
+    assertThat(tenure.epoch()).isNotEqualTo(tenure.leaseVersion());
+  }
+
+  @Test
+  public void getOwnedTenure_expiredOwnedLease_returnsUnusableTenure() {
+    MaterializedViewGenerationId generationId = acquireLeadership();
+    this.leaseManager.putLease(
+        getLeaseKeyFromCatalog(generationId),
+        createLease(generationId, HOSTNAME, Instant.now().minusSeconds(60)));
+
+    LeaseManager.OwnedTenure tenure = this.leaseManager.getOwnedTenure(generationId);
+
+    assertThat(tenure.leaseVersion()).isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+    assertThat(tenure.epoch()).isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
+  }
+
+  @Test
   public void tryAcquireLeadership_takeoverFilter_requiresStillExpired() {
     // Arrange - take over another host's expired lease.
     MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
@@ -1658,14 +1693,14 @@ public class DynamicLeaderLeaseManagerTest {
     // becomeFollower's follower-transition signal — but the accessor no longer hands its version
     // out as a fencing token (CLOUDP-429754).
     assertThat(this.leaseManager.getLeases().get(leaseKey).leaseOwner()).isEqualTo(OTHER_HOSTNAME);
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
     assertThat(this.leaseManager.getFollowerGenerationIds()).contains(generationId);
   }
 
   @Test
-  public void getOwnedLeaseVersion_foreignLeaseInCache_returnsInvalid() {
+  public void getOwnedTenure_foreignLeaseInCache_returnsInvalid() {
     // Arrange - the Issue 2 regression: seed the cache with a lease owned by another host at a
     // higher version, exactly as refreshLeaseFromDatabase does on the leadership-loss paths.
     MaterializedViewGenerationId generationId = acquireLeadership();
@@ -1676,32 +1711,32 @@ public class DynamicLeaderLeaseManagerTest {
 
     // Act + Assert - no token is handed out, so no MV write can be stamped with the new leader's
     // version.
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
   }
 
   @Test
-  public void getOwnedLeaseVersion_expiredOwnedLeaseBeforeHeartbeat_returnsInvalid() {
+  public void getOwnedTenure_expiredOwnedLeaseBeforeHeartbeat_returnsInvalid() {
     MaterializedViewGenerationId generationId = acquireLeadership();
     String leaseKey = getLeaseKeyFromCatalog(generationId);
     Lease expiredOwnedLease = createLease(generationId, HOSTNAME, Instant.now().minusSeconds(60));
     this.leaseManager.putLease(leaseKey, expiredOwnedLease);
 
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
   }
 
   @Test
-  public void getOwnedLeaseVersion_ownedLease_returnsVersion() {
+  public void getOwnedTenure_ownedLease_returnsLeaseVersion() {
     MaterializedViewGenerationId generationId = acquireLeadership();
     String leaseKey = getLeaseKeyFromCatalog(generationId);
 
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isEqualTo(this.leaseManager.getLeases().get(leaseKey).leaseVersion());
   }
 
@@ -1714,12 +1749,12 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
-  public void getOwnedLeaseVersion_metadataRemoved_returnsInvalidWithoutDemotion() {
+  public void getOwnedTenure_metadataRemoved_returnsInvalidWithoutDemotion() {
     MaterializedViewGenerationId generationId = acquireLeadership();
     String leaseKey = getLeaseKeyFromCatalog(generationId);
     this.mvMetadataCatalog.removeMetadata(generationId);
 
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
@@ -1727,11 +1762,11 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
-  public void getOwnedLeaseVersion_noLease_returnsInvalid() {
+  public void getOwnedTenure_noLease_returnsInvalid() {
     MaterializedViewGenerationId generationId = acquireLeadership();
     this.leaseManager.evictCachedLease(getLeaseKeyFromCatalog(generationId));
 
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isEqualTo(LeaseManager.INVALID_LEASE_VERSION);
     assertThat(this.leaseManager.isLeader(generationId)).isTrue();
     assertThat(this.leaseManager.getFollowerGenerationIds()).doesNotContain(generationId);
@@ -1772,7 +1807,7 @@ public class DynamicLeaderLeaseManagerTest {
             () -> true);
     MaterializedViewGenerationId generationId = acquireLeadership();
     putLeaseInRenewalWindow(generationId);
-    long versionBefore = this.leaseManager.getOwnedLeaseVersion(generationId);
+    long versionBefore = this.leaseManager.getOwnedTenure(generationId).leaseVersion();
     String leaseKey = getLeaseKeyFromCatalog(generationId);
     Instant expirationBefore = this.leaseManager.getLeases().get(leaseKey).leaseExpiration();
 
@@ -1806,7 +1841,8 @@ public class DynamicLeaderLeaseManagerTest {
 
     // Renewal is not a new tenure: the in-memory version is unchanged, and with no concurrent
     // writer the merge does extend the cached expiration.
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId)).isEqualTo(versionBefore);
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
+        .isEqualTo(versionBefore);
     assertThat(this.leaseManager.getLeases().get(leaseKey).leaseExpiration())
         .isGreaterThan(expirationBefore);
   }
@@ -1933,7 +1969,7 @@ public class DynamicLeaderLeaseManagerTest {
   public void updateCommitInfo_rejected_recordsCheckpointRejected() throws Exception {
     // Arrange
     MaterializedViewGenerationId generationId = acquireLeadership();
-    long localVersionBefore = this.leaseManager.getOwnedLeaseVersion(generationId);
+    long localVersionBefore = this.leaseManager.getOwnedTenure(generationId).leaseVersion();
 
     // The commit path is the only place a zombie is caught when its MV writes were silently
     // dropped rather than rejected.
@@ -1950,8 +1986,9 @@ public class DynamicLeaderLeaseManagerTest {
     assertThat(checkpointCommitRiskPending(generationId)).isEqualTo(0.0);
     assertThat(this.leaseManager.isLeader(generationId)).isFalse();
     // Nothing on this path refreshes the cache, so the local token is untouched.
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId)).isEqualTo(localVersionBefore);
-    assertThat(this.leaseManager.getOwnedLeaseVersion(generationId))
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
+        .isEqualTo(localVersionBefore);
+    assertThat(this.leaseManager.getOwnedTenure(generationId).leaseVersion())
         .isNotEqualTo(stolenLease.leaseVersion());
   }
 

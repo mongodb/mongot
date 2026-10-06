@@ -360,26 +360,46 @@ public interface LeaseManager {
   boolean isCurrentVersionQueryable(
       MaterializedViewGenerationId generationId, long indexDefinitionVersion);
 
-  /** Sentinel returned by {@link #getOwnedLeaseVersion} when no usable fencing token exists. */
+  /** Sentinel in an {@link OwnedTenure} when no usable fencing token exists. */
   long INVALID_LEASE_VERSION = -1;
 
-  /** Returns whether a lease version can be used as a fencing token. */
+  /** Returns whether a tenure's fencing token can be used for MV writes. */
   static boolean isUsableLeaseVersion(long leaseVersion) {
     return leaseVersion > 0;
   }
 
   /**
-   * Returns the current lease version for the given generation ID <em>if this host owns the
-   * lease</em>. Used as a fencing token for MV writes, so a host that does not own the lease must
-   * never receive one: a token it does not own would be indistinguishable from the real leader's.
+   * The fencing token and the tenure identity this lease manager would hand out for the given
+   * generation's lease, read from a single lease snapshot: {@code leaseVersion} is the MV-write
+   * fencing token, used so a host that does not own the lease never receives one (a token it does
+   * not own would be indistinguishable from the real leader's); {@code epoch} identifies the
+   * leadership tenure, constant within a tenure and changed by every ownership transfer, including
+   * a same-host reacquisition (see {@code Lease.Fields.EPOCH}). Tenures that pin both from one read
+   * cannot observe a mismatched pair. {@link #INVALID_LEASE_VERSION} in both fields means there is
+   * no usable tenure (no lease, owned by another host, or expired); static leaders return {@link
+   * Long#MAX_VALUE} in both fields (fencing is skipped).
+   *
+   * <p>Replaces the former {@code getOwnedLeaseVersion} (CLOUDP-437680): callers needing only the
+   * fencing token consume {@link OwnedTenure#leaseVersion()}, which is that method's behavior
+   * exactly.
+   */
+  record OwnedTenure(long leaseVersion, long epoch) {}
+
+  /**
+   * Returns the current tenure for the given generation ID <em>if this host owns the lease</em>:
+   * the fencing token and the tenure identity, from one lease read, with ownership and expiration
+   * checked against that single read.
    *
    * @param generationId the generation ID
-   * @return the owned lease version, {@link #INVALID_LEASE_VERSION} if there is no lease, it is
-   *     owned by another host, or it is expired; or Long.MAX_VALUE for static leaders (fencing is
-   *     skipped)
+   * @return the owned lease's (leaseVersion, epoch), or an unusable tenure ({@link
+   *     #INVALID_LEASE_VERSION} in both fields) if there is no lease, it is owned by another host,
+   *     or it is expired; {@link Long#MAX_VALUE} in both fields for static leaders
    */
-  default long getOwnedLeaseVersion(MaterializedViewGenerationId generationId) {
-    return Long.MAX_VALUE;
+  default OwnedTenure getOwnedTenure(MaterializedViewGenerationId generationId) {
+    // The static-leader tenure: fencing skipped, no dynamic tenure, in both fields -- the same
+    // default shape the former getOwnedLeaseVersion default had, so static leader election
+    // needs no override.
+    return new OwnedTenure(Long.MAX_VALUE, Long.MAX_VALUE);
   }
 
   /**

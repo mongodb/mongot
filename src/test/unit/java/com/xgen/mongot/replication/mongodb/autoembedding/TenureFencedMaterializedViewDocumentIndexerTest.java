@@ -43,18 +43,20 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
 
   @Test
   public void commit_currentTenure_delegates() throws IOException {
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L));
 
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
     indexer.beginTenure();
     indexer.commit();
 
-    verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 7L);
+    verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 7L, 7L);
   }
 
   @Test
   public void commit_checkpointAdvancesLeaseVersion_usesOriginalTenure() throws Exception {
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L, 8L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L), new LeaseManager.OwnedTenure(8L, 8L));
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
 
     indexer.beginTenure();
@@ -62,13 +64,14 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     indexer.commit();
 
     verify(this.materializedViewWriter).updateIndex(org.mockito.ArgumentMatchers.any());
-    verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 7L);
-    verify(this.leaseManager, times(1)).getOwnedLeaseVersion(this.generationId);
+    verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 7L, 7L);
+    verify(this.leaseManager, times(1)).getOwnedTenure(this.generationId);
   }
 
   @Test
   public void stageCommitUserData_anyTenureState_isANoOp() throws Exception {
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L));
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
 
     // Batch finalize calls this unconditionally on every indexer, so the materialized-view
@@ -92,19 +95,21 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
 
   @Test
   public void commit_endedTenure_rejectsWork() throws Exception {
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L));
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
     indexer.beginTenure();
     indexer.endTenure();
 
     assertThrows(MaterializedViewNonTransientException.class, () -> indexer.commit());
 
-    verify(this.materializedViewWriter, never()).commit(EncodedUserData.EMPTY, 7L);
+    verify(this.materializedViewWriter, never()).commit(EncodedUserData.EMPTY, 7L, 7L);
   }
 
   @Test
   public void endTenure_discardsWritesBufferedDuringThisTenure() throws Exception {
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L));
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
 
     indexer.beginTenure();
@@ -117,6 +122,22 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
   }
 
   @Test
+  public void commit_multipleCommits_passThePairPinnedAtBeginTenure() throws Exception {
+    // Distinct lease version and epoch so a swapped or dropped epoch cannot pass, and a later
+    // read returning a different pair so a commit re-reading the lease instead of using the
+    // pin cannot pass either.
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 5L), new LeaseManager.OwnedTenure(9L, 8L));
+    TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
+
+    indexer.beginTenure();
+    indexer.commit();
+    indexer.commit();
+
+    verify(this.materializedViewWriter, times(2)).commit(EncodedUserData.EMPTY, 7L, 5L);
+  }
+
+  @Test
   public void commit_installedSupplier_isReadAtCommitTimeAndStampedWithTheTenureVersion()
       throws Exception {
     // updateCommitUserDataSupplier() exists so a writer whose resume position is assembled from
@@ -124,7 +145,8 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     // commit time rather than staged per batch. Verify the supplier really is resolved at commit
     // time, not captured when installed, and that the resulting write still carries this tenure's
     // pinned lease version rather than a live read.
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L));
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
     indexer.beginTenure();
 
@@ -138,7 +160,7 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     live.set(advanced);
     indexer.commit();
 
-    verify(this.materializedViewWriter).commit(advanced.toEncodedData(), 7L);
+    verify(this.materializedViewWriter).commit(advanced.toEncodedData(), 7L, 7L);
 
     // The tenure gate covers the supplier setter too.
     indexer.endTenure();
@@ -160,7 +182,8 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     // graceful SteadyStateException.createShutDown()/InitialSyncException.createShutDown(), so an
     // ordinary demotion drains the batch instead of failing the index. Nothing may reach the
     // shared writer after the tenure ends.
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L));
     TenureFencedMaterializedViewDocumentIndexer indexer = createIndexer();
     indexer.beginTenure();
 
@@ -197,7 +220,10 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     // no commit at all.
     verify(this.materializedViewWriter, times(1)).updateIndex(org.mockito.ArgumentMatchers.any());
     verify(this.materializedViewWriter, never())
-        .commit(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+        .commit(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.anyLong());
   }
 
   @Test
@@ -208,7 +234,8 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
     // already begun buffering its own writes (e.g. a duplicate MaterializedViewManager
     // #transitionToFollower call racing a stale generator reference). The predecessor's second
     // endTenure() must be a no-op: it must not discard the successor's legitimate buffer.
-    when(this.leaseManager.getOwnedLeaseVersion(this.generationId)).thenReturn(7L, 8L);
+    when(this.leaseManager.getOwnedTenure(this.generationId))
+        .thenReturn(new LeaseManager.OwnedTenure(7L, 7L), new LeaseManager.OwnedTenure(8L, 8L));
     TenureFencedMaterializedViewDocumentIndexer predecessor = createIndexer();
     TenureFencedMaterializedViewDocumentIndexer successor = createIndexer();
 
@@ -225,6 +252,6 @@ public class TenureFencedMaterializedViewDocumentIndexerTest {
 
     // The successor's buffered write survives to be committed under its own tenure.
     successor.commit();
-    verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 8L);
+    verify(this.materializedViewWriter).commit(EncodedUserData.EMPTY, 8L, 8L);
   }
 }

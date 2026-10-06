@@ -219,7 +219,9 @@ public class MaterializedViewWriter implements IndexWriter {
 
   @Override
   public void commit(EncodedUserData userData) throws IOException {
-    commitInternal(userData, this.leaseManager.getOwnedLeaseVersion(this.generationId));
+    // The fencing token from the current tenure; identical to the former
+    // getOwnedLeaseVersion() read (CLOUDP-437680).
+    commitInternal(userData, this.leaseManager.getOwnedTenure(this.generationId).leaseVersion());
   }
 
   /**
@@ -232,7 +234,18 @@ public class MaterializedViewWriter implements IndexWriter {
     commitInternal(userData, leaseVersion);
   }
 
-  // Delegated to by both commit() overloads via a private method, rather than one overload
+  /**
+   * Commits pending writes using the fencing token and the tenure identity pinned by the
+   * materialized-view generator.
+   *
+   * <p>The epoch is accepted but not used yet: a follow-up (CLOUDP-437680) anchors the checkpoint
+   * that follows the MV writes to it. The MV writes themselves keep fencing on the lease version.
+   */
+  public void commit(EncodedUserData userData, long leaseVersion, long epoch) throws IOException {
+    commitInternal(userData, leaseVersion);
+  }
+
+  // Delegated to by all three commit() overloads via a private method, rather than one overload
   // calling the other directly: a self-call from one public method to another re-enters proxy
   // dispatch on a Mockito spy, so callers verifying interactions on a spied writer would see two
   // recorded commit calls instead of one.

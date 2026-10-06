@@ -94,7 +94,8 @@ public class MaterializedViewWriterTest {
     this.mockCollection = mock(MongoCollection.class);
 
     this.mockLeaseManager = mock(LeaseManager.class);
-    when(this.mockLeaseManager.getOwnedLeaseVersion(GENERATION_ID)).thenReturn(1L);
+    when(this.mockLeaseManager.getOwnedTenure(GENERATION_ID))
+        .thenReturn(new LeaseManager.OwnedTenure(1L, 1L));
     when(this.mockDatabase.getCollection(MV_NAMESPACE.getCollectionName(), RawBsonDocument.class))
         .thenReturn(this.mockCollection);
     when(this.mockCollection.withWriteConcern(any(WriteConcern.class)))
@@ -897,8 +898,10 @@ public class MaterializedViewWriterTest {
       throws IOException, FieldExceededLimitsException {
     // Also the not-owner case: the lease manager returns this same sentinel when the cached lease
     // belongs to another host, so no stolen-token write can reach the collection.
-    when(this.mockLeaseManager.getOwnedLeaseVersion(GENERATION_ID))
-        .thenReturn(LeaseManager.INVALID_LEASE_VERSION);
+    when(this.mockLeaseManager.getOwnedTenure(GENERATION_ID))
+        .thenReturn(
+            new LeaseManager.OwnedTenure(
+                LeaseManager.INVALID_LEASE_VERSION, LeaseManager.INVALID_LEASE_VERSION));
     var matViewWriter =
         new MaterializedViewWriter(
             this.autoEmbeddingMongoClient,
@@ -1208,7 +1211,8 @@ public class MaterializedViewWriterTest {
 
   @Test
   public void testCommitWithInvalidLeaseThrowsNonTransientWithInvalidLeaseReason() {
-    when(this.mockLeaseManager.getOwnedLeaseVersion(GENERATION_ID)).thenReturn(0L);
+    when(this.mockLeaseManager.getOwnedTenure(GENERATION_ID))
+        .thenReturn(new LeaseManager.OwnedTenure(0L, 0L));
     var matViewWriter =
         new MaterializedViewWriter(
             this.autoEmbeddingMongoClient,

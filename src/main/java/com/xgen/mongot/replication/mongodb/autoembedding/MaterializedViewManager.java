@@ -521,7 +521,8 @@ public class MaterializedViewManager implements ReplicationManager {
             embeddingRetryCacheEnabled,
             skipInvalidRequestEnabledForIndex,
             generationId ->
-                LeaseManager.isUsableLeaseVersion(leaseManager.getOwnedLeaseVersion(generationId)));
+                LeaseManager.isUsableLeaseVersion(
+                    leaseManager.getOwnedTenure(generationId).leaseVersion()));
 
     var decodingWorkScheduler =
         DecodingWorkScheduler.create(

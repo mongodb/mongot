@@ -37,6 +37,7 @@ final class TenureFencedMaterializedViewDocumentIndexer implements DocumentIndex
   private final AtomicReference<Supplier<IndexCommitUserData>> commitUserDataSupplier;
   private boolean activeTenure;
   private long tenureLeaseVersion;
+  private long tenureEpoch;
 
   TenureFencedMaterializedViewDocumentIndexer(
       InitializedMaterializedViewIndex index,
@@ -53,6 +54,7 @@ final class TenureFencedMaterializedViewDocumentIndexer implements DocumentIndex
     this.commitUserDataSupplier = new AtomicReference<>(() -> initialCommitUserData);
     this.activeTenure = false;
     this.tenureLeaseVersion = 0;
+    this.tenureEpoch = 0;
   }
 
   // Reads leaseVersion independently rather than being handed the value confirmed at
@@ -70,11 +72,15 @@ final class TenureFencedMaterializedViewDocumentIndexer implements DocumentIndex
   // (tryAcquireLeadership() returning the value it just wrote, passed through
   // becomeLeader(token) into beginTenure(token)) instead of re-reading shared state here.
   synchronized void beginTenure() {
-    long leaseVersion = this.leaseManager.getOwnedLeaseVersion(this.generationId);
-    if (leaseVersion <= 0) {
+    // The fencing token and the tenure identity from one tenure read; identical to the former
+    // getOwnedLeaseVersion() pin (CLOUDP-437680). The epoch is not used yet -- a follow-up
+    // anchors the checkpoint to it.
+    LeaseManager.OwnedTenure tenure = this.leaseManager.getOwnedTenure(this.generationId);
+    if (!LeaseManager.isUsableLeaseVersion(tenure.leaseVersion())) {
       throw invalidTenure();
     }
-    this.tenureLeaseVersion = leaseVersion;
+    this.tenureLeaseVersion = tenure.leaseVersion();
+    this.tenureEpoch = tenure.epoch();
     this.activeTenure = true;
   }
 
@@ -132,7 +138,9 @@ final class TenureFencedMaterializedViewDocumentIndexer implements DocumentIndex
   public synchronized void commit() throws IOException {
     verifyActiveTenure();
     this.materializedViewWriter.commit(
-        this.commitUserDataSupplier.get().get().toEncodedData(), this.tenureLeaseVersion);
+        this.commitUserDataSupplier.get().get().toEncodedData(),
+        this.tenureLeaseVersion,
+        this.tenureEpoch);
   }
 
   @Override

@@ -1397,12 +1397,13 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
   }
 
   /**
-   * The cache can hold a lease owned by another host or an expired lease that still names this host
-   * before the next heartbeat demotes it. Ownership and expiration are therefore checked against
-   * the same single read the version comes from.
+   * The fencing token and the tenure identity from one lease read, so a tenure pins a matched pair
+   * (CLOUDP-437680). The cache can hold a lease owned by another host or an expired lease that
+   * still names this host before the next heartbeat demotes it, so ownership and expiration are
+   * checked against the same single read the tenure comes from.
    */
   @Override
-  public long getOwnedLeaseVersion(MaterializedViewGenerationId generationId) {
+  public OwnedTenure getOwnedTenure(MaterializedViewGenerationId generationId) {
     String leaseKey;
     try {
       leaseKey = getLeaseKey(generationId);
@@ -1411,12 +1412,12 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("generationId", generationId)
           .addKeyValue("hostname", this.hostname)
           .setCause(e)
-          .log("Refusing to hand out a fencing token because generation metadata is unavailable");
-      return INVALID_LEASE_VERSION;
+          .log("Refusing to hand out a tenure because generation metadata is unavailable");
+      return new OwnedTenure(INVALID_LEASE_VERSION, INVALID_LEASE_VERSION);
     }
     Lease lease = this.leases.get(leaseKey);
     if (lease == null) {
-      return INVALID_LEASE_VERSION;
+      return new OwnedTenure(INVALID_LEASE_VERSION, INVALID_LEASE_VERSION);
     }
     if (!this.hostname.equals(lease.leaseOwner())) {
       LOG.atWarn()
@@ -1424,8 +1425,9 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("leaseOwner", lease.leaseOwner())
           .addKeyValue("hostname", this.hostname)
           .addKeyValue("leaseVersion", lease.leaseVersion())
-          .log("Refusing to hand out a fencing token for a lease owned by another host");
-      return INVALID_LEASE_VERSION;
+          .addKeyValue("epoch", lease.epoch())
+          .log("Refusing to hand out a tenure for a lease owned by another host");
+      return new OwnedTenure(INVALID_LEASE_VERSION, INVALID_LEASE_VERSION);
     }
     Instant now = Instant.now();
     if (now.isAfter(lease.leaseExpiration())) {
@@ -1434,12 +1436,13 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
           .addKeyValue("leaseOwner", lease.leaseOwner())
           .addKeyValue("hostname", this.hostname)
           .addKeyValue("leaseVersion", lease.leaseVersion())
+          .addKeyValue("epoch", lease.epoch())
           .addKeyValue("leaseExpiration", lease.leaseExpiration())
           .addKeyValue("now", now)
-          .log("Refusing to hand out a fencing token for an expired lease");
-      return INVALID_LEASE_VERSION;
+          .log("Refusing to hand out a tenure for an expired lease");
+      return new OwnedTenure(INVALID_LEASE_VERSION, INVALID_LEASE_VERSION);
     }
-    return lease.leaseVersion();
+    return new OwnedTenure(lease.leaseVersion(), lease.epoch());
   }
 
   @Override
