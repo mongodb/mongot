@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.util.Check;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,19 @@ final class AvgAccumulator extends Accumulator {
         AvgAccumulator.this.counts.increment(bucketOrd, 1L);
       }
     };
+  }
+
+  @Override
+  public boolean supportsStateMerge() {
+    // Sums and counts add by the parent's ordinal. Same bucket, no term lookup.
+    return true;
+  }
+
+  @Override
+  public void mergeStateFrom(Accumulator other) {
+    AvgAccumulator that = Check.instanceOf(other, AvgAccumulator.class);
+    this.sums.add(that.sums);
+    this.counts.add(that.counts);
   }
 
   @Override

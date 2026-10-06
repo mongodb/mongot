@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.google.common.math.LongMath;
+import com.xgen.mongot.util.Check;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,6 +86,17 @@ public record TopAggregationSpec(List<AggregationSpec> children) implements Aggr
     public LeafBucketCollector getLeafCollector(AggregationContext context) throws IOException {
       // Dispatch to children collectors.
       return this.multiBucketCollector.getLeafCollector(context);
+    }
+
+    @Override
+    public boolean supportsStateMerge() {
+      // One bucket, no state of its own. Mergeability is the children's.
+      return childrenSupportStateMerge();
+    }
+
+    @Override
+    public void mergeStateFrom(Accumulator other) {
+      mergeChildStatesFrom(Check.instanceOf(other, TopLevelAccumulator.class));
     }
 
     @Override

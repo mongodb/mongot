@@ -37,6 +37,13 @@ public class DoubleArray implements AutoCloseable {
     this.list.set(index, this.list.get(index) + value);
   }
 
+  /** Element-wise add {@code other} into this array, growing to {@code other}'s size if needed. */
+  public void add(DoubleArray other) {
+    for (int i = 0; i < other.size(); i++) {
+      this.increment(i, other.get(i));
+    }
+  }
+
   public static DoubleArray from(double... values) {
     DoubleArray array = new DoubleArray(values.length);
     for (int i = 0; i < values.length; i++) {

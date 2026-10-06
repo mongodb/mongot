@@ -70,6 +70,19 @@ public class PrimitiveArrayTest {
   }
 
   @Test
+  public void longArrayAddGrowsToTheOtherSide() {
+    LongArray left = LongArray.from(1L, 2L);
+    LongArray right = new LongArray(4);
+    right.set(3, 5L);
+    left.add(right);
+    assertEquals(4, left.size());
+    assertEquals(1L, left.get(0));
+    assertEquals(2L, left.get(1));
+    assertEquals(0L, left.get(2));
+    assertEquals(5L, left.get(3));
+  }
+
+  @Test
   public void longArrayFromFactory() {
     LongArray arr = LongArray.from(1L, 2L, 3L, 4L);
     assertEquals(4, arr.size());
@@ -93,6 +106,17 @@ public class PrimitiveArrayTest {
     assertEquals(2, arr.size());
     assertEquals(1.5, arr.get(0), 0.0);
     assertEquals(2.5, arr.get(1), 0.0);
+  }
+
+  @Test
+  public void doubleArrayAddSumsByIndex() {
+    DoubleArray left = DoubleArray.from(1.5, 2.0);
+    DoubleArray right = DoubleArray.from(0.5, 1.0, 3.0);
+    left.add(right);
+    assertEquals(3, left.size());
+    assertEquals(2.0, left.get(0), 0.0);
+    assertEquals(3.0, left.get(1), 0.0);
+    assertEquals(3.0, left.get(2), 0.0);
   }
 
   @Test

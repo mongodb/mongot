@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.util.Check;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +32,16 @@ final class CountAccumulator extends Accumulator {
         CountAccumulator.this.counts.increment(Math.toIntExact(owningBucketOrd), 1L);
       }
     };
+  }
+
+  @Override
+  public boolean supportsStateMerge() {
+    return true;
+  }
+
+  @Override
+  public void mergeStateFrom(Accumulator other) {
+    this.counts.add(Check.instanceOf(other, CountAccumulator.class).counts);
   }
 
   @Override

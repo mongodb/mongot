@@ -33,6 +33,14 @@ public abstract class BucketsAccumulator extends Accumulator {
     children.collect(doc, bucketOrd);
   }
 
+  /**
+   * Fold {@code other}'s per-bucket doc counts into this accumulator. Only valid when both key
+   * {@code docCounts} by the same ordinal space.
+   */
+  protected final void mergeDocCountsFrom(BucketsAccumulator other) {
+    this.docCounts.add(other.docCounts);
+  }
+
   /** Number of documents collected into {@code bucketOrd}; 0 if the bucket never received docs. */
   protected final long bucketDocCount(long bucketOrd) {
     int index = Math.toIntExact(bucketOrd);

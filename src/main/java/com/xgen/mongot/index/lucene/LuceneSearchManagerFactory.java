@@ -57,7 +57,8 @@ class LuceneSearchManagerFactory {
       Optional<Sort> invertedLuceneSort,
       Optional<SequenceToken> searchAfter,
       AggregationPlan aggregationPlan,
-      int indexPartitionId) {
+      int indexPartitionId,
+      boolean applyLimitOnReduce) {
     return new MeteredLuceneSearchManager<>(
         this.metricsUpdater,
         new LuceneAggregationSearchManager(
@@ -67,6 +68,7 @@ class LuceneSearchManagerFactory {
             searchAfter,
             aggregationPlan,
             indexPartitionId,
+            applyLimitOnReduce,
             this.metricsUpdater.getSearchAggregationMetricsReporter()));
   }
 

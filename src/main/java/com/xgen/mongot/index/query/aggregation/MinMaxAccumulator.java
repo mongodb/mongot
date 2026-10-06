@@ -3,6 +3,7 @@ package com.xgen.mongot.index.query.aggregation;
 import com.xgen.mongot.index.lucene.query.sort.mixed.SortUtil;
 import com.xgen.mongot.index.query.aggregation.DocValuesFieldReader.Selection;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -135,6 +136,24 @@ final class MinMaxAccumulator extends Accumulator {
       }
     }
     return Optional.empty();
+  }
+
+  @Override
+  public boolean supportsStateMerge() {
+    return true;
+  }
+
+  @Override
+  public void mergeStateFrom(Accumulator other) {
+    MinMaxAccumulator that = Check.instanceOf(other, MinMaxAccumulator.class);
+    // Unset slots are empty, not a stored extremum. Skip them so a slice that never saw the
+    // bucket cannot overwrite the other side with a missing value.
+    for (int ord = 0; ord < that.extrema.size(); ord++) {
+      Optional<BsonValue> value = that.extrema.get(ord);
+      if (value.isPresent()) {
+        update(ord, value.get());
+      }
+    }
   }
 
   private void update(int bucketOrd, BsonValue candidate) {

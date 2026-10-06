@@ -37,6 +37,13 @@ public class LongArray implements AutoCloseable {
     this.list.set(index, this.list.get(index) + value);
   }
 
+  /** Element-wise add {@code other} into this array, growing to {@code other}'s size if needed. */
+  public void add(LongArray other) {
+    for (int i = 0; i < other.size(); i++) {
+      this.increment(i, other.get(i));
+    }
+  }
+
   public static LongArray from(long... values) {
     LongArray array = new LongArray(values.length);
     for (int i = 0; i < values.length; i++) {

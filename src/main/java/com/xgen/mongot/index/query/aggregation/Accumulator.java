@@ -112,4 +112,61 @@ public abstract class Accumulator extends BucketCollector {
   public final AggregationResult buildTopLevelResult() throws IOException {
     return buildResults(LongArray.from(0L)).getFirst();
   }
+
+  /**
+   * Whether slices of this tree can be merged by bucket ordinal instead of by term.
+   *
+   * <p>True only when every node keys its state by an ordinal space that is the same in every slice
+   * of one reader. A dense root terms accumulator does, because its bucket ordinal is the
+   * reader-wide global ordinal, and metric leaves only add per-ordinal state. Partitions, nested
+   * groups, and first/last do not share that space, so they stay on the term fold.
+   *
+   * <p>Default is false. A new accumulator keeps the term fold until it opts in.
+   */
+  public boolean supportsStateMerge() {
+    return false;
+  }
+
+  /**
+   * Fold {@code other}'s per-bucket state into this tree without resolving ordinals to terms. Valid
+   * only when {@link #supportsStateMerge()} is true and both trees were built from the same spec
+   * against the same reader.
+   */
+  public void mergeStateFrom(Accumulator other) {
+    throw new UnsupportedOperationException(
+        "mergeStateFrom is not supported by " + getClass().getSimpleName());
+  }
+
+  /**
+   * Prune to each grouping level's top {@code numBuckets} while building results.
+   *
+   * <p>Only correct after slices have been state-merged and this result will not be count-merged
+   * with another one. Top-N by count is not associative. Levels that cannot prune keep full
+   * cardinality.
+   */
+  public void enableTerminalTopK() {
+    for (Accumulator child : this.children) {
+      child.enableTerminalTopK();
+    }
+  }
+
+  /** Whether every child opts into {@link #supportsStateMerge}. */
+  protected final boolean childrenSupportStateMerge() {
+    for (Accumulator child : this.children) {
+      if (!child.supportsStateMerge()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Pairwise-merge children's state. Both trees come from the same spec, so children align by
+   * position.
+   */
+  protected final void mergeChildStatesFrom(Accumulator other) {
+    for (int i = 0; i < this.children.size(); i++) {
+      this.children.get(i).mergeStateFrom(other.children.get(i));
+    }
+  }
 }

@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.aggregation;
 
+import com.xgen.mongot.util.Check;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,16 @@ final class SumAccumulator extends Accumulator {
             bucketOrd, NumericMetricValues.decode(values.nextValue(), representation));
       }
     };
+  }
+
+  @Override
+  public boolean supportsStateMerge() {
+    return true;
+  }
+
+  @Override
+  public void mergeStateFrom(Accumulator other) {
+    this.sums.add(Check.instanceOf(other, SumAccumulator.class).sums);
   }
 
   @Override

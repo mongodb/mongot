@@ -1052,7 +1052,10 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 query.sortDrivesAggregation()),
             searchAfter,
             aggregationPlan,
-            this.indexPartitionId);
+            this.indexPartitionId,
+            // This result is never count-merged with another, so the reduce may prune to top-N
+            // before resolving terms.
+            /* applyLimitOnReduce= */ true);
 
     AggregationQueryInfo collectorQueryInfo =
         aggregationSearchManager.initialSearch(
@@ -1113,7 +1116,10 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 query.sortDrivesAggregation()),
             searchAfter,
             aggregationPlan,
-            this.indexPartitionId);
+            this.indexPartitionId,
+            // Intermediate results are count-merged across partitions or shards afterwards, so
+            // they must carry full cardinality.
+            /* applyLimitOnReduce= */ false);
 
     AggregationQueryInfo collectorQueryInfo =
         aggregationSearchManager.initialSearch(

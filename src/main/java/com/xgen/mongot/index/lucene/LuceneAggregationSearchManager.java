@@ -50,6 +50,10 @@ public class LuceneAggregationSearchManager
 
   private final int indexPartitionId;
 
+  // True only when this reduce is the outermost count merge, so it may prune to top-N before
+  // materializing. Intermediate (partition or shard) results must keep full cardinality.
+  private final boolean applyLimitOnReduce;
+
   private final SearchAggregationMetricsReporter metricsReporter;
 
   public static class AggregationQueryInfo extends QueryInfo {
@@ -73,6 +77,7 @@ public class LuceneAggregationSearchManager
       Optional<SequenceToken> searchAfter,
       AggregationPlan aggregationPlan,
       int indexPartitionId,
+      boolean applyLimitOnReduce,
       SearchAggregationMetricsReporter metricsReporter) {
     super(luceneQuery, luceneSort, searchAfter);
     this.luceneSort = luceneSort;
@@ -80,6 +85,7 @@ public class LuceneAggregationSearchManager
     this.rootSpec = aggregationPlan.rootSpec();
     this.fieldResolver = aggregationPlan.fieldResolver();
     this.indexPartitionId = indexPartitionId;
+    this.applyLimitOnReduce = applyLimitOnReduce;
     this.metricsReporter = ExplainAwareSearchAggregationMetricsReporter.wrap(metricsReporter);
   }
 
@@ -141,7 +147,10 @@ public class LuceneAggregationSearchManager
       AggregationContext context) {
     AccumulatorCollectorManager accumulatorCollectorManager =
         new AccumulatorCollectorManager(
-            this.rootSpec, context, AggregationFeatureExplainer::recordNodeStats);
+            this.rootSpec,
+            context,
+            AggregationFeatureExplainer::recordNodeStats,
+            this.applyLimitOnReduce);
 
     Optional<ExplainTimings> accumulatorProfile =
         AggregationFeatureExplainer.currentAccumulatorProfile();
