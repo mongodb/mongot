@@ -630,8 +630,20 @@ public class MaterializedViewManager implements ReplicationManager {
     }
   }
 
-  private LongStream queryableMaterializedViewLagsMs() {
+  @VisibleForTesting
+  LongStream queryableMaterializedViewLagsMs() {
+    Set<MaterializedViewGenerationId> followerIds = this.leaseManager.getFollowerGenerationIds();
     return this.getMatViewGenerators().values().stream()
+        // A generator that is shut down, or whose generation the lease manager no longer tracks,
+        // has stopped advancing its replication optime; counting its frozen snapshot would report
+        // lag that grows with wall-clock time until restart.
+        .filter(generator -> !TERMINAL_STATES.contains(generator.getState()))
+        .filter(
+            generator -> {
+              MaterializedViewGenerationId generationId =
+                  generator.getIndexGeneration().getGenerationId();
+              return this.leaseManager.isLeader(generationId) || followerIds.contains(generationId);
+            })
         .map(generator -> generator.getIndexGeneration().getIndex())
         .filter(matViewIndex -> !matViewIndex.isClosed())
         .filter(matViewIndex -> matViewIndex.getStatus().canServiceQueries())
@@ -690,8 +702,16 @@ public class MaterializedViewManager implements ReplicationManager {
         Check.instanceOf(indexGeneration, AutoEmbeddingIndexGeneration.class);
     MaterializedViewIndexGeneration matViewIndexGeneration =
         autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration();
-    this.activeGenerationIdCatalog.add(autoEmbeddingIndexGeneration);
+    Optional<UUID> staleUuid = this.activeGenerationIdCatalog.add(autoEmbeddingIndexGeneration);
+    // A generator keyed by a stale UUID would never be found again by drop or status refresh.
+    // Take it out so it can be handed over under the current UUID below.
+    Optional<MaterializedViewGenerator> displaced =
+        staleUuid.isPresent()
+            ? Optional.ofNullable(this.managedMaterializedViewGenerators.remove(staleUuid.get()))
+            : Optional.empty();
     if (!this.isReplicationEnabled) {
+      // No generator will be installed, so nothing inherits the displaced one; stop it here.
+      displaced.ifPresent(this::shutDownDisplacedGenerator);
       LOG.atInfo().log(
           "Skipping creating materialized view generator because replication is disabled.");
       return;
@@ -700,10 +720,42 @@ public class MaterializedViewManager implements ReplicationManager {
     // Always create generators for both leader and follower modes.
     // Leader mode: generator runs replication loop and writes to materialized view.
     // Follower mode: generator is passive, status is polled from LeaseManager.
-    this.managedMaterializedViewGenerators.compute(
-        getCollectionUuid(matViewIndexGeneration.getGenerationId()),
-        (ignored, existingGenerator) ->
-            computeGenerator(existingGenerator, matViewIndexGeneration));
+    UUID uuid = getCollectionUuid(matViewIndexGeneration.getGenerationId());
+    try {
+      this.managedMaterializedViewGenerators.compute(
+          uuid,
+          (ignored, existingGenerator) -> {
+            // Nothing under the current UUID yet: replace the displaced generator through the
+            // normal path, which shuts it down once its successor exists.
+            if (existingGenerator == null && displaced.isPresent()) {
+              return computeGenerator(displaced.get(), matViewIndexGeneration);
+            }
+            // A generator already lives under the current UUID; the displaced one is redundant.
+            displaced.ifPresent(this::shutDownDisplacedGenerator);
+            return computeGenerator(existingGenerator, matViewIndexGeneration);
+          });
+    } catch (RuntimeException e) {
+      // A failed replacement leaves the displaced generator running. Stop it rather than keep it,
+      // so the current UUID's slot stays empty and the status refresh retries the replacement.
+      displaced.ifPresent(this::shutDownDisplacedGenerator);
+      throw e;
+    }
+  }
+
+  private void shutDownDisplacedGenerator(MaterializedViewGenerator generator) {
+    LOG.atInfo()
+        .addKeyValue("generationId", generator.getIndexGeneration().getGenerationId())
+        .log("Shutting down generator displaced by an MV collection UUID change");
+    generator
+        .shutdown()
+        .exceptionally(
+            throwable -> {
+              LOG.atWarn()
+                  .addKeyValue("generationId", generator.getIndexGeneration().getGenerationId())
+                  .setCause(throwable)
+                  .log("Failed to shut down displaced generator");
+              return null;
+            });
   }
 
   /**
@@ -1258,6 +1310,30 @@ public class MaterializedViewManager implements ReplicationManager {
   }
 
   /**
+   * Returns the MV collection UUID {@code generationId} was registered under in {@link
+   * ActiveGenerationIdCatalog#genIdByMatViewCollection}, falling back to {@code currentUuid}.
+   *
+   * <p>The metadata catalog resolves every attempt of a generation to the collection's current
+   * UUID. When a stale MV UUID is repaired between attempts, the older attempt and its generator
+   * stay keyed by the UUID they were added with; tearing that attempt down under the current UUID
+   * would find nothing and leave the old generator in the map until restart.
+   */
+  private synchronized UUID registeredCollectionUuid(GenerationId generationId, UUID currentUuid) {
+    Set<GenerationId> current =
+        this.activeGenerationIdCatalog.genIdByMatViewCollection.get(currentUuid);
+    // Common case: registered under the current UUID, same as the behavior before this lookup.
+    if (current != null && current.contains(generationId)) {
+      return currentUuid;
+    }
+    // Otherwise it was added before the MV UUID changed; find the UUID it is still listed under.
+    return this.activeGenerationIdCatalog.genIdByMatViewCollection.entrySet().stream()
+        .filter(entry -> entry.getValue().contains(generationId))
+        .map(Map.Entry::getKey)
+        .findFirst()
+        .orElse(currentUuid);
+  }
+
+  /**
    * Tears down this mongot's local state for a dropped generation. When this was the last local
    * user of the MV collection (UUID ref-count hits 0), it decides whether to clean up the shared MV
    * collection + lease now, or leave them for the leaderless stale-lease GC. {@code dropIndex} is
@@ -1277,7 +1353,15 @@ public class MaterializedViewManager implements ReplicationManager {
       // Not a materialized-view index (e.g. search or plain vector); nothing to drop here.
       return COMPLETED_FUTURE;
     }
-    UUID uuid = metadata.get().collectionUuid();
+    UUID currentUuid = metadata.get().collectionUuid();
+    UUID uuid = registeredCollectionUuid(generationId, currentUuid);
+    if (!uuid.equals(currentUuid)) {
+      LOG.atInfo()
+          .addKeyValue("generationId", generationId)
+          .addKeyValue("registeredUuid", uuid)
+          .addKeyValue("currentUuid", currentUuid)
+          .log("Dropping generation under the MV collection UUID it was registered with");
+    }
     Set<GenerationId> genIdsByUuid =
         this.activeGenerationIdCatalog.genIdByMatViewCollection.get(uuid);
     if (genIdsByUuid == null) {
@@ -2279,21 +2363,26 @@ public class MaterializedViewManager implements ReplicationManager {
     // buffer MatViewIndexGeneration since GeneratorFactory is being updated.
     final Map<UUID, MaterializedViewIndexGeneration> latestMatViewIndexGenerationByCollection;
 
-    private ActiveGenerationIdCatalog(
-        MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog) {
+    @VisibleForTesting
+    ActiveGenerationIdCatalog(MaterializedViewCollectionMetadataCatalog matViewMetadataCatalog) {
       this.matViewMetadataCatalog = matViewMetadataCatalog;
       this.genIdByMatViewCollection = new ConcurrentHashMap<>();
       this.genIdByMatViewGenId = new ConcurrentHashMap<>();
       this.latestMatViewIndexGenerationByCollection = new ConcurrentHashMap<>();
     }
 
-    void add(AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration) {
+    /**
+     * Registers the generation. Returns the stale MV collection UUID whose generator serves this MV
+     * generation, if any; the caller must hand that generator over to the current UUID.
+     */
+    Optional<UUID> add(AutoEmbeddingIndexGeneration autoEmbeddingIndexGeneration) {
       MaterializedViewIndexGeneration matViewIndexGeneration =
           autoEmbeddingIndexGeneration.getMaterializedViewIndexGeneration();
       GenerationId generationId = autoEmbeddingIndexGeneration.getGenerationId();
       UUID uuid = this.matViewMetadataCatalog.getMetadata(generationId).collectionUuid();
       // Reference counting by all indexGenerations with all attempts
       String matViewGeneratorId = canonicalKey(generationId);
+      Optional<UUID> staleUuid = moveOffStaleUuids(uuid, matViewGeneratorId);
       this.genIdByMatViewCollection
           .computeIfAbsent(uuid, unused -> ConcurrentHashMap.newKeySet())
           .add(generationId);
@@ -2319,6 +2408,71 @@ public class MaterializedViewManager implements ReplicationManager {
                         + " version than existing, likely a bug");
             return existing;
           });
+      return staleUuid;
+    }
+
+    /**
+     * Moves this MV generation's attempts off any other MV collection UUID onto {@code uuid}. A
+     * repaired stale MV UUID re-keys the collection between attempts; without the move, drop
+     * ref-counting and generator retries would keep following the stale UUID. Attempts of other MV
+     * generations sharing the stale UUID stay where they are.
+     *
+     * <p>Returns the stale UUID whose generator serves this MV generation, if any. At most one is
+     * expected, since every add moves all of this MV generation's attempts onto the current UUID.
+     */
+    @VisibleForTesting
+    Optional<UUID> moveOffStaleUuids(UUID uuid, String matViewGeneratorId) {
+      Map<UUID, Set<GenerationId>> attemptsByStaleUuid = new HashMap<>();
+      this.genIdByMatViewCollection.forEach(
+          (otherUuid, genIds) -> {
+            Set<GenerationId> ours =
+                genIds.stream()
+                    .filter(id -> canonicalKey(id).equals(matViewGeneratorId))
+                    .collect(Collectors.toSet());
+            if (!otherUuid.equals(uuid) && !ours.isEmpty()) {
+              attemptsByStaleUuid.put(otherUuid, ours);
+            }
+          });
+      List<UUID> handOverFrom = new ArrayList<>();
+      attemptsByStaleUuid.forEach(
+          (staleUuid, ours) -> {
+            moveAttempts(staleUuid, uuid, ours);
+            // The generator under a UUID serves its latest generation. Only if that is this MV
+            // generation does the generator move with us; otherwise it keeps serving the other one.
+            var latest = this.latestMatViewIndexGenerationByCollection.get(staleUuid);
+            if (latest != null
+                && canonicalKey(latest.getGenerationId()).equals(matViewGeneratorId)) {
+              // Drop the retry buffer entry too, or the status refresh would recreate a generator.
+              this.latestMatViewIndexGenerationByCollection.remove(staleUuid);
+              handOverFrom.add(staleUuid);
+            }
+            LOG.atInfo()
+                .addKeyValue("matViewGeneratorId", matViewGeneratorId)
+                .addKeyValue("staleUuid", staleUuid)
+                .addKeyValue("currentUuid", uuid)
+                .addKeyValue("movedGenerationIds", new ArrayList<>(ours))
+                .log("MV collection UUID changed; moved earlier attempts off the stale UUID");
+          });
+      if (handOverFrom.size() > 1) {
+        LOG.atWarn()
+            .addKeyValue("matViewGeneratorId", matViewGeneratorId)
+            .addKeyValue("staleUuids", handOverFrom)
+            .log("Several stale MV collection UUIDs hold this MV generation's generator");
+      }
+      return handOverFrom.stream().findFirst();
+    }
+
+    private void moveAttempts(UUID fromUuid, UUID toUuid, Set<GenerationId> attempts) {
+      Set<GenerationId> remaining = this.genIdByMatViewCollection.get(fromUuid);
+      if (remaining != null) {
+        remaining.removeAll(attempts);
+        if (remaining.isEmpty()) {
+          this.genIdByMatViewCollection.remove(fromUuid);
+        }
+      }
+      this.genIdByMatViewCollection
+          .computeIfAbsent(toUuid, unused -> ConcurrentHashMap.newKeySet())
+          .addAll(attempts);
     }
   }
 

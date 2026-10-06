@@ -11,6 +11,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -109,7 +110,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
 import org.bson.BsonDocument;
@@ -124,6 +127,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatcher;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 import org.slf4j.LoggerFactory;
 
 public class MaterializedViewManagerTest {
@@ -134,6 +138,12 @@ public class MaterializedViewManagerTest {
       MOCK_INDEX_DEFINITION_GENERATION.getGenerationId();
   private static final GenerationId MOCK_GENERATION_ID =
       new GenerationId(INDEX_ID, Generation.CURRENT);
+  private static final UUID STALE_MV_UUID =
+      UUID.nameUUIDFromBytes("stale".getBytes(StandardCharsets.UTF_8));
+  private static final UUID CURRENT_MV_UUID =
+      UUID.nameUUIDFromBytes("current".getBytes(StandardCharsets.UTF_8));
+  private static final GenerationId USER_VERSION_1_GENERATION_ID =
+      new GenerationId(INDEX_ID, MOCK_GENERATION_ID.generation.incrementUser());
 
   @Test
   public void testAddIndex() throws Exception {
@@ -425,6 +435,402 @@ public class MaterializedViewManagerTest {
     inOrder
         .verify(mocks.metadataCatalog)
         .removeMetadata(materializedViewindexGeneration.getGenerationId());
+  }
+
+  @Test
+  public void dropIndex_mvUuidRepairedBetweenAttempts_removesGeneratorUnderOldUuid()
+      throws Exception {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    UUID oldUuid = UUID.nameUUIDFromBytes("old".getBytes(StandardCharsets.UTF_8));
+    UUID repairedUuid = UUID.nameUUIDFromBytes("repaired".getBytes(StandardCharsets.UTF_8));
+    AtomicReference<UUID> mvUuid = new AtomicReference<>(oldUuid);
+    stubMetadataCollectionUuid(mocks, mvUuid);
+    MaterializedViewIndexGeneration attempt0Generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator leader = mocks.mockMaterializedViewGenerator(attempt0Generation);
+    mocks.addIndexForReplication(attempt0Generation);
+    assertTrue(leader.isLeader());
+    // Leadership loss replaces the leader with a follower keyed by the old UUID.
+    MaterializedViewGenerator follower = mocks.mockMaterializedViewGenerator(attempt0Generation);
+    when(mocks.leaseManager.isLeader(attempt0Generation.getGenerationId())).thenReturn(false);
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(LeaseManager.FollowerPollResult.EMPTY);
+    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(mocks.heartbeatExecutor)
+        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
+    heartbeatCaptor.getValue().run();
+    // The stale MV UUID is repaired, then recovery stages attempt 1 under the repaired UUID.
+    mvUuid.set(repairedUuid);
+    MaterializedViewIndexGeneration attempt1Generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(attempt1Generation);
+    mocks.addIndexForReplicationWithAttempt(attempt1Generation, 1);
+    GenerationId attempt1 =
+        new GenerationId(
+            MOCK_GENERATION_ID.indexId,
+            new Generation(
+                MOCK_GENERATION_ID.generation.userIndexVersion, IndexFormatVersion.CURRENT, 1));
+
+    // Config drops the staged attempt 1 while the index is still live, then attempt 0.
+    mocks.manager.dropIndex(attempt1).get(5, TimeUnit.SECONDS);
+    mocks.markIndexDeleted();
+    mocks.manager.dropIndex(MOCK_GENERATION_ID).get(5, TimeUnit.SECONDS);
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    verify(follower).shutdown();
+    var catalog = mocks.manager.getActiveGenerationIdCatalog();
+    assertTrue(catalog.genIdByMatViewCollection.isEmpty());
+    assertTrue(catalog.latestMatViewIndexGenerationByCollection.isEmpty());
+    // Recreated generators would come from the catalog buffer; none may reappear after the drops.
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(attempt0Generation);
+    verify(mocks.materializedViewGeneratorFactory, times(1)).create(attempt1Generation);
+  }
+
+  @Test
+  public void add_mvUuidRepairedBetweenAttempts_handsOverGeneratorFromStaleUuid() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    UUID oldUuid = UUID.nameUUIDFromBytes("old".getBytes(StandardCharsets.UTF_8));
+    UUID repairedUuid = UUID.nameUUIDFromBytes("repaired".getBytes(StandardCharsets.UTF_8));
+    AtomicReference<UUID> mvUuid = new AtomicReference<>(oldUuid);
+    stubMetadataCollectionUuid(mocks, mvUuid);
+    MaterializedViewIndexGeneration attempt0Generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(attempt0Generation);
+    mocks.addIndexForReplication(attempt0Generation);
+    MaterializedViewGenerator follower = replaceLeaderWithFollower(mocks, attempt0Generation);
+    mvUuid.set(repairedUuid);
+    MaterializedViewIndexGeneration attempt1Generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(attempt1Generation);
+
+    mocks.addIndexForReplicationWithAttempt(attempt1Generation, 1);
+
+    verify(follower).shutdown();
+    var catalog = mocks.manager.getActiveGenerationIdCatalog();
+    assertEquals(Set.of(repairedUuid), catalog.genIdByMatViewCollection.keySet());
+    assertEquals(2, catalog.genIdByMatViewCollection.get(repairedUuid).size());
+    assertEquals(Set.of(repairedUuid), catalog.latestMatViewIndexGenerationByCollection.keySet());
+  }
+
+  @Test
+  public void add_mvUuidRepairedAndReplacementFails_shutsDownOldGeneratorAndRetries() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    AtomicReference<UUID> mvUuid =
+        new AtomicReference<>(UUID.nameUUIDFromBytes("old".getBytes(StandardCharsets.UTF_8)));
+    stubMetadataCollectionUuid(mocks, mvUuid);
+    MaterializedViewIndexGeneration attempt0Generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(attempt0Generation);
+    mocks.addIndexForReplication(attempt0Generation);
+    MaterializedViewGenerator follower = replaceLeaderWithFollower(mocks, attempt0Generation);
+    mvUuid.set(UUID.nameUUIDFromBytes("repaired".getBytes(StandardCharsets.UTF_8)));
+    MaterializedViewIndexGeneration attempt1Generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator attempt1Generator =
+        mocks.mockMaterializedViewGenerator(attempt1Generation);
+    when(mocks.materializedViewGeneratorFactory.create(attempt1Generation))
+        .thenThrow(new RuntimeException("injected generator creation failure"))
+        .thenReturn(attempt1Generator);
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(LeaseManager.FollowerPollResult.EMPTY);
+
+    assertThrows(
+        RuntimeException.class,
+        () -> mocks.addIndexForReplicationWithAttempt(attempt1Generation, 1));
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    // The old generator is stopped, so the status refresh retries and creates the new one.
+    verify(follower).shutdown();
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(attempt1Generation);
+  }
+
+  @Test
+  public void add_mvUuidRepairedAfterFailedUserVersionReplacement_retriesNewGenerator() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    UUID repairedUuid = UUID.nameUUIDFromBytes("repaired".getBytes(StandardCharsets.UTF_8));
+    Map<String, UUID> repairedUuidByMvKey = new ConcurrentHashMap<>();
+    stubMetadataCollectionUuid(
+        mocks, id -> repairedUuidByMvKey.getOrDefault(canonicalKey(id), STALE_MV_UUID));
+    when(mocks.materializedViewGeneratorFactory.isInitialized()).thenReturn(true);
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(LeaseManager.FollowerPollResult.EMPTY);
+    // User version 0 runs; replacing it with user version 1 on the same UUID fails, so the
+    // user version 0 generator stays installed.
+    MaterializedViewIndexGeneration userVersion0 =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID));
+    MaterializedViewGenerator userVersion0Generator =
+        mocks.mockMaterializedViewGenerator(userVersion0);
+    mocks.addIndexForReplication(userVersion0);
+    var userVersion1Id = MaterializedViewGenerationId.from(USER_VERSION_1_GENERATION_ID);
+    MaterializedViewIndexGeneration userVersion1Attempt0 =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(userVersion1Id, 1));
+    when(mocks.materializedViewGeneratorFactory.create(userVersion1Attempt0))
+        .thenThrow(new RuntimeException("injected generator creation failure"));
+    assertThrows(RuntimeException.class, () -> mocks.addIndexForReplication(userVersion1Attempt0));
+    // User version 1's MV collection gets a new UUID and its next attempt fails once more.
+    repairedUuidByMvKey.put(userVersion1Id.uniqueString(), repairedUuid);
+    MaterializedViewIndexGeneration userVersion1Attempt1 =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(userVersion1Id, 1));
+    MaterializedViewGenerator userVersion1Generator =
+        mocks.mockMaterializedViewGenerator(userVersion1Attempt1);
+    when(mocks.materializedViewGeneratorFactory.create(userVersion1Attempt1))
+        .thenThrow(new RuntimeException("injected generator creation failure"))
+        .thenReturn(userVersion1Generator);
+
+    assertThrows(
+        RuntimeException.class,
+        () -> mocks.addIndexForReplicationWithAttempt(userVersion1Attempt1, 1));
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    // The user version 0 generator is stopped and the refresh creates user version 1's generator.
+    verify(userVersion0Generator).shutdown();
+    verify(mocks.materializedViewGeneratorFactory, times(2)).create(userVersion1Attempt1);
+    assertEquals(
+        Set.of(repairedUuid),
+        mocks
+            .manager
+            .getActiveGenerationIdCatalog()
+            .latestMatViewIndexGenerationByCollection
+            .keySet());
+  }
+
+  @Test
+  public void add_mvUuidRepairedOnUuidSharedWithOtherUserVersion_movesOnlyThisMvGeneration() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    UUID oldUuid = UUID.nameUUIDFromBytes("old".getBytes(StandardCharsets.UTF_8));
+    UUID repairedUuid = UUID.nameUUIDFromBytes("repaired".getBytes(StandardCharsets.UTF_8));
+    Map<String, UUID> repairedUuidByMvKey = new ConcurrentHashMap<>();
+    stubMetadataCollectionUuid(
+        mocks, id -> repairedUuidByMvKey.getOrDefault(canonicalKey(id), oldUuid));
+    // Two user versions share the old UUID; the newer one is latest, so the generator serves it.
+    MaterializedViewIndexGeneration userVersion0 =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID));
+    mocks.mockMaterializedViewGenerator(userVersion0);
+    mocks.addIndexForReplication(userVersion0);
+    var userVersion1Id =
+        new MaterializedViewGenerationId(
+            MOCK_MAT_VIEW_GENERATION_ID.indexId,
+            MOCK_MAT_VIEW_GENERATION_ID.generation.incrementUser());
+    MaterializedViewIndexGeneration userVersion1Attempt0 =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(userVersion1Id, 1));
+    MaterializedViewGenerator userVersion1Generator =
+        mocks.mockMaterializedViewGenerator(userVersion1Attempt0);
+    mocks.addIndexForReplication(userVersion1Attempt0);
+    repairedUuidByMvKey.put(userVersion1Id.uniqueString(), repairedUuid);
+    MaterializedViewIndexGeneration userVersion1Attempt1 =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(userVersion1Id, 1));
+    mocks.mockMaterializedViewGenerator(userVersion1Attempt1);
+
+    mocks.addIndexForReplicationWithAttempt(userVersion1Attempt1, 1);
+
+    // The generator under the old UUID served user version 1, so it was handed over and replaced.
+    verify(userVersion1Generator).shutdown();
+    var catalog = mocks.manager.getActiveGenerationIdCatalog();
+    assertEquals(Set.of(MOCK_GENERATION_ID), catalog.genIdByMatViewCollection.get(oldUuid));
+    assertEquals(2, catalog.genIdByMatViewCollection.get(repairedUuid).size());
+    assertEquals(Set.of(repairedUuid), catalog.latestMatViewIndexGenerationByCollection.keySet());
+  }
+
+  @Test
+  public void moveOffStaleUuids_noOtherUuid_movesNothing() {
+    var catalog = newActiveGenerationIdCatalog();
+    register(catalog, CURRENT_MV_UUID, MOCK_GENERATION_ID);
+
+    Optional<UUID> handOverFrom =
+        catalog.moveOffStaleUuids(CURRENT_MV_UUID, canonicalKey(MOCK_GENERATION_ID));
+
+    assertEquals(Optional.empty(), handOverFrom);
+    assertEquals(
+        Map.of(CURRENT_MV_UUID, Set.of(MOCK_GENERATION_ID)), catalog.genIdByMatViewCollection);
+  }
+
+  @Test
+  public void moveOffStaleUuids_staleUuidHoldsOnlyThisMvGeneration_movesAllAndHandsOver() {
+    var catalog = newActiveGenerationIdCatalog();
+    register(catalog, STALE_MV_UUID, MOCK_GENERATION_ID);
+    catalog.latestMatViewIndexGenerationByCollection.put(
+        STALE_MV_UUID, mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+
+    Optional<UUID> handOverFrom =
+        catalog.moveOffStaleUuids(CURRENT_MV_UUID, canonicalKey(MOCK_GENERATION_ID));
+
+    assertEquals(Optional.of(STALE_MV_UUID), handOverFrom);
+    assertEquals(
+        Map.of(CURRENT_MV_UUID, Set.of(MOCK_GENERATION_ID)), catalog.genIdByMatViewCollection);
+    assertTrue(catalog.latestMatViewIndexGenerationByCollection.isEmpty());
+  }
+
+  @Test
+  public void moveOffStaleUuids_sharedStaleUuidServingThisMvGeneration_movesOursAndHandsOver() {
+    var catalog = newActiveGenerationIdCatalog();
+    register(catalog, STALE_MV_UUID, MOCK_GENERATION_ID, USER_VERSION_1_GENERATION_ID);
+    catalog.latestMatViewIndexGenerationByCollection.put(
+        STALE_MV_UUID, userVersion1MatViewIndexGeneration());
+
+    Optional<UUID> handOverFrom =
+        catalog.moveOffStaleUuids(CURRENT_MV_UUID, canonicalKey(USER_VERSION_1_GENERATION_ID));
+
+    assertEquals(Optional.of(STALE_MV_UUID), handOverFrom);
+    assertEquals(
+        Map.of(
+            STALE_MV_UUID, Set.of(MOCK_GENERATION_ID),
+            CURRENT_MV_UUID, Set.of(USER_VERSION_1_GENERATION_ID)),
+        catalog.genIdByMatViewCollection);
+    assertTrue(catalog.latestMatViewIndexGenerationByCollection.isEmpty());
+  }
+
+  @Test
+  public void moveOffStaleUuids_sharedStaleUuidServingOtherMvGeneration_movesOursKeepsGenerator() {
+    var catalog = newActiveGenerationIdCatalog();
+    register(catalog, STALE_MV_UUID, MOCK_GENERATION_ID, USER_VERSION_1_GENERATION_ID);
+    MaterializedViewIndexGeneration otherLatest = userVersion1MatViewIndexGeneration();
+    catalog.latestMatViewIndexGenerationByCollection.put(STALE_MV_UUID, otherLatest);
+
+    Optional<UUID> handOverFrom =
+        catalog.moveOffStaleUuids(CURRENT_MV_UUID, canonicalKey(MOCK_GENERATION_ID));
+
+    assertEquals(Optional.empty(), handOverFrom);
+    assertEquals(
+        Map.of(
+            STALE_MV_UUID, Set.of(USER_VERSION_1_GENERATION_ID),
+            CURRENT_MV_UUID, Set.of(MOCK_GENERATION_ID)),
+        catalog.genIdByMatViewCollection);
+    assertEquals(
+        Map.of(STALE_MV_UUID, otherLatest), catalog.latestMatViewIndexGenerationByCollection);
+  }
+
+  @Test
+  public void moveOffStaleUuids_otherUuidHoldsOnlyOtherMvGeneration_leavesItUntouched() {
+    var catalog = newActiveGenerationIdCatalog();
+    register(catalog, STALE_MV_UUID, USER_VERSION_1_GENERATION_ID);
+
+    Optional<UUID> handOverFrom =
+        catalog.moveOffStaleUuids(CURRENT_MV_UUID, canonicalKey(MOCK_GENERATION_ID));
+
+    assertEquals(Optional.empty(), handOverFrom);
+    assertEquals(
+        Map.of(STALE_MV_UUID, Set.of(USER_VERSION_1_GENERATION_ID)),
+        catalog.genIdByMatViewCollection);
+  }
+
+  private static MaterializedViewManager.ActiveGenerationIdCatalog newActiveGenerationIdCatalog() {
+    return new MaterializedViewManager.ActiveGenerationIdCatalog(
+        mock(MaterializedViewCollectionMetadataCatalog.class));
+  }
+
+  private static void register(
+      MaterializedViewManager.ActiveGenerationIdCatalog catalog,
+      UUID uuid,
+      GenerationId... generationIds) {
+    Set<GenerationId> registered = ConcurrentHashMap.newKeySet();
+    registered.addAll(List.of(generationIds));
+    catalog.genIdByMatViewCollection.put(uuid, registered);
+  }
+
+  private static MaterializedViewIndexGeneration userVersion1MatViewIndexGeneration() {
+    return mockMatViewIndexGeneration(
+        mockMatViewDefinitionGeneration(
+            MaterializedViewGenerationId.from(USER_VERSION_1_GENERATION_ID), 1));
+  }
+
+  @Test
+  public void queryableMaterializedViewLagsMs_leader_reportsLag() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    addSteadyGenerationLagging(mocks, 60);
+
+    List<Long> lagsMs = mocks.manager.queryableMaterializedViewLagsMs().boxed().toList();
+
+    assertEquals(List.of(60_000L), lagsMs);
+  }
+
+  @Test
+  public void queryableMaterializedViewLagsMs_trackedFollower_reportsLag() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration generation = addSteadyGenerationLagging(mocks, 60);
+    replaceLeaderWithFollower(mocks, generation);
+    when(mocks.leaseManager.getFollowerGenerationIds())
+        .thenReturn(Set.of(generation.getGenerationId()));
+
+    List<Long> lagsMs = mocks.manager.queryableMaterializedViewLagsMs().boxed().toList();
+
+    assertEquals(List.of(60_000L), lagsMs);
+  }
+
+  @Test
+  public void queryableMaterializedViewLagsMs_followerNoLongerTrackedByLeaseManager_excluded() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration generation = addSteadyGenerationLagging(mocks, 60);
+    replaceLeaderWithFollower(mocks, generation);
+    when(mocks.leaseManager.getFollowerGenerationIds()).thenReturn(Set.of());
+
+    List<Long> lagsMs = mocks.manager.queryableMaterializedViewLagsMs().boxed().toList();
+
+    assertEquals(List.of(), lagsMs);
+  }
+
+  @Test
+  public void queryableMaterializedViewLagsMs_shutDownGenerator_excluded() {
+    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+    MaterializedViewIndexGeneration generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(generation);
+    mocks.addIndexForReplication(generation);
+    generation.getIndex().setStatus(IndexStatus.steady());
+    ensureReplicationOpTimeInfo(generation)
+        .update(new BsonTimestamp(1000, 1).getValue(), new BsonTimestamp(1060, 1).getValue());
+    doReturn(IndexManager.State.SHUT_DOWN).when(generator).getState();
+
+    List<Long> lagsMs = mocks.manager.queryableMaterializedViewLagsMs().boxed().toList();
+
+    assertEquals(List.of(), lagsMs);
+  }
+
+  /** Adds a STEADY leader generation whose replication optime trails the max by {@code lagSecs}. */
+  private static MaterializedViewIndexGeneration addSteadyGenerationLagging(
+      Mocks mocks, int lagSecs) {
+    MaterializedViewIndexGeneration generation =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    mocks.mockMaterializedViewGenerator(generation);
+    mocks.addIndexForReplication(generation);
+    generation.getIndex().setStatus(IndexStatus.steady());
+    ensureReplicationOpTimeInfo(generation)
+        .update(
+            new BsonTimestamp(1000, 1).getValue(), new BsonTimestamp(1000 + lagSecs, 1).getValue());
+    return generation;
+  }
+
+  /** Loses the lease so the heartbeat replaces the leader with a follower sharing its index. */
+  private static MaterializedViewGenerator replaceLeaderWithFollower(
+      Mocks mocks, MaterializedViewIndexGeneration generation) {
+    MaterializedViewGenerator follower = mocks.mockMaterializedViewGenerator(generation);
+    when(mocks.leaseManager.isLeader(generation.getGenerationId())).thenReturn(false);
+    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(mocks.heartbeatExecutor)
+        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
+    heartbeatCaptor.getValue().run();
+    return follower;
+  }
+
+  /** Makes the metadata catalog report {@code uuid}'s current value for every generation. */
+  private static void stubMetadataCollectionUuid(Mocks mocks, AtomicReference<UUID> uuid) {
+    stubMetadataCollectionUuid(mocks, unused -> uuid.get());
+  }
+
+  /** Makes the metadata catalog report the MV collection UUID {@code uuidOf} returns. */
+  private static void stubMetadataCollectionUuid(Mocks mocks, Function<GenerationId, UUID> uuidOf) {
+    Answer<MaterializedViewCollectionMetadata> metadata =
+        invocation -> {
+          GenerationId id = invocation.getArgument(0);
+          return new MaterializedViewCollectionMetadata(
+              new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of()),
+              uuidOf.apply(id),
+              "test_" + id.indexId.toHexString());
+        };
+    when(mocks.metadataCatalog.getMetadata(any(GenerationId.class))).thenAnswer(metadata);
+    when(mocks.metadataCatalog.getMetadataIfPresent(any(GenerationId.class)))
+        .thenAnswer(invocation -> Optional.of(metadata.answer(invocation)));
   }
 
   @Test
