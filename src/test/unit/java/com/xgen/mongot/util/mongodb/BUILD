@@ -6,6 +6,7 @@ java_test_suite(
         "BatchMongoClientTest.java",
         "ChangeStreamResponseTest.java",
         "CollectionScanFindCommandTest.java",
+        "ConnectionInfoTest.java",
         "ConnectionStringBuilderTest.java",
         "ConnectionStringUtilTest.java",
         "FindCommandResponseTest.java",

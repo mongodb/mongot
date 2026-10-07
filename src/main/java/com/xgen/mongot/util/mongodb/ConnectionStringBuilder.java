@@ -26,6 +26,7 @@ public class ConnectionStringBuilder {
   @Nullable private List<HostAndPort> hostAndPorts;
   @Nullable private String authenticationDatabase;
   private boolean x509Authentication = false;
+  private boolean oidcAuthentication = false;
 
   private record Option(String name, String value) {}
 
@@ -84,6 +85,26 @@ public class ConnectionStringBuilder {
   }
 
   /**
+   * Configures OIDC authentication on the connection string. Sets {@code
+   * authMechanism=MONGODB-OIDC} and {@code authSource=$external}. A custom (external identity
+   * provider) environment passes {@code Optional.empty()}: its token callback is an object that
+   * cannot be encoded in the URI, so it travels out of band on the {@code MongoCredential}. A
+   * built-in driver environment (e.g. {@code ENVIRONMENT:k8s}) would instead pass the raw {@code
+   * authMechanismProperties} value.
+   *
+   * @param authMechanismProperties the raw {@code authMechanismProperties} value, e.g. {@code
+   *     ENVIRONMENT:k8s}, or empty for no mechanism properties
+   */
+  public ConnectionStringBuilder withOidcConfig(Optional<String> authMechanismProperties) {
+    this.withOption("authSource", "$external");
+    this.withOption("authMechanism", "MONGODB-OIDC");
+    authMechanismProperties.ifPresent(p -> this.withOption("authMechanismProperties", p));
+
+    this.oidcAuthentication = true;
+    return this;
+  }
+
+  /**
    * Sets a single-valued option on the connection string. If an option with the same key was
    * previously set, it is replaced. {@code value} must be urlencoded if required.
    *
@@ -124,7 +145,7 @@ public class ConnectionStringBuilder {
     String scheme = this.scheme;
     @Var String authenticationPrefix = "";
     @Var String authenticationDatabase = "";
-    if (!this.x509Authentication) {
+    if (!this.x509Authentication && !this.oidcAuthentication) {
       authenticationPrefix =
           Optional.ofNullable(this.authenticationCredentials).map(s -> s + "@").orElse("");
       authenticationDatabase = Objects.requireNonNullElse(this.authenticationDatabase, "");

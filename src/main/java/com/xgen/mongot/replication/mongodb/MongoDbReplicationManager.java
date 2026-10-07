@@ -6,7 +6,6 @@ import static com.xgen.mongot.util.Check.checkState;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import com.mongodb.ConnectionString;
 import com.mongodb.client.MongoClient;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
@@ -46,7 +45,6 @@ import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
-import com.xgen.mongot.util.mongodb.SslContextFactory;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -365,10 +363,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
       synonymsMongoClient =
           Optional.of(
               getSynonymsMongoClient(
-                  mongosSingleHostUri.uri(),
-                  mongosSingleHostUri.sslContextFactory(),
-                  replicationConfig.numConcurrentSynonymSyncs,
-                  meterRegistry));
+                  mongosSingleHostUri, replicationConfig.numConcurrentSynonymSyncs, meterRegistry));
     } else {
       synonymsMongoClient = Optional.empty();
     }
@@ -563,8 +558,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
       String metricsNamespacePrefix,
       MeterRegistry meterRegistry,
       int maxConnections) {
-    return MongoClientBuilder.builder(syncSource.uri(), metricsNamespacePrefix, meterRegistry)
-        .sslContextFactory(syncSource.sslContextFactory())
+    return MongoClientBuilder.builder(syncSource, metricsNamespacePrefix, meterRegistry)
         .description("initial sync and session refresh")
         .maxConnections(maxConnections)
         .buildSyncClient();
@@ -671,12 +665,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
   }
 
   private static com.mongodb.client.MongoClient getSynonymsMongoClient(
-      ConnectionString connectionString,
-      Optional<SslContextFactory> sslContextFactory,
-      int numConcurrentSynonymSyncs,
-      MeterRegistry meterRegistry) {
-    return MongoClientBuilder.builder(connectionString, meterRegistry)
-        .sslContextFactory(sslContextFactory)
+      ConnectionInfo connectionInfo, int numConcurrentSynonymSyncs, MeterRegistry meterRegistry) {
+    return MongoClientBuilder.builder(connectionInfo, meterRegistry)
         .description("mongos synonym sync")
         .maxConnections(numConcurrentSynonymSyncs)
         .buildSyncClient();
@@ -687,11 +677,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
       int numConcurrentChangeStreams,
       String metricsNamespacePrefix,
       MeterRegistry meterRegistry) {
-    return MongoClientBuilder.builder(
-            syncSourceConfig.mongodClusterReplicationUri.uri(),
-            metricsNamespacePrefix,
-            meterRegistry)
-        .sslContextFactory(syncSourceConfig.mongodClusterReplicationUri.sslContextFactory())
+    var connectionInfo = syncSourceConfig.mongodClusterReplicationUri;
+    return MongoClientBuilder.builder(connectionInfo, metricsNamespacePrefix, meterRegistry)
         .description("steady state sync")
         .maxConnections(numConcurrentChangeStreams)
         .buildSyncBatchClient();

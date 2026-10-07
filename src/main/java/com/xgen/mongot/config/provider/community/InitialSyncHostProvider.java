@@ -325,14 +325,13 @@ public class InitialSyncHostProvider implements Closeable {
    */
   private static MongoClient createSdamClient(
       ConnectionInfo connectionInfo, MeterRegistry meterRegistry) {
-    return MongoClientBuilder.builder(connectionInfo.uri(), meterRegistry)
+    return MongoClientBuilder.builder(connectionInfo, meterRegistry)
         .description("initial sync host provider")
         .socketTimeoutMs(10_000)
         .heartbeatFrequencyMs(5_000)
         .minHeartbeatFrequencyMs(500)
         .localThresholdMs(100)
         .maxConnections(1)
-        .sslContextFactory(connectionInfo.sslContextFactory())
         .buildNonReplicationClient();
   }
 }

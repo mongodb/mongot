@@ -3,8 +3,10 @@ package com.xgen.mongot.util.mongodb;
 import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.mongodb.AuthenticationMechanism;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoCredential;
 import com.mongodb.ReadConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
@@ -38,6 +40,7 @@ public class MongoClientBuilder {
   private Optional<String> applicationName;
   private Optional<Integer> maxConnections;
   private Optional<Integer> socketTimeoutMs;
+  private Optional<MongoCredential> oidcCredential;
   private Optional<ReadConcern> readConcern;
   private Optional<Long> heartbeatFrequencyMs;
   private Optional<Long> minHeartbeatFrequencyMs;
@@ -60,6 +63,7 @@ public class MongoClientBuilder {
     this.applicationName = Optional.empty();
     this.maxConnections = Optional.empty();
     this.socketTimeoutMs = Optional.empty();
+    this.oidcCredential = Optional.empty();
     this.readConcern = Optional.empty();
     this.heartbeatFrequencyMs = Optional.empty();
     this.minHeartbeatFrequencyMs = Optional.empty();
@@ -77,6 +81,25 @@ public class MongoClientBuilder {
       String metricsNamespacePrefix,
       MeterRegistry meterRegistry) {
     return new MongoClientBuilder(connectionString, metricsNamespacePrefix, meterRegistry);
+  }
+
+  /**
+   * Applies {@link ConnectionInfo#sslContextFactory()} and {@link ConnectionInfo#oidcCredential()}
+   * so callers never need to unpack those fields themselves.
+   */
+  public static MongoClientBuilder builder(
+      ConnectionInfo connectionInfo, MeterRegistry meterRegistry) {
+    return builder(connectionInfo.uri(), meterRegistry)
+        .sslContextFactory(connectionInfo.sslContextFactory())
+        .oidcCredential(connectionInfo.oidcCredential());
+  }
+
+  /** Same as {@link #builder(ConnectionInfo, MeterRegistry)}, with a metrics namespace prefix. */
+  public static MongoClientBuilder builder(
+      ConnectionInfo connectionInfo, String metricsNamespacePrefix, MeterRegistry meterRegistry) {
+    return builder(connectionInfo.uri(), metricsNamespacePrefix, meterRegistry)
+        .sslContextFactory(connectionInfo.sslContextFactory())
+        .oidcCredential(connectionInfo.oidcCredential());
   }
 
   /**
@@ -132,11 +155,24 @@ public class MongoClientBuilder {
   public static MongoClient buildNonReplicationWithDefaults(
       ConnectionInfo connectionInfo, String applicationName, MeterRegistry meterRegistry) {
     return buildNonReplicationWithDefaults(
-        connectionInfo.uri(),
-        applicationName,
-        Defaults.SINGLE_THREAD_MAX_CONNECTIONS,
-        connectionInfo.sslContextFactory(),
-        meterRegistry);
+        connectionInfo, applicationName, Defaults.SINGLE_THREAD_MAX_CONNECTIONS, meterRegistry);
+  }
+
+  /**
+   * Same as {@link #buildNonReplicationWithDefaults(ConnectionInfo, String, MeterRegistry)}, but
+   * with a caller-specified {@code maxConnections} instead of {@link
+   * Defaults#SINGLE_THREAD_MAX_CONNECTIONS}.
+   */
+  public static MongoClient buildNonReplicationWithDefaults(
+      ConnectionInfo connectionInfo,
+      String applicationName,
+      int maxConnections,
+      MeterRegistry meterRegistry) {
+    return builder(connectionInfo, meterRegistry)
+        .description(applicationName)
+        .maxConnections(maxConnections)
+        .socketTimeoutMs(Defaults.SOCKET_TIMEOUT_MS)
+        .buildNonReplicationClient();
   }
 
   /**
@@ -148,15 +184,36 @@ public class MongoClientBuilder {
       String applicationName,
       int maxConnections,
       Optional<SslContextFactory> sslContextFactory,
+      Optional<MongoCredential> oidcCredential,
       MeterRegistry meterRegistry) {
 
     var b =
         builder(connectionString, meterRegistry)
+            .oidcCredential(oidcCredential)
             .description(applicationName)
             .maxConnections(maxConnections)
             .socketTimeoutMs(Defaults.SOCKET_TIMEOUT_MS);
     sslContextFactory.ifPresent(b::sslContextFactory);
     return b.buildNonReplicationClient();
+  }
+
+  /**
+   * Applies a {@code MONGODB_OIDC} credential (e.g. from {@link ConnectionInfo#oidcCredential}),
+   * separate from any SCRAM/x.509 credential carried in the connection string. Rejects a non-{@code
+   * MONGODB_OIDC} credential and, at build time, a connection string that already carries a
+   * non-OIDC credential. A connection string with {@code authMechanism=MONGODB-OIDC} yields a
+   * placeholder OIDC credential with no callback; that one is allowed and is replaced by this
+   * credential.
+   */
+  public MongoClientBuilder oidcCredential(Optional<MongoCredential> oidcCredential) {
+    oidcCredential.ifPresent(
+        credential ->
+            checkArg(
+                credential.getAuthenticationMechanism() == AuthenticationMechanism.MONGODB_OIDC,
+                "oidcCredential must use the MONGODB_OIDC mechanism, got: %s",
+                credential.getAuthenticationMechanism()));
+    this.oidcCredential = oidcCredential;
+    return this;
   }
 
   public MongoClientBuilder description(String description) {
@@ -288,6 +345,20 @@ public class MongoClientBuilder {
     if (Boolean.TRUE.equals(this.connectionString.getSslEnabled())) {
       attemptOpenSslDynamicLinking(settings);
     }
+
+    this.oidcCredential.ifPresent(
+        credential -> {
+          // A URI with authMechanism=MONGODB-OIDC already yields an OIDC credential (without the
+          // callback); the explicit credential replaces it. Any other URI credential conflicts.
+          MongoCredential uriCredential = this.connectionString.getCredential();
+          checkArg(
+              uriCredential == null
+                  || uriCredential.getAuthenticationMechanism()
+                      == AuthenticationMechanism.MONGODB_OIDC,
+              "Cannot combine an oidcCredential with a connection string that already carries a "
+                  + "non-OIDC credential");
+          settings.credential(credential);
+        });
 
     this.readConcern.ifPresent(settings::readConcern);
     this.applicationName.ifPresent(settings::applicationName);

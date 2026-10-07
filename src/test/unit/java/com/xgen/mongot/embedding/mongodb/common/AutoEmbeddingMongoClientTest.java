@@ -5,8 +5,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.mongodb.AuthenticationMechanism;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoCredential;
+import com.mongodb.MongoCredential.OidcCallback;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.internal.MongoClientImpl;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
+import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -265,5 +272,76 @@ public class AutoEmbeddingMongoClientTest {
     } finally {
       client.close();
     }
+  }
+
+  // --- OIDC credential wiring ---
+
+  @Test
+  public void initClients_oidcCallbackPresent_appliesOidcCredentialToAllClients() {
+    OidcCallback callback = context -> null;
+    var uri =
+        new ConnectionInfo(
+            new ConnectionString("mongodb://localhost:27017/"),
+            Optional.empty(),
+            Optional.of(
+                MongoCredential.createOidcCredential(null)
+                    .withMechanismProperty(MongoCredential.OIDC_CALLBACK_KEY, callback)));
+    var config =
+        SyncSourceConfig.builder()
+            .mongodClusterReplicationUri(uri)
+            .mongodClusterReadWriteUri(uri)
+            .build();
+
+    var client =
+        new AutoEmbeddingMongoClient(
+            Optional.of(config),
+            new SimpleMeterRegistry(),
+            AutoEmbeddingMaterializedViewConfig.getDefault());
+    try {
+      assertThat(credentialMechanism(client.getMaterializedViewResolverMongoClient().get()))
+          .isEqualTo(AuthenticationMechanism.MONGODB_OIDC);
+      assertThat(credentialMechanism(client.getLeaseManagerMongoClient().get()))
+          .isEqualTo(AuthenticationMechanism.MONGODB_OIDC);
+      assertThat(credentialMechanism(client.getMaterializedViewWriterMongoClient().get()))
+          .isEqualTo(AuthenticationMechanism.MONGODB_OIDC);
+      assertThat(credentialMechanism(client.getProbeMongoClient().get()))
+          .isEqualTo(AuthenticationMechanism.MONGODB_OIDC);
+    } finally {
+      client.close();
+    }
+  }
+
+  @Test
+  public void initClients_noOidcCallback_credentialAbsentFromAllClients() {
+    var uri = ConnectionStringUtil.toConnectionInfoUnchecked("mongodb://localhost:27017/");
+    var config =
+        SyncSourceConfig.builder()
+            .mongodClusterReplicationUri(uri)
+            .mongodClusterReadWriteUri(uri)
+            .build();
+
+    var client =
+        new AutoEmbeddingMongoClient(
+            Optional.of(config),
+            new SimpleMeterRegistry(),
+            AutoEmbeddingMaterializedViewConfig.getDefault());
+    try {
+      assertThat(settingsOf(client.getMaterializedViewResolverMongoClient().get()).getCredential())
+          .isNull();
+      assertThat(settingsOf(client.getLeaseManagerMongoClient().get()).getCredential()).isNull();
+      assertThat(settingsOf(client.getMaterializedViewWriterMongoClient().get()).getCredential())
+          .isNull();
+      assertThat(settingsOf(client.getProbeMongoClient().get()).getCredential()).isNull();
+    } finally {
+      client.close();
+    }
+  }
+
+  private static AuthenticationMechanism credentialMechanism(MongoClient client) {
+    return settingsOf(client).getCredential().getAuthenticationMechanism();
+  }
+
+  private static MongoClientSettings settingsOf(MongoClient client) {
+    return ((MongoClientImpl) client).getSettings();
   }
 }

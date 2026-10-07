@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.net.HostAndPort;
+import java.util.Optional;
 import org.junit.Test;
 
 public class ConnectionStringBuilderTest {
@@ -124,5 +125,41 @@ public class ConnectionStringBuilderTest {
     assertTrue(
         "Should contain authMechanism=MONGODB-X509", uri.contains("authMechanism=MONGODB-X509"));
     assertTrue("Should contain authSource", uri.contains("authSource=$external"));
+  }
+
+  @Test
+  public void withOidcConfig_mechanismProperties_setsOidcOptions()
+      throws ConnectionStringUtil.InvalidConnectionStringException {
+    String uri =
+        ConnectionStringBuilder.standard()
+            .withHostAndPort(HostAndPort.fromString("mongod:27017"))
+            .withOidcConfig(Optional.of("ENVIRONMENT:k8s"))
+            .withOption("tls", "true")
+            .build()
+            .toString();
+
+    assertFalse("OIDC URI should not contain user:password", uri.contains("@"));
+    assertTrue(
+        "Should contain authMechanism=MONGODB-OIDC", uri.contains("authMechanism=MONGODB-OIDC"));
+    assertTrue("Should contain authSource=$external", uri.contains("authSource=$external"));
+    assertTrue(
+        "Should contain authMechanismProperties=ENVIRONMENT:k8s",
+        uri.contains("authMechanismProperties=ENVIRONMENT:k8s"));
+  }
+
+  @Test
+  public void withOidcConfig_noMechanismProperties_omitsProperties()
+      throws ConnectionStringUtil.InvalidConnectionStringException {
+    String uri =
+        ConnectionStringBuilder.standard()
+            .withHostAndPort(HostAndPort.fromString("mongod:27017"))
+            .withOidcConfig(Optional.empty())
+            .withOption("tls", "true")
+            .build()
+            .toString();
+
+    assertTrue(uri.contains("authMechanism=MONGODB-OIDC"));
+    assertTrue(uri.contains("authSource=$external"));
+    assertFalse(uri.contains("authMechanismProperties"));
   }
 }

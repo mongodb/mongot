@@ -9,6 +9,8 @@ import static org.mockito.Mockito.doThrow;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCompressor;
+import com.mongodb.MongoCredential;
+import com.mongodb.MongoCredential.OidcCallback;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.MongoClient;
@@ -30,6 +32,12 @@ public class MongoClientBuilderTest {
 
   private static final Tags replicationTags =
       Tags.of(ServerStatusDataExtractor.Scope.REPLICATION.getTag());
+
+  private static MongoCredential oidcCredentialForTesting() {
+    OidcCallback callback = context -> null;
+    return MongoCredential.createOidcCredential(null)
+        .withMechanismProperty(MongoCredential.OIDC_CALLBACK_KEY, callback);
+  }
 
   @Test
   public void testConnectionStringDoesNotSupersedeParametersImplicitlySetByTheBuilder() {
@@ -239,12 +247,130 @@ public class MongoClientBuilderTest {
             applicationName,
             maxConnections,
             Optional.empty(),
+            Optional.empty(),
             new SimpleMeterRegistry());
 
     MongoClientSettings settings = ((MongoClientImpl) client).getSettings();
 
     assertEquals(String.format("mongot %s", applicationName), settings.getApplicationName());
     assertEquals(maxConnections, settings.getConnectionPoolSettings().getMaxSize());
+
+    client.close();
+  }
+
+  @Test
+  public void oidcCredential_whenPresent_isApplied() {
+    var connectionString = new ConnectionString("mongodb://localhost:11111/");
+    var oidcCredential = oidcCredentialForTesting();
+
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .oidcCredential(Optional.of(oidcCredential))
+            .buildSettings(false);
+
+    Assert.assertEquals(oidcCredential, settings.getCredential());
+  }
+
+  @Test
+  public void oidcCredential_byDefault_isAbsent() {
+    var connectionString = new ConnectionString("mongodb://localhost:11111/");
+
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .buildSettings(false);
+
+    Assert.assertNull(settings.getCredential());
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void oidcCredential_nonOidcMechanism_throws() {
+    var connectionString = new ConnectionString("mongodb://localhost:11111/");
+    var scramCredential = MongoCredential.createScramSha256Credential("user", "admin", new char[0]);
+
+    MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+        .oidcCredential(Optional.of(scramCredential));
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void oidcCredential_uriWithExistingCredential_throws() {
+    // kingfisher:ignore
+    var connectionString = new ConnectionString("mongodb://user:pwd@localhost:11111/admin");
+    var oidcCredential = oidcCredentialForTesting();
+
+    MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+        .oidcCredential(Optional.of(oidcCredential))
+        .buildSettings(false);
+  }
+
+  @Test
+  public void oidcCredential_uriWithOidcMechanism_replacesUriCredential() {
+    var connectionString =
+        new ConnectionString(
+            "mongodb://localhost:11111/?authMechanism=MONGODB-OIDC&authSource=$external");
+    var oidcCredential = oidcCredentialForTesting();
+
+    var settings =
+        MongoClientBuilder.builder(connectionString, new SimpleMeterRegistry())
+            .oidcCredential(Optional.of(oidcCredential))
+            .buildSettings(false);
+
+    Assert.assertEquals(oidcCredential, settings.getCredential());
+  }
+
+  @Test
+  public void buildNonReplicationWithDefaults_connectionInfoWithOidc_appliesCredential() {
+    var oidcCredential = oidcCredentialForTesting();
+    var connectionInfo =
+        new ConnectionInfo(
+            new ConnectionString("mongodb://localhost:11111"),
+            Optional.empty(),
+            Optional.of(oidcCredential));
+
+    MongoClient client =
+        MongoClientBuilder.buildNonReplicationWithDefaults(
+            connectionInfo, "testApp", new SimpleMeterRegistry());
+
+    MongoClientSettings settings = ((MongoClientImpl) client).getSettings();
+    Assert.assertEquals(
+        oidcCredential.getAuthenticationMechanism(),
+        settings.getCredential().getAuthenticationMechanism());
+
+    client.close();
+  }
+
+  @Test
+  public void builder_connectionInfoWithOidc_appliesCredential() {
+    var oidcCredential = oidcCredentialForTesting();
+    var connectionInfo =
+        new ConnectionInfo(
+            new ConnectionString("mongodb://localhost:11111"),
+            Optional.empty(),
+            Optional.of(oidcCredential));
+
+    var settings =
+        MongoClientBuilder.builder(connectionInfo, new SimpleMeterRegistry()).buildSettings(false);
+
+    Assert.assertEquals(
+        oidcCredential.getAuthenticationMechanism(),
+        settings.getCredential().getAuthenticationMechanism());
+  }
+
+  @Test
+  public void buildNonReplicationWithDefaults_customMaxConnections_appliesMaxConnections() {
+    var connectionInfo = new ConnectionInfo(new ConnectionString("mongodb://localhost:11111"));
+    String applicationName = "testApp";
+    int maxConnections = 10;
+    MongoClient client =
+        MongoClientBuilder.buildNonReplicationWithDefaults(
+            connectionInfo, applicationName, maxConnections, new SimpleMeterRegistry());
+
+    MongoClientSettings settings = ((MongoClientImpl) client).getSettings();
+
+    assertEquals(String.format("mongot %s", applicationName), settings.getApplicationName());
+    assertEquals(maxConnections, settings.getConnectionPoolSettings().getMaxSize());
+    assertEquals(
+        MongoClientBuilder.Defaults.SOCKET_TIMEOUT_MS,
+        settings.getSocketSettings().getReadTimeout(TimeUnit.MILLISECONDS));
 
     client.close();
   }

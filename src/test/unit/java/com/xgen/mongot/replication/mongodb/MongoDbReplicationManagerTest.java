@@ -9,6 +9,7 @@ import static com.xgen.testing.mongot.mock.index.SearchIndex.mockInitializedInde
 import static com.xgen.testing.mongot.mock.replication.mongodb.common.SessionRefresher.mockSessionRefresher;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -22,7 +23,12 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.errorprone.annotations.Keep;
+import com.mongodb.AuthenticationMechanism;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoCredential;
+import com.mongodb.MongoCredential.OidcCallback;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.internal.MongoClientImpl;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.MongotCursorManager;
@@ -52,6 +58,7 @@ import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
+import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -78,6 +85,12 @@ import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 public class MongoDbReplicationManagerTest {
+
+  private static MongoCredential oidcCredentialForTesting() {
+    OidcCallback callback = context -> null;
+    return MongoCredential.createOidcCredential(null)
+        .withMechanismProperty(MongoCredential.OIDC_CALLBACK_KEY, callback);
+  }
 
   @Test
   public void testGetSteadyStateReplicationConfigCopiesPrioritySchedulingFields() {
@@ -651,6 +664,65 @@ public class MongoDbReplicationManagerTest {
     Assert.assertTrue(result2.containsKey("localhost1"));
     Assert.assertTrue(result2.containsKey("localhost2"));
     Assert.assertTrue(result2.containsKey("localhost3"));
+  }
+
+  @Test
+  public void getSyncMongoClient_oidcCredentialPresent_appliesCredential() {
+    var connectionInfo =
+        new ConnectionInfo(
+            new ConnectionString("mongodb://localhost1:27017"),
+            Optional.empty(),
+            Optional.of(oidcCredentialForTesting()));
+
+    MongoClient client =
+        MongoDbReplicationManager.getSyncMongoClient(
+            connectionInfo, "test", new SimpleMeterRegistry(), 1);
+    try {
+      assertEquals(
+          AuthenticationMechanism.MONGODB_OIDC,
+          ((MongoClientImpl) client).getSettings().getCredential().getAuthenticationMechanism());
+    } finally {
+      client.close();
+    }
+  }
+
+  @Test
+  public void getSyncMongoClient_noOidcCredential_hasNoCredential() throws Exception {
+    var connectionInfo = ConnectionStringUtil.toConnectionInfo("mongodb://localhost1:27017");
+
+    MongoClient client =
+        MongoDbReplicationManager.getSyncMongoClient(
+            connectionInfo, "test", new SimpleMeterRegistry(), 1);
+    try {
+      assertNull(((MongoClientImpl) client).getSettings().getCredential());
+    } finally {
+      client.close();
+    }
+  }
+
+  @Test
+  public void getSyncBatchMongoClient_oidcCredentialPresent_appliesCredential() {
+    var connectionInfo =
+        new ConnectionInfo(
+            new ConnectionString("mongodb://localhost1:27017"),
+            Optional.empty(),
+            Optional.of(oidcCredentialForTesting()));
+    var syncSourceConfig =
+        SyncSourceConfig.builder()
+            .mongodClusterReplicationUri(connectionInfo)
+            .mongodClusterReadWriteUri(connectionInfo)
+            .build();
+
+    BatchMongoClient client =
+        MongoDbReplicationManager.getSyncBatchMongoClient(
+            syncSourceConfig, 1, "test", new SimpleMeterRegistry());
+    try {
+      assertEquals(
+          AuthenticationMechanism.MONGODB_OIDC,
+          client.getSettings().getCredential().getAuthenticationMechanism());
+    } finally {
+      client.close();
+    }
   }
 
   @Test
