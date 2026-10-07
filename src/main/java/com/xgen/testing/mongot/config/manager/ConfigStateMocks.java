@@ -191,7 +191,7 @@ public class ConfigStateMocks {
     this.lifecycleManager = lifecycleManager;
     this.staged = spy(new StagedIndexes());
     this.phasingOut = spy(new PhasingOutIndexes());
-    this.incompatibleIndexes = spy(new IncompatibleIndexes());
+    this.incompatibleIndexes = spy(new IncompatibleIndexes(this.meterRegistry));
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     this.embeddingServiceManagerSupplier =
         Suppliers.ofInstance(

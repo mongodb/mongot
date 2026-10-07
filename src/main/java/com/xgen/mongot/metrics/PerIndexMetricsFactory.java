@@ -122,6 +122,16 @@ public class PerIndexMetricsFactory {
   }
 
   /**
+   * The index-id tag alone, for meters that must not carry the generation identity. {@link
+   * #tagsFor} always emits both tags, so meters whose identity is the index id (e.g. the
+   * quarantined-index status gauge, where the map key and the meter key must match) must build
+   * their tags from here rather than repeating the literal.
+   */
+  public static Tags indexIdTag(String indexId) {
+    return Tags.of(INDEX_ID_TAG, indexId);
+  }
+
+  /**
    * Returns the underlying per-process {@link MetricsFactory}, which creates a single process-wide
    * timeseries per (metric, tags) tuple with no per-index counterpart.
    *

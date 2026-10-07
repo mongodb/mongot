@@ -14,6 +14,7 @@ java_library(
         "SingleCounterDefinedTags.java",
         "SingleCounterEmptyTags.java",
         "SingleCounterSubject.java",
+        "TestMeterRegistry.java",
     ],
     visibility = ["//visibility:public"],
     exports = ["@maven//:io_micrometer_micrometer_core"],

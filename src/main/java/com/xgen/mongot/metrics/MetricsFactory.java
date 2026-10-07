@@ -538,11 +538,10 @@ public class MetricsFactory {
   public synchronized void removeMeters(String name, Tags meterTags) {
     var fullName = metricName(name);
     var fullTags = this.factoryTags.and(meterTags);
-    this.registry.getMeters().stream()
-        .filter(
-            meter ->
-                meter.getId().getName().equals(fullName)
-                    && Tags.of(meter.getId().getTags()).equals(fullTags))
+    // Search matches on a subset of tags, so this still finds the series when the registry adds
+    // tags of its own (e.g. common tags from config().commonTags). An exact-equality match would
+    // miss those and leave the meter registered forever.
+    this.registry.find(fullName).tags(fullTags).meters().stream()
         .toList()
         .forEach(
             meter -> {

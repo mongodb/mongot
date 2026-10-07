@@ -233,7 +233,7 @@ public class OnPremMongotBootstrapper {
 
     var indexCatalog = new DefaultIndexCatalog();
     // Shared with the ConfigManager, which registers the journal entries it cannot parse.
-    var incompatibleIndexes = new IncompatibleIndexes();
+    var incompatibleIndexes = new IncompatibleIndexes(meterRegistry);
     var initializedIndexCatalog = new InitializedIndexCatalog();
 
     var mongotVersion = MongotVersionResolver.create().getVersion();

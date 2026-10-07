@@ -167,7 +167,7 @@ public class GrpcClientAndServer implements ClientAndServer {
             this.executorManager,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(mocks.meterRegistry),
             new SearchCommandsRegister.BootstrapperMetadata(
                 "testVersion",
                 "localhost",

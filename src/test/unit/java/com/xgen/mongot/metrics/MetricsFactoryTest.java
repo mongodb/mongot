@@ -484,4 +484,71 @@ public class MetricsFactoryTest {
     Assert.assertEquals(1, meters.size());
     Assert.assertEquals(1.0, ((Gauge) meters.get(0)).value(), 0.0);
   }
+
+  @Test
+  public void removeMeters_matchingNameAndTags_removesOnlyThatSeries() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory factory = new MetricsFactory("ns", registry);
+    factory.counter("indexStatusCode", Tags.of("indexId", "a")).increment();
+    factory.counter("indexStatusCode", Tags.of("indexId", "b")).increment();
+    factory.counter("otherMetric", Tags.of("indexId", "a")).increment();
+
+    factory.removeMeters("indexStatusCode", Tags.of("indexId", "a"));
+
+    List<String> remaining =
+        registry.getMeters().stream()
+            .map(meter -> meter.getId().getName() + meter.getId().getTags())
+            .sorted()
+            .toList();
+    Assert.assertEquals(
+        List.of("ns.indexStatusCode[tag(indexId=b)]", "ns.otherMetric[tag(indexId=a)]"), remaining);
+  }
+
+  @Test
+  public void removeMeters_noMatchingSeries_leavesRegistryUnchanged() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory factory = new MetricsFactory("ns", registry);
+    factory.counter("indexStatusCode", Tags.of("indexId", "a")).increment();
+
+    factory.removeMeters("indexStatusCode", Tags.of("indexId", "absent"));
+
+    Assert.assertEquals(1, registry.getMeters().size());
+  }
+
+  @Test
+  public void removeMeters_factoryHasItsOwnTags_matchesAgainstTheCombinedTags() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory factory = new MetricsFactory("ns", registry, Tags.of("scope", "replication"));
+    factory.counter("indexStatusCode", Tags.of("indexId", "a")).increment();
+
+    // The caller passes only the meter tags; the factory's own tags are added for it.
+    factory.removeMeters("indexStatusCode", Tags.of("indexId", "a"));
+
+    Assert.assertTrue(registry.getMeters().isEmpty());
+  }
+
+  @Test
+  public void removeMeters_afterRemoval_factoryStaysUsable() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    MetricsFactory factory = new MetricsFactory("ns", registry);
+    factory.counter("indexStatusCode", Tags.of("indexId", "a")).increment();
+
+    factory.removeMeters("indexStatusCode", Tags.of("indexId", "a"));
+    factory.counter("indexStatusCode", Tags.of("indexId", "a")).increment();
+
+    Assert.assertEquals(1, registry.getMeters().size());
+  }
+
+  /** Registry-level common tags must not stop a series from being removed. */
+  @Test
+  public void removeMeters_registryCommonTags_stillRemovesTheSeries() {
+    MeterRegistry registry = new SimpleMeterRegistry();
+    registry.config().commonTags("env", "prod");
+    MetricsFactory factory = new MetricsFactory("ns", registry);
+    factory.counter("indexStatusCode", Tags.of("indexId", "a")).increment();
+
+    factory.removeMeters("indexStatusCode", Tags.of("indexId", "a"));
+
+    Assert.assertTrue(registry.getMeters().isEmpty());
+  }
 }

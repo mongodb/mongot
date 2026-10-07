@@ -1,7 +1,13 @@
 package com.xgen.mongot.config.manager;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.catalog.IndexProperties;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.QuarantinedIndexException;
+import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.metrics.PerIndexMetricsFactory;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tags;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -35,6 +41,28 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
   private final ConcurrentHashMap<IndexProperties, String> liveParseErrorsByProperties =
       new ConcurrentHashMap<>();
 
+  /**
+   * The metric name, under {@link IndexMetricsUpdater#NAMESPACE}, of the per-index quarantine
+   * gauge. Deliberately distinct from the per-index status metric: a quarantine has no {@code
+   * generationId}, so it cannot carry the tag-key set Prometheus requires of every series sharing a
+   * metric name with the per-index status gauges.
+   */
+  @VisibleForTesting static final String QUARANTINED_INDEX_METRIC_NAME = "quarantinedIndex";
+
+  /**
+   * Writes one {@code index.stats.quarantinedIndex{status=QUARANTINED,indexId=...}} gauge per
+   * quarantined live index, constant value 1 while tracked. The only tags are the index id and the
+   * constant status, so a re-added index overwrites the existing series and no orphaned gauge can
+   * be left behind. No index type is carried: a quarantined entry has no parsed definition, so
+   * whether it is auto-embedding is unknowable here. Registered on the process registry, which
+   * production forwards to the FTDC child, so it reaches Prometheus and FTDC alike.
+   */
+  private final MetricsFactory metricsFactory;
+
+  public IncompatibleIndexes(MeterRegistry meterRegistry) {
+    this.metricsFactory = new MetricsFactory(IndexMetricsUpdater.NAMESPACE, meterRegistry);
+  }
+
   /** Adds a quarantined staged index, replacing any already tracked for the same index. */
   public void addStagedIndex(QuarantinedIndex quarantinedIndex) {
     this.stagedIndexes.put(quarantinedIndex.indexId(), quarantinedIndex);
@@ -50,6 +78,12 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
       this.liveParseErrorsByProperties.remove(propertiesOf(replaced));
     }
     this.liveParseErrorsByProperties.put(properties, quarantinedIndex.parseError());
+
+    this.metricsFactory.objectValueGauge(
+        QUARANTINED_INDEX_METRIC_NAME,
+        quarantinedIndex,
+        index -> 1.0,
+        quarantinedTags(quarantinedIndex.indexId()));
   }
 
   /**
@@ -64,6 +98,7 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
       return Optional.empty();
     }
     this.liveParseErrorsByProperties.remove(propertiesOf(removed));
+    this.metricsFactory.removeMeters(QUARANTINED_INDEX_METRIC_NAME, quarantinedTags(indexId));
 
     return Optional.of(removed);
   }
@@ -136,6 +171,17 @@ public class IncompatibleIndexes implements QuarantinedIndexLookup {
         .forEach(indexId -> removeLiveIndex(indexId).ifPresent(removed::add));
 
     return removed;
+  }
+
+  /**
+   * The tags of the live-quarantine gauge: {@code status=QUARANTINED} and the index id, and nothing
+   * else, so the meter's identity is exactly the live map's key and a re-added index overwrites its
+   * series. {@code QUARANTINED} is a metric tag value only and must never be added to {@code
+   * IndexStatus.StatusCode}, which is persisted in Lucene commit metadata.
+   */
+  private Tags quarantinedTags(ObjectId indexId) {
+    return Tags.of("status", "QUARANTINED")
+        .and(PerIndexMetricsFactory.indexIdTag(indexId.toHexString()));
   }
 
   private static IndexProperties propertiesOf(QuarantinedIndex quarantinedIndex) {

@@ -54,6 +54,7 @@ import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.LuceneConfigBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
+import com.xgen.testing.mongot.metrics.TestMeterRegistry;
 import com.xgen.testing.mongot.server.command.search.definition.request.VectorSearchCommandDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Map;
@@ -187,7 +188,7 @@ public class VectorSearchCommandOfflineServeTest {
                   .build(),
               indexCatalog,
               initializedIndexCatalog,
-              new IncompatibleIndexes(),
+              new IncompatibleIndexes(TestMeterRegistry.get()),
               BOOTSTRAPPER_METADATA,
               Suppliers.ofInstance(mock(EmbeddingServiceManager.class)),
               new VectorSearchCommand.Metrics(
@@ -278,7 +279,7 @@ public class VectorSearchCommandOfflineServeTest {
                 .build(),
             indexCatalog,
             initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             Suppliers.ofInstance(mock(EmbeddingServiceManager.class)),
             new VectorSearchCommand.Metrics(

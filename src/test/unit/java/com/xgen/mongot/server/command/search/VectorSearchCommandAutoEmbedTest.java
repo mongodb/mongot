@@ -66,6 +66,7 @@ import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
+import com.xgen.testing.mongot.metrics.TestMeterRegistry;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.mock.index.VectorSearchResultBatch;
 import com.xgen.testing.mongot.server.command.search.definition.request.VectorSearchCommandDefinitionBuilder;
@@ -331,7 +332,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -858,7 +859,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -901,7 +902,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -944,7 +945,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -987,7 +988,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1284,7 +1285,7 @@ public class VectorSearchCommandAutoEmbedTest {
             .build(),
         mocks.catalog,
         mocks.initializedIndexCatalog,
-        new IncompatibleIndexes(),
+        new IncompatibleIndexes(TestMeterRegistry.get()),
         BOOTSTRAPPER_METADATA,
         embeddingServiceManagerSupplier,
         new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1315,7 +1316,7 @@ public class VectorSearchCommandAutoEmbedTest {
             .build(),
         mocks.catalog,
         mocks.initializedIndexCatalog,
-        new IncompatibleIndexes(),
+        new IncompatibleIndexes(TestMeterRegistry.get()),
         BOOTSTRAPPER_METADATA,
         MOCK_EMBEDDING_SERVICE,
         new VectorSearchCommand.Metrics(mockMetricsFactory()),
@@ -1504,7 +1505,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory),
@@ -1569,7 +1570,7 @@ public class VectorSearchCommandAutoEmbedTest {
                 .build(),
             mocks.catalog,
             mocks.initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             BOOTSTRAPPER_METADATA,
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory),

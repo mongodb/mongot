@@ -73,6 +73,7 @@ import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ClauseBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.MqlFilterOperatorBuilder;
 import com.xgen.testing.mongot.index.query.operators.mql.ValueBuilder;
+import com.xgen.testing.mongot.metrics.TestMeterRegistry;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import com.xgen.testing.mongot.server.command.search.definition.request.ExplainDefinitionBuilder;
 import com.xgen.testing.mongot.server.command.search.definition.request.VectorSearchCommandDefinitionBuilder;
@@ -179,7 +180,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -217,7 +218,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -243,7 +244,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -276,7 +277,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -325,7 +326,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             new SearchCommandsRegister.BootstrapperMetadata(
                 "local",
@@ -395,7 +396,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -445,7 +446,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             new DefaultIndexCatalog(),
             getInitializedIndexCatalog(),
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             new SearchCommandsRegister.BootstrapperMetadata(
                 "1.0",
@@ -513,7 +514,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             anotherCommandFactory,
             BOOTSTRAPPER_METADATA);
 
@@ -575,7 +576,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             anotherCommandFactory,
             BOOTSTRAPPER_METADATA);
 
@@ -650,7 +651,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             mock(VectorSearchCommand.Factory.class),
             BOOTSTRAPPER_METADATA);
 
@@ -742,7 +743,7 @@ public class DeprecatedVectorSearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             catalog,
             initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             factory,
             BOOTSTRAPPER_METADATA);
 
@@ -755,7 +756,7 @@ public class DeprecatedVectorSearchCommandTest {
    */
   @Test
   public void testQuarantinedIndexReturnsParseErrorResponse() throws Exception {
-    var incompatibleIndexes = new IncompatibleIndexes();
+    var incompatibleIndexes = new IncompatibleIndexes(TestMeterRegistry.get());
     incompatibleIndexes.addLiveIndex(
         new QuarantinedIndex(
             new JournalEntryIdentity(

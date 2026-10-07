@@ -402,4 +402,25 @@ public class PerIndexMetricsFactoryTest {
         a1.ensurePerIndexObjectValueGaugeRegistered("leaderStatus", a1State, Number::doubleValue));
     assertEquals(1.0, meterRegistry.get(name("leaderStatus")).gauge().value(), 0.0);
   }
+
+  @Test
+  public void indexIdTag_returnsOnlyTheIndexIdTag() {
+    Tags tags = PerIndexMetricsFactory.indexIdTag(INDEX_ID);
+
+    assertEquals(INDEX_IDS, tags);
+  }
+
+  @Test
+  public void indexIdTag_usesTheSameTagKeyAsTagsFor() {
+    // Callers that identify an index without a generation must land on the same label as the
+    // per-index factory, or their series will not join with the rest of index.stats.
+    Tags indexIdOnly = PerIndexMetricsFactory.indexIdTag(INDEX_ID);
+    Tags withGeneration = PerIndexMetricsFactory.tagsFor(INDEX_GENERATION_ID, INDEX_ID);
+
+    assertEquals(
+        indexIdOnly.stream().toList(),
+        withGeneration.stream()
+            .filter(tag -> tag.getKey().equals(indexIdOnly.stream().toList().get(0).getKey()))
+            .toList());
+  }
 }

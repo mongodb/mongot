@@ -73,6 +73,7 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/query/operators",
         "//src/main/java/com/xgen/testing/mongot/index/query/operators/mql",
         "//src/main/java/com/xgen/testing/mongot/index/query/sort",
+        "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/mock/cursor",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "//src/main/java/com/xgen/testing/mongot/server/command/search/definition",

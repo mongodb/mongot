@@ -51,6 +51,7 @@ import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
+import com.xgen.testing.mongot.metrics.TestMeterRegistry;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.server.command.search.definition.request.SearchCommandDefinitionBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -140,7 +141,7 @@ public class SearchCommandOfflineServeTest {
             cursorManager,
             indexCatalog,
             initializedIndexCatalog,
-            new IncompatibleIndexes(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
             SearchCommandDefinitionBuilder.builder()
                 .db(rawDef.getDatabase())
                 .collectionName(rawDef.getLastObservedCollectionName())
