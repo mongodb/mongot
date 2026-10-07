@@ -1,0 +1,41 @@
+# Generated inventory of the IndexCommitUserData paths mongot can write, one dotted path per line.
+# To regenerate, run
+# bazel test //src/test/unit/java/com/xgen/mongot/replication/mongodb/common:IndexCommitUserDataFieldInventoryTest
+# and paste the derived set printed in the failure message.
+#
+# A line added here means a release binary running after a rollback will meet a field it cannot
+# parse, which empties the index (CLOUDP-411951). Add one only once the release a rollback lands on
+# is known to declare the path already, or after a downgrade test shows that release keeps the
+# index; see docs/internal/development/commit-metadata-rollback-policy.md. This set is checked
+# against index-commit-user-data-declared-fields.txt, the superset the schema declares.
+autoEmbeddingMetadata
+backendIndexVersion
+changeStreamResumeInfo
+changeStreamResumeInfo.namespace
+changeStreamResumeInfo.resumeToken
+customVectorEngineLsn
+exceededLimitsReason
+indexStateInfo
+indexStateInfo.reason
+indexStateInfo.status
+initialSyncResumeInfo
+initialSyncResumeInfo.bufferlessInitialSync
+initialSyncResumeInfo.bufferlessInitialSync.highWaterMark
+initialSyncResumeInfo.bufferlessInitialSync.lastScannedId
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync.highWaterMark
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync.postBatchResumeToken
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync.syncSourceHost
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.highWaterMark
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.initialSyncId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.isDone
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.lowerRecordId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.partitionId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.resumeRecordId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.upperRecordId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.syncSourceHost
+staleStateInfo
+staleStateInfo.changeStreamResumeInfo.namespace
+staleStateInfo.changeStreamResumeInfo.resumeToken

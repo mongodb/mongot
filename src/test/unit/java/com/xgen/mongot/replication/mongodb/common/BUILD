@@ -26,6 +26,7 @@ java_test_suite(
         "FragmentProcessingExceptionTest.java",
         "HeuristicChangeStreamModeSelectorTest.java",
         "IdTypeObservingDocumentIndexerTest.java",
+        "IndexCommitUserDataFieldInventoryTest.java",
         "IndexCommitUserDataTest.java",
         "IndexingWorkSchedulerFactoryTest.java",
         "IndexingWorkSchedulerShutdownTest.java",

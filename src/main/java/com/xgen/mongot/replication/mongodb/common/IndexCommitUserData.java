@@ -73,6 +73,9 @@ public class IndexCommitUserData implements DocumentEncodable {
     // with a newer field (e.g., changeStreamResumeInfo), the old mongot should still
     // be able to parse the StaleStateInfo and recover the index (though without the
     // new field's data).
+    // This covers keys added directly to staleStateInfo and does not extend to the sub-documents
+    // it parses strictly: changeStreamResumeInfo is one, so a field added inside that still empties
+    // the record on rollback. See docs/internal/development/commit-metadata-rollback-policy.md.
     // TODO(CLOUDP-339757): Change back to disallowUnknownFields() in v1.66+
     private static final Field.Optional<StaleStateInfo> STALE_STATE_INFO =
         Field.builder("staleStateInfo")
@@ -105,8 +108,14 @@ public class IndexCommitUserData implements DocumentEncodable {
             .noDefault();
   }
 
+  /**
+   * Package-private so every record written outside this package comes from a named factory or
+   * {@code with} method. Those are the entry points IndexCommitUserDataFieldInventory enumerates to
+   * work out which fields mongot can persist, and a caller assembling the record field by field
+   * would be invisible to it.
+   */
   @VisibleForTesting
-  public IndexCommitUserData(
+  IndexCommitUserData(
       Optional<ChangeStreamResumeInfo> resumeInfo,
       Optional<Integer> backendIndexVersion,
       Optional<String> exceededLimitsReason,

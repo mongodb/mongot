@@ -11,7 +11,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 
-public class BufferlessIdOrderInitialSyncResumeInfo extends InitialSyncResumeInfo {
+public final class BufferlessIdOrderInitialSyncResumeInfo extends InitialSyncResumeInfo {
 
   private static class Fields {
     private static final Field.Required<Long> HIGH_WATER_MARK =

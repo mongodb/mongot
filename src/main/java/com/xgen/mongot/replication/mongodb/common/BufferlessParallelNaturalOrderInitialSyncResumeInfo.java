@@ -32,7 +32,8 @@ import org.bson.BsonValue;
  *   <li>{@code syncSourceHost}: the host this sync replicates from.
  * </ul>
  */
-public class BufferlessParallelNaturalOrderInitialSyncResumeInfo extends InitialSyncResumeInfo {
+public final class BufferlessParallelNaturalOrderInitialSyncResumeInfo
+    extends InitialSyncResumeInfo {
 
   private static class Fields {
     private static final Field.Required<Long> HIGH_WATER_MARK =

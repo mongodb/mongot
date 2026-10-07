@@ -1,0 +1,50 @@
+# Generated inventory of the IndexCommitUserData paths the schema declares, one dotted path per
+# line. To regenerate, run
+# bazel test //src/test/unit/java/com/xgen/mongot/replication/mongodb/common:IndexCommitUserDataFieldInventoryTest
+# and paste the derived set printed in the failure message.
+#
+# This is the superset of index-commit-user-data-written-fields.txt: a field cannot be serialized
+# without a Field constant declaring it, so nothing new can reach disk without appearing here first.
+# A path present here but absent there is declared and parsed but never populated, which is safe on
+# rollback because empty optionals are omitted when the record is serialized.
+#
+# Neither file lists the keys of a sub-document parsed with allowUnknownFields(), because an
+# addition there is dropped on rollback rather than rejected. That is why nothing appears directly
+# beneath staleStateInfo. The leniency covers only that one level though, so a sub-document it in
+# turn parses strictly is listed: staleStateInfo.changeStreamResumeInfo is itself a key of a lenient
+# level and so absent, while the fields inside it are present and a new one there costs the same
+# wipe as a new top-level key. Enum values are a hazard no path can show, so they are tracked for
+# every sub-document, lenient or not, in index-commit-user-data-enum-values.txt.
+autoEmbeddingMetadata
+backendIndexVersion
+changeStreamResumeInfo
+changeStreamResumeInfo.namespace
+changeStreamResumeInfo.resumeToken
+customVectorEngineLsn
+exceededLimitsReason
+indexStateInfo
+indexStateInfo.reason
+indexStateInfo.status
+initialSyncResumeInfo
+initialSyncResumeInfo.bufferlessInitialSync
+initialSyncResumeInfo.bufferlessInitialSync.highWaterMark
+initialSyncResumeInfo.bufferlessInitialSync.lastScannedId
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync.highWaterMark
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync.postBatchResumeToken
+initialSyncResumeInfo.bufferlessNaturalOrderInitialSync.syncSourceHost
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.highWaterMark
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.initialSyncId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.isDone
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.lowerRecordId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.partitionId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.resumeRecordId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.partitions.upperRecordId
+initialSyncResumeInfo.bufferlessParallelNaturalOrderInitialSync.syncSourceHost
+initialSyncResumeInfo.changeStreamApplication
+initialSyncResumeInfo.collectionScan
+staleStateInfo
+staleStateInfo.changeStreamResumeInfo.namespace
+staleStateInfo.changeStreamResumeInfo.resumeToken

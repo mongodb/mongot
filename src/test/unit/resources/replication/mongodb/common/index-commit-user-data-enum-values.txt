@@ -1,0 +1,40 @@
+# Generated inventory of the enum values IndexCommitUserData accepts, one "path = VALUE" per line.
+# To regenerate, run
+# bazel test //src/test/unit/java/com/xgen/mongot/replication/mongodb/common:IndexCommitUserDataFieldInventoryTest
+# and paste the derived set printed in the failure message.
+#
+# Enum values are a rollback hazard separate from the field paths in the other two files, and carry
+# the same cost. A release binary builds its lookup from the enum constants it was compiled with and
+# rejects anything else, so a value added here is rejected on rollback, the record decodes as
+# IndexCommitUserData.EMPTY, and replication reads that as "never committed" and wipes the index.
+# Unlike a new field, a new value changes no path, which is why it is tracked separately.
+#
+# allowUnknownFields() does not help: it tolerates unknown keys, not unknown values. That is why
+# staleStateInfo.reason appears here even though the path files leave out the keys of a lenient
+# level, staleStateInfo among them. This file descends regardless of strictness for that reason.
+#
+# A withFallback() declaration maps an unrecognized value onto a known one, but only in the binary
+# declaring it, so values behind one are listed here like any other. Collapsing them would hide every
+# later addition to that enum behind a guarantee that holds only if the fallback shipped first, which
+# is for a reviewer to confirm against the release a rollback lands on.
+indexStateInfo.reason = AUTO_EMBEDDING_RESOLUTION_FAILED
+indexStateInfo.reason = AUTO_EMBEDDING_RESOLUTION_RETRY
+indexStateInfo.reason = COLLECTION_NOT_FOUND
+indexStateInfo.reason = EXCEED_MAX_LIMIT
+indexStateInfo.reason = INDEX_DROPPED
+indexStateInfo.reason = INITIALIZATION_FAILED
+indexStateInfo.reason = INITIAL_SYNC_REPLICATION_FAILED
+indexStateInfo.reason = INITIAL_SYNC_REPLICATION_FAILED_RETRY
+indexStateInfo.reason = STEADY_STATE_REPLICATION_FAILED
+indexStateInfo.reason = USER_ERROR
+indexStateInfo.status = DOES_NOT_EXIST
+indexStateInfo.status = FAILED
+indexStateInfo.status = INITIAL_SYNC
+indexStateInfo.status = NOT_STARTED
+indexStateInfo.status = RECOVERING_NON_TRANSIENT
+indexStateInfo.status = RECOVERING_TRANSIENT
+indexStateInfo.status = STALE
+indexStateInfo.status = STEADY
+indexStateInfo.status = UNKNOWN
+staleStateInfo.reason = DOCS_EXCEEDED
+staleStateInfo.reason = UNEXPECTED_ERROR

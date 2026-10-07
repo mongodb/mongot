@@ -24,7 +24,10 @@ import org.bson.json.JsonWriterSettings;
  * BufferlessParallelNaturalOrderInitialSyncResumeInfo if that natural order scan was split into
  * partitions. It would be empty when there is no resumeInfo commited yet
  */
-public abstract class InitialSyncResumeInfo implements DocumentEncodable {
+public abstract sealed class InitialSyncResumeInfo implements DocumentEncodable
+    permits BufferlessIdOrderInitialSyncResumeInfo,
+        BufferlessNaturalOrderInitialSyncResumeInfo,
+        BufferlessParallelNaturalOrderInitialSyncResumeInfo {
   protected static class Fields {
 
     @Deprecated
