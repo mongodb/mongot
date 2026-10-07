@@ -107,6 +107,13 @@ public enum DynamicFeatureFlags {
    */
   NATIVE_SCALAR_VECTOR_SCORING("mongot.featureFlag.enableNativeScalarVectorScoring", false),
   /**
+   * When enabled, int8 byte vectors are scored with the native SIMD implementation ({@code
+   * mongot_vecsim}) instead of Lucene's Java scorer, for queries, merges, and HNSW graph build.
+   * Fallback {@code true} so native scoring stays on unless explicitly disabled; this is a kill
+   * switch. Toggling requires no reindex; the on-disk format is unchanged.
+   */
+  NATIVE_BYTE_VECTOR_SCORING("mongot.featureFlag.enableNativeByteVectorScoring", true),
+  /**
    * When enabled, runs the auto-embedding stale lease / materialized-view garbage collection sweep:
    * marks superseded MV leases eligible for cleanup, then drops the MV collection and deletes the
    * lease once the grace periods lapse. Evaluated per sweep tick so cleanup can be turned on or off

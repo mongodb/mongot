@@ -1,9 +1,16 @@
 package com.xgen.mongot.index.lucene.vector;
 
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.mongot.util.GlobalMetricFactory;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsScorer;
@@ -22,6 +29,8 @@ import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.hnsw.UpdateableRandomVectorScorer;
 import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
+import org.bson.types.ObjectId;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Rule;
@@ -34,6 +43,32 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
   private static final float DELTA = 1e-5f;
 
   @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+
+  @After
+  public void resetRegistry() {
+    DynamicFeatureFlagRegistry.resetForTest();
+    GlobalMetricFactory.resetForTest();
+  }
+
+  /** Installs a process-global registry with the native byte scoring flag in {@code phase}. */
+  private static void installNativeByteScoringFlag(DynamicFeatureFlagConfig.Phase phase) {
+    installRegistry(
+        List.of(
+            new DynamicFeatureFlagConfig(
+                DynamicFeatureFlags.NATIVE_BYTE_VECTOR_SCORING.getName(),
+                phase,
+                List.of(),
+                List.of(),
+                100,
+                DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER)));
+  }
+
+  private static void installRegistry(List<DynamicFeatureFlagConfig> configs) {
+    DynamicFeatureFlagRegistry.resetForTest();
+    DynamicFeatureFlagRegistry.initializeProcessInstance(
+        new DynamicFeatureFlagRegistry(
+            Optional.of(configs), Optional.empty(), Optional.empty(), Optional.of(new ObjectId())));
+  }
 
   private static byte[] randomBytes(Random rng, int dim) {
     byte[] v = new byte[dim];
@@ -472,5 +507,94 @@ public class Lucene99NativeMemorySegmentVectorScorerTest {
           "Q7 (QuantizedByteVectorValues) must delegate, never be natively scored",
           spyDelegate.called);
     }
+  }
+
+  /**
+   * Disabling the flag routes mmap, in-memory, and query scoring to the delegate, metrics flat at
+   * 0.
+   */
+  @Test
+  public void flagDisabled_allByteScoringDelegates() throws IOException {
+    installNativeByteScoringFlag(DynamicFeatureFlagConfig.Phase.DISABLED);
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    GlobalMetricFactory.resetForTest();
+    GlobalMetricFactory.initialize(meterRegistry);
+    int dim = 32;
+    Random rng = new Random(SEED);
+    List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
+    VectorSimilarityFunction fn = VectorSimilarityFunction.DOT_PRODUCT;
+    SpyFlatVectorsScorer spyDelegate = new SpyFlatVectorsScorer();
+    Lucene99NativeMemorySegmentVectorScorer scorer =
+        new Lucene99NativeMemorySegmentVectorScorer(spyDelegate);
+
+    try (IndexInput input = writeVectors(vectors, "flag_disabled")) {
+      ByteVectorValues mmapValues = asHasIndexSlice(vectors, dim, input);
+      scorer.getRandomVectorScorerSupplier(fn, mmapValues);
+      Assert.assertTrue("mmap supplier must delegate when disabled", spyDelegate.called);
+
+      spyDelegate.called = false;
+      RandomVectorScorer queryScorer = scorer.getRandomVectorScorer(fn, mmapValues, vectors.get(0));
+      Assert.assertTrue("query scorer must delegate when disabled", spyDelegate.called);
+      Assert.assertEquals(fn.compare(vectors.get(0), vectors.get(1)), queryScorer.score(1), DELTA);
+    }
+
+    spyDelegate.called = false;
+    scorer.getRandomVectorScorerSupplier(fn, ByteVectorValues.fromBytes(vectors, dim));
+    Assert.assertTrue("in-memory supplier must delegate when disabled", spyDelegate.called);
+
+    Assert.assertEquals(
+        "engaged counter must stay at 0 when the flag is disabled",
+        0.0,
+        meterRegistry.find("native_byte_vector_scoring_engaged").counter().count(),
+        0.0);
+    Assert.assertEquals(
+        "query-active gauge must stay at 0 when the flag is disabled",
+        0.0,
+        meterRegistry.find("native_byte_vector_scoring_query_active").gauge().value(),
+        0.0);
+  }
+
+  /**
+   * Enabled, or absent from a populated registry (fallback), keeps the native path and moves the
+   * metrics.
+   */
+  @Test
+  public void flagEnabledOrUnregistered_usesNativePath() throws IOException {
+    Assume.assumeTrue(
+        "native path only engages when int8 SIMD acceleration is available",
+        Similarity.I8_ACCELERATION);
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    GlobalMetricFactory.resetForTest();
+    GlobalMetricFactory.initialize(meterRegistry);
+    int dim = 32;
+    Random rng = new Random(SEED);
+    List<byte[]> vectors = randomVectors(rng, NUM_VECTORS, dim);
+    VectorSimilarityFunction fn = VectorSimilarityFunction.DOT_PRODUCT;
+
+    for (Runnable install :
+        List.<Runnable>of(
+            () -> installNativeByteScoringFlag(DynamicFeatureFlagConfig.Phase.ENABLED),
+            () -> installRegistry(List.of()))) {
+      install.run();
+      SpyFlatVectorsScorer spyDelegate = new SpyFlatVectorsScorer();
+      Lucene99NativeMemorySegmentVectorScorer scorer =
+          new Lucene99NativeMemorySegmentVectorScorer(spyDelegate);
+      try (IndexInput input = writeVectors(vectors, "flag_on_" + System.nanoTime())) {
+        ByteVectorValues mmapValues = asHasIndexSlice(vectors, dim, input);
+        scorer.getRandomVectorScorerSupplier(fn, mmapValues);
+        scorer.getRandomVectorScorer(fn, mmapValues, vectors.get(0));
+      }
+      scorer.getRandomVectorScorerSupplier(fn, ByteVectorValues.fromBytes(vectors, dim));
+      Assert.assertFalse("native path must not delegate", spyDelegate.called);
+    }
+
+    Counter engaged = meterRegistry.find("native_byte_vector_scoring_engaged").counter();
+    Assert.assertNotNull("engaged counter must be registered", engaged);
+    Assert.assertTrue("engaged counter must have moved on the native path", engaged.count() > 0.0);
+    Assert.assertEquals(
+        "query scorer construction must flip the query-active gauge",
+        1.0,
+        meterRegistry.find("native_byte_vector_scoring_query_active").gauge().value(),
+        0.0);
   }
 }

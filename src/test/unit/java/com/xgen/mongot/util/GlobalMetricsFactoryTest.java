@@ -183,4 +183,58 @@ public class GlobalMetricsFactoryTest {
     assertEquals(
         0.0, this.registry.find("native_scalar_vector_scoring_query_active").gauge().value(), 0.0);
   }
+
+  @Test
+  public void testNativeByteVectorScoringQueryActiveGauge_registeredEagerlyAtZero() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    Gauge gauge = this.registry.find("native_byte_vector_scoring_query_active").gauge();
+    assertNotNull("Expected the gauge to be registered eagerly", gauge);
+    assertEquals(0.0, gauge.value(), 0.0);
+  }
+
+  @Test
+  public void testNativeByteVectorScoringQueryActiveGauge_marked_flipsToOne() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    GlobalMetricFactory.markNativeByteVectorScoringQueryActive();
+
+    assertEquals(
+        1.0, this.registry.find("native_byte_vector_scoring_query_active").gauge().value(), 0.0);
+  }
+
+  @Test
+  public void testNativeByteVectorScoringQueryActiveGauge_markedRepeatedly_staysAtOne() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    GlobalMetricFactory.markNativeByteVectorScoringQueryActive();
+    GlobalMetricFactory.markNativeByteVectorScoringQueryActive();
+
+    assertEquals(
+        1.0, this.registry.find("native_byte_vector_scoring_query_active").gauge().value(), 0.0);
+  }
+
+  @Test
+  public void testNativeByteVectorScoringEngagedCounter_registeredEagerlyAtZero() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    // The eager 0 series (rather than "no data") is how a disable is confirmed in Grafana.
+    Counter counter = this.registry.find("native_byte_vector_scoring_engaged").counter();
+    assertNotNull("Expected the counter to be registered eagerly", counter);
+    assertEquals(0.0, counter.count(), 0.0);
+  }
+
+  @Test
+  public void testNativeByteVectorScoringEngagedCounter_doesNotFlipQueryActiveGauge() {
+    GlobalMetricFactory.initialize(this.registry);
+
+    // The engaged counter also fires from merge/graph-build; it must stay independent of the
+    // query-only gauge.
+    GlobalMetricFactory.incrementNativeByteVectorScoringEngaged();
+
+    assertEquals(
+        1.0, this.registry.find("native_byte_vector_scoring_engaged").counter().count(), 0.0);
+    assertEquals(
+        0.0, this.registry.find("native_byte_vector_scoring_query_active").gauge().value(), 0.0);
+  }
 }

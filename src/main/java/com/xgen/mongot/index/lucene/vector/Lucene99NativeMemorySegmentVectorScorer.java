@@ -1,6 +1,9 @@
 package com.xgen.mongot.index.lucene.vector;
 
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
+import com.xgen.mongot.util.GlobalMetricFactory;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -26,12 +29,32 @@ import org.jetbrains.annotations.Nullable;
  * from the underlying {@link MemorySegmentAccessInput}, avoiding any copying on the hot path when
  * the vector fits within a single mapped segment. Falls back to the delegate scorer for float
  * vectors or when the {@link IndexInput} is not memory-segment backed.
+ *
+ * <p>The native path also requires {@link Similarity#I8_ACCELERATION} and the default-on {@code
+ * NATIVE_BYTE_VECTOR_SCORING} dynamic feature flag (read from the process-global {@link
+ * DynamicFeatureFlagRegistry#getStatic()}); disabling the flag routes all byte scoring to the
+ * delegate.
  */
 public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScorer {
   private final FlatVectorsScorer delegate;
 
   public Lucene99NativeMemorySegmentVectorScorer(FlatVectorsScorer delegate) {
     this.delegate = delegate;
+  }
+
+  private static boolean nativeEnabled() {
+    if (!Similarity.I8_ACCELERATION) {
+      return false;
+    }
+    try {
+      return DynamicFeatureFlagRegistry.getStatic()
+          .evaluateClusterInvariant(DynamicFeatureFlags.NATIVE_BYTE_VECTOR_SCORING);
+    } catch (IllegalStateException e) {
+      // The process-global registry is installed by the bootstrapper before any query runs, so this
+      // is unreachable in a normal mongot process. Non-bootstrap contexts that drive the codec
+      // directly (e.g. standalone force-merge tooling) keep the flag's default-on behavior.
+      return DynamicFeatureFlags.NATIVE_BYTE_VECTOR_SCORING.getFallback();
+    }
   }
 
   @Override
@@ -42,13 +65,14 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
         // Q7 values subtype ByteVectorValues but use a different stride/formula; they are
         // handled by NativeScalarQuantizedVectorsScorer, never here.
         && !(byteValues instanceof QuantizedByteVectorValues)
-        && Similarity.I8_ACCELERATION) {
+        && nativeEnabled()) {
       if (byteValues instanceof HasIndexSlice hasSlice) {
         IndexInput slice = hasSlice.getSlice();
         if (slice != null) {
           IndexInput unwrapped = FilterIndexInput.unwrapOnlyTest(slice);
           if (unwrapped instanceof MemorySegmentAccessInput msInput) {
             checkInvariants(byteValues.size(), byteValues.getVectorByteLength(), unwrapped);
+            GlobalMetricFactory.incrementNativeByteVectorScoringEngaged();
             return new NativeByteVectorScorerSupplier(similarityFunction, msInput, byteValues);
           }
           // The values expose an index slice but it is not memory-segment-backed, so we cannot
@@ -61,6 +85,7 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
       // ByteVectorValues.fromBytes(...)) carry no mmap fast path. Score them natively too, copying
       // each vector into reused native segments, so graph build does not fall back to Lucene's
       // int8 -> int widening PanamaVectorUtilSupport.dotProductBody (a dominant CPU cost).
+      GlobalMetricFactory.incrementNativeByteVectorScoringEngaged();
       return new InMemoryByteVectorScorerSupplier(similarityFunction, byteValues);
     }
     return this.delegate.getRandomVectorScorerSupplier(similarityFunction, vectorValues);
@@ -89,12 +114,14 @@ public class Lucene99NativeMemorySegmentVectorScorer implements FlatVectorsScore
         // Q7 values subtype ByteVectorValues but use a different stride/formula; they are
         // handled by NativeScalarQuantizedVectorsScorer, never here.
         && !(byteValues instanceof QuantizedByteVectorValues)
-        && Similarity.I8_ACCELERATION) {
+        && nativeEnabled()) {
       IndexInput slice = hasSlice.getSlice();
       if (slice != null) {
         IndexInput unwrapped = FilterIndexInput.unwrapOnlyTest(slice);
         if (unwrapped instanceof MemorySegmentAccessInput msInput) {
           checkInvariants(byteValues.size(), byteValues.getVectorByteLength(), unwrapped);
+          GlobalMetricFactory.incrementNativeByteVectorScoringEngaged();
+          GlobalMetricFactory.markNativeByteVectorScoringQueryActive();
           return new NativeByteQueryScorer(similarityFunction, msInput, byteValues, target);
         }
       }

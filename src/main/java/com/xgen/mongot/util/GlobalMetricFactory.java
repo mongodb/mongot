@@ -34,9 +34,13 @@ public final class GlobalMetricFactory {
   static final String NATIVE_SCALAR_VECTOR_SCORING_ENGAGED = "native_scalar_vector_scoring_engaged";
   static final String NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE =
       "native_scalar_vector_scoring_query_active";
+  static final String NATIVE_BYTE_VECTOR_SCORING_ENGAGED = "native_byte_vector_scoring_engaged";
+  static final String NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE =
+      "native_byte_vector_scoring_query_active";
 
   private static final AtomicLong NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE =
       new AtomicLong();
+  private static final AtomicLong NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE = new AtomicLong();
 
   /**
    * Eager-register only when:
@@ -62,7 +66,13 @@ public final class GlobalMetricFactory {
               + " construction call, typically once per segment touched by a merge or a"
               + " $vectorSearch query, so a single query spanning N segments can move this by N;"
               + " not once per vector scored. A series that stays at 0 means native scoring never"
-              + " actually engaged on this process even if the dynamic feature flag is on");
+              + " actually engaged on this process even if the dynamic feature flag is on",
+          NATIVE_BYTE_VECTOR_SCORING_ENGAGED,
+          "Counts native int8 byte scorer engagements -- once per native scorer/supplier"
+              + " construction call (mmap-backed or in-memory), typically once per segment touched"
+              + " by a merge, an HNSW graph build, or a $vectorSearch query, so a single query"
+              + " spanning N segments can move this by N; not once per vector scored. Stays at 0 if"
+              + " the default-on NATIVE_BYTE_VECTOR_SCORING flag is disabled (or never engaged)");
 
   private GlobalMetricFactory() {}
 
@@ -75,6 +85,7 @@ public final class GlobalMetricFactory {
     meterRegistry = Optional.of(registry);
     registerEagerCounters(registry);
     registerNativeScalarVectorScoringQueryActiveGauge(registry);
+    registerNativeByteVectorScoringQueryActiveGauge(registry);
     LOGGER.info("GlobalMetricFactory initialized successfully.");
   }
 
@@ -248,6 +259,50 @@ public final class GlobalMetricFactory {
   }
 
   /**
+   * Increments the counter tracking native int8 byte scorer engagements -- once per native
+   * scorer/supplier construction call, not once per vector scored. Call only from the branch that
+   * actually takes the native path: a series that stays at 0 is how one confirms that disabling the
+   * default-on {@code NATIVE_BYTE_VECTOR_SCORING} kill switch actually took effect.
+   */
+  public static void incrementNativeByteVectorScoringEngaged() {
+    Optional<MeterRegistry> maybeRegistry = meterRegistry;
+    if (maybeRegistry.isEmpty()) {
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
+          "GlobalMetricFactory not initialized, cannot record native byte vector scoring metric");
+      return;
+    }
+    getOrRegisterCounter(maybeRegistry.get(), NATIVE_BYTE_VECTOR_SCORING_ENGAGED).increment();
+  }
+
+  /**
+   * Marks that this process has served at least one {@code $vectorSearch} query using the native
+   * int8 byte scorer, flipping the {@code native_byte_vector_scoring_query_active} gauge to 1.
+   * Query path only, never merge/graph-build: merge-only engagement should not count toward
+   * "customers impacted". Like {@link #markNativeScalarVectorScoringQueryActive()}, the gauge is
+   * sticky for the life of the process.
+   */
+  public static void markNativeByteVectorScoringQueryActive() {
+    // Plain read first: a failed compareAndSet still issues a locked CAS instruction and can bounce
+    // the cache line on every query, so check-then-CAS to make every call after the first flip a
+    // true no-write volatile read.
+    if (NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE.get() == 0) {
+      NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE.compareAndSet(0, 1);
+    }
+  }
+
+  private static void registerNativeByteVectorScoringQueryActiveGauge(MeterRegistry registry) {
+    Gauge.builder(
+            NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE,
+            NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE,
+            AtomicLong::get)
+        .description(
+            "1 once this process has served a $vectorSearch query using the native int8"
+                + " byte scorer, 0 otherwise. Sticky for the life of the process. See"
+                + " native_scalar_vector_scoring_query_active for aggregation guidance.")
+        .register(registry);
+  }
+
+  /**
    * Eagerly registers all bloom filter counters (initialized to 0) so they are always present in
    * the scrape output. These metrics back dashboards and alerts, so they must exist even before the
    * first event -- otherwise a cluster that has not yet exercised the bloom read path would report
@@ -269,6 +324,7 @@ public final class GlobalMetricFactory {
   public static void resetForTest() {
     meterRegistry = Optional.empty();
     NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE.set(0);
+    NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE.set(0);
   }
 
   @VisibleForTesting

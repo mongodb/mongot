@@ -60,9 +60,9 @@ public class NativeScalarQuantizedVectorsScorer implements FlatVectorsScorer {
           .evaluateClusterInvariant(DynamicFeatureFlags.NATIVE_SCALAR_VECTOR_SCORING);
     } catch (IllegalStateException e) {
       // The process-global registry is installed by the bootstrapper before any query runs, so this
-      // is unreachable in a normal mongot process. Guard for non-bootstrap contexts that drive the
-      // codec directly (e.g. standalone force-merge tooling): default to off and use the Java path.
-      return false;
+      // is unreachable in a normal mongot process. Non-bootstrap contexts that drive the codec
+      // directly (e.g. standalone force-merge tooling) keep the flag's default-off behavior.
+      return DynamicFeatureFlags.NATIVE_SCALAR_VECTOR_SCORING.getFallback();
     }
   }
 
