@@ -20,7 +20,6 @@ java_library(
         "//src/main/java/com/xgen/mongot/config/util",
         "//src/main/java/com/xgen/mongot/cursor",
         "//src/main/java/com/xgen/mongot/featureflag",
-        "//src/main/java/com/xgen/mongot/featureflag/dynamic",
         "//src/main/java/com/xgen/mongot/server/auth",
         "//src/main/java/com/xgen/mongot/server/command/search",
         "//src/main/java/com/xgen/mongot/server/command/search/definition/request",

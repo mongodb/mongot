@@ -19,6 +19,7 @@ import com.xgen.mongot.server.command.management.definition.ManageSearchIndexCom
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.command.search.definition.request.GetMoreCommandDefinition;
 import com.xgen.mongot.server.command.search.definition.request.KillCursorsCommandDefinition;
+import com.xgen.mongot.server.command.search.definition.request.MaterializeVectorSearchCommandDefinition;
 import com.xgen.mongot.server.command.search.definition.request.PlanShardedSearchCommandDefinition;
 import com.xgen.mongot.server.command.search.definition.request.SearchCommandDefinition;
 import com.xgen.mongot.server.command.search.definition.request.VectorSearchCommandDefinition;
@@ -96,6 +97,12 @@ public class SearchCommandsRegister {
             metadata,
             searchMetrics);
 
+    // Removes read amplification on sharded clusters: the router calls this once before the
+    // scatter to embed query text into a queryVector, instead of every shard's mongot embedding it.
+    var materializeVectorSearch =
+        new MaterializeVectorSearchCommand.Factory(
+            indexCatalog, embeddingServiceManagerSupplier, metadata, searchMetrics);
+
     // TODO(CLOUDP-280897): replace deprecated command with VectorSearchCommand once we disallow
     // running vector queries against search indexes
     var deprecatedVectorSearch =
@@ -114,6 +121,8 @@ public class SearchCommandsRegister {
     registrationCommand.register(PlanShardedSearchCommandDefinition.NAME, planShardedSearch, true);
     registrationCommand.register(KillCursorsCommandDefinition.NAME, killCursors, false);
     registrationCommand.register(VectorSearchCommandDefinition.NAME, deprecatedVectorSearch, true);
+    registrationCommand.register(
+        MaterializeVectorSearchCommandDefinition.NAME, materializeVectorSearch, true);
   }
 
   public static void registerIndexManagementCommands(

@@ -160,6 +160,23 @@ final class VectorQueryEmbedder {
     }
   }
 
+  /**
+   * The vector the query would search with: a user-supplied {@code queryVector} reconciled against
+   * the index encoding, or the embedded query text. Unlike {@link #materializeQuery} this does not
+   * resolve the index's internal field mapping, so it costs no catalog lookups; it is for callers
+   * that only need the vector, such as {@code materializeVectorSearch}.
+   */
+  Vector resolveQueryVector(
+      VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
+      throws InvalidQueryException,
+          EmbeddingProviderTransientException,
+          EmbeddingProviderNonTransientException {
+    if (vectorSearchQuery.criteria().queryVector().isPresent()) {
+      return reconcileUserQueryVector(vectorSearchQuery, embedRequestInfo);
+    }
+    return embedText(vectorSearchQuery, embedRequestInfo);
+  }
+
   // Builds the query from a user-supplied queryVector, reconciling it against the index encoding.
   private MaterializedVectorSearchQuery materializeUserQueryVector(
       VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
@@ -199,6 +216,19 @@ final class VectorQueryEmbedder {
   // no queryVector, so a non-auto-embedding (BYOV) index here means the user omitted the required
   // queryVector.
   private MaterializedVectorSearchQuery embedQueryText(
+      VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
+      throws InvalidQueryException,
+          EmbeddingProviderTransientException,
+          EmbeddingProviderNonTransientException {
+    return new MaterializedVectorSearchQuery(
+        vectorSearchQuery,
+        embedText(vectorSearchQuery, embedRequestInfo),
+        findAutoEmbeddingFieldsMapping(vectorSearchQuery),
+        findAutoEmbedVectorSourcePaths(embedRequestInfo));
+  }
+
+  // Embeds the query text with the resolved model and returns the vector.
+  private Vector embedText(
       VectorSearchQuery vectorSearchQuery, Optional<EmbedRequestInfo> embedRequestInfo)
       throws InvalidQueryException,
           EmbeddingProviderTransientException,
@@ -265,12 +295,7 @@ final class VectorQueryEmbedder {
       }
       Check.checkState(
           result.errorMessage.isEmpty(), "Got error when embedding query: %s", result.errorMessage);
-
-      return new MaterializedVectorSearchQuery(
-          vectorSearchQuery,
-          Check.isPresent(result.vector, "vector"),
-          findAutoEmbeddingFieldsMapping(vectorSearchQuery),
-          findAutoEmbedVectorSourcePaths(embedRequestInfo));
+      return Check.isPresent(result.vector, "vector");
     }
   }
 

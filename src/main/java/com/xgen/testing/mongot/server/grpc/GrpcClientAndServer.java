@@ -6,7 +6,6 @@ import com.xgen.mongot.config.manager.IncompatibleIndexes;
 import com.xgen.mongot.config.util.TlsMode;
 import com.xgen.mongot.cursor.CursorConfig;
 import com.xgen.mongot.featureflag.FeatureFlags;
-import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.auth.SecurityConfig;
 import com.xgen.mongot.server.command.search.SearchCommandsRegister;
@@ -174,7 +173,7 @@ public class GrpcClientAndServer implements ClientAndServer {
                 "localhost",
                 () -> MongoDbServerInfo.EMPTY,
                 FeatureFlags.getDefault(),
-                DynamicFeatureFlagRegistry.empty()),
+                mocks.dynamicFeatureFlagRegistry),
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             CursorConfig.DEFAULT_MESSAGE_SIZE_LIMIT,
             mocks.embeddingServiceManagerSupplier);

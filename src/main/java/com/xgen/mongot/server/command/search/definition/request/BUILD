@@ -8,6 +8,7 @@ java_library(
         "ExplainDefinition.java",
         "GetMoreCommandDefinition.java",
         "KillCursorsCommandDefinition.java",
+        "MaterializeVectorSearchCommandDefinition.java",
         "OptimizationFlagsDefinition.java",
         "PlanShardedSearchCommandDefinition.java",
         "SearchCommandDefinition.java",
