@@ -4,6 +4,7 @@ import com.xgen.mongot.util.DeploymentEnvironment;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonNull;
+import org.bson.BsonString;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -100,8 +101,9 @@ public class BsonDocumentParserTest {
   }
 
   @Test
-  public void communityRuntime_fieldWithEnterpriseEdition_throws() throws Exception {
-    try (var parser = parserFor(new BsonDocument(), Optional.of(DeploymentEnvironment.COMMUNITY))) {
+  public void communityRuntime_presentFieldWithEnterpriseEdition_throws() throws Exception {
+    var doc = new BsonDocument("foo", new BsonString("bar"));
+    try (var parser = parserFor(doc, Optional.of(DeploymentEnvironment.COMMUNITY))) {
       BsonParseException e =
           Assert.assertThrows(
               BsonParseException.class,
@@ -114,6 +116,21 @@ public class BsonDocumentParserTest {
                           .noDefault()));
 
       Assert.assertEquals("\"foo\" is not supported in the COMMUNITY edition", e.getMessage());
+    }
+  }
+
+  @Test
+  public void communityRuntime_absentFieldWithEnterpriseEdition_isAccepted() throws Exception {
+    try (var parser = parserFor(new BsonDocument(), Optional.of(DeploymentEnvironment.COMMUNITY))) {
+      Field.Optional<String> field =
+          Field.builder("foo")
+              .stringField()
+              .edition(DeploymentEnvironment.ENTERPRISE)
+              .optional()
+              .noDefault();
+
+      Assert.assertFalse(parser.hasField(field));
+      Assert.assertTrue(parser.getField(field).unwrap().isEmpty());
     }
   }
 
@@ -222,7 +239,7 @@ public class BsonDocumentParserTest {
 
   @Test
   public void nestedField_withEnterpriseEdition_throwsUnderCommunityRuntime() throws Exception {
-    var doc = new BsonDocument("outer", new BsonDocument());
+    var doc = new BsonDocument("outer", new BsonDocument("tagged", new BsonString("bar")));
     try (var parser = parserFor(doc, Optional.of(DeploymentEnvironment.COMMUNITY))) {
       var outer =
           Field.builder("outer")

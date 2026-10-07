@@ -99,9 +99,8 @@ public class BsonDocumentParser implements DocumentParser {
 
   BsonValue getValue(Field.Nameable field, BsonParseContext context, boolean isRequired)
       throws BsonParseException {
-    validateEdition(field, context);
-
     Optional<BsonValue> value = Optional.ofNullable(this.wrapped.get(field.getName()));
+    validateEdition(field, context, value.isPresent());
 
     if (value.isEmpty()) {
       // The field is missing. If it's required, we should throw, otherwise treat it as null so that
@@ -122,8 +121,12 @@ public class BsonDocumentParser implements DocumentParser {
    * edition. When running on-prem, every field must declare an edition, and that edition must
    * support the runtime: Community fields are usable in both Community and Enterprise, while
    * Enterprise fields are usable only in Enterprise.
+   *
+   * <p>Whether the runtime supports the field's edition is only enforced when the field is present
+   * in the document, so an absent optional Enterprise field still parses under Community.
    */
-  private void validateEdition(Field.Nameable field, BsonParseContext fieldContext)
+  private void validateEdition(
+      Field.Nameable field, BsonParseContext fieldContext, boolean isPresent)
       throws BsonParseException {
     Optional<DeploymentEnvironment> fieldEdition = field.getEdition();
     Optional<DeploymentEnvironment> runtimeEdition = fieldContext.getDeploymentEnvironment();
@@ -140,7 +143,7 @@ public class BsonDocumentParser implements DocumentParser {
       return;
     }
 
-    if (!supports(fieldEdition.get(), runtimeEdition.get())) {
+    if (isPresent && !supports(fieldEdition.get(), runtimeEdition.get())) {
       fieldContext.handleSemanticError(
           "is not supported in the " + runtimeEdition.get() + " edition");
     }
