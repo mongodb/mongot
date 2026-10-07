@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-10-06
+
+### Added
+
+- `autoEmbed` field type on the Atlas Search schemas (`search/index.json`,
+  `search/index_sort.json`), mirroring the Vector Search `autoEmbed` schema: required `type`,
+  `modality`, `path`, and `model`; the `voyage-4`, `voyage-4-large`, `voyage-4-lite`, and
+  `voyage-code-3` model allowlist; and the `quantization`, `numDimensions`, and `similarity`
+  values. Optional tuning settings (`indexingMethod`, `hnswOptions`) are not included yet.
+
 ## [2.2.0] - 2026-09-17
 
 ### Added
