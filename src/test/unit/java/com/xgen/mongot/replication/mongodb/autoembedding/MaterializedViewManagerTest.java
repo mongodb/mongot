@@ -3410,7 +3410,12 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
-  public void dynamicLeader_acquireLease_recordsUnsafeReacquisitionWithActiveLeader() {
+  public void dynamicLeader_acquireLease_skipsAcquisitionWhileGeneratorStillLeads() {
+    // CLOUDP-437680 (lose-and-reacquire ABA): the lease manager demoted this generation (that
+    // is what made the lease acquirable), but its generator still leads the prior tenure.
+    // Acquiring now would re-activate that generator under a fresh lease while its in-flight
+    // work holds the prior tenure's pin, before heartbeat pass 2 can drain it. refreshStatus
+    // must skip acquisition and leave the drain to the heartbeat pass.
     Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
 
     MaterializedViewIndexGeneration matViewIndexGen =
@@ -3428,8 +3433,12 @@ public class MaterializedViewManagerTest {
 
     mocks.runnableCaptor.orElseThrow().getValue().run();
 
+    // The reacquisition that re-activates the still-leading generator never happens; the
+    // post-acquisition tripwire counter stays at zero.
+    verify(mocks.leaseManager, never()).tryAcquireLeadership(any());
+    verify(generator, never()).becomeLeader();
     assertEquals(
-        1.0,
+        0.0,
         mocks
             .meterRegistry
             .counter(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME)
@@ -3438,25 +3447,76 @@ public class MaterializedViewManagerTest {
   }
 
   @Test
-  public void dynamicLeader_acquireLease_blockedDemotionRace_doesNotActivateStaleReplacement()
-      throws Exception {
-    // Regression test: transitionToFollower() holds the manager monitor for its whole
-    // synchronized body, including existingGenerator.shutdown() and the factory call. If a
-    // concurrent refreshStatus() reacquires this same generation's lease and blocks entering the
-    // monitor behind it, the generator it captured before blocking is stale by the time it gets
-    // in: transitionToFollower() has since installed a replacement and populated
-    // pendingShutdowns. Activating that replacement here would bypass the deferred-activation
-    // pendingShutdowns drain (the only place that verifies the predecessor's shutdown/queue
-    // cleanup actually finished), so the recheck must back off instead.
-    Mocks mocks = Mocks.createDynamicLeaderWithDynamicLeaseManager();
+  public void dynamicLeader_acquireLease_acquiresForReplacementAfterHeartbeatDrain() {
+    // Companion to the skip test: the skipped cycle lets heartbeat pass 2 drain the demoted
+    // generator (transitionToFollower installs a fresh follower), and the next refreshStatus
+    // cycle acquires for that replacement — becomeLeader pins the new tenure's leaseVersion,
+    // above every stamp of the demoted tenure.
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator oldGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    doReturn(IndexManager.State.STEADY_STATE).when(oldGenerator).getState();
+    doReturn(true).when(oldGenerator).isLeader();
+    MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(matViewGenId, IndexStatus.unknown()), Set.of(matViewGenId)));
+    when(mocks.leaseManager.tryAcquireLeadership(matViewGenId)).thenReturn(true);
+
+    // The replacement follower the heartbeat's transitionToFollower installs.
+    MaterializedViewGenerator replacement = mock(MaterializedViewGenerator.class);
+    doReturn(false).when(replacement).isLeader();
+    doReturn(IndexManager.State.INITIAL_SYNC).when(replacement).getState();
+    doReturn(matViewIndexGen).when(replacement).getIndexGeneration();
+    when(mocks.materializedViewGeneratorFactory.create(eq(matViewIndexGen)))
+        .thenReturn(replacement);
+
+    // Cycle 1: acquisition is skipped while the generator still leads.
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+    verify(mocks.leaseManager, never()).tryAcquireLeadership(any());
+
+    // Heartbeat pass 2 detects the demotion and drains the old generator.
+    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(mocks.heartbeatExecutor)
+        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
+    heartbeatCaptor.getValue().run();
+    verify(oldGenerator).shutdown();
+
+    // Cycle 2: the drain completed (shutdown future done, queue clean), so acquisition
+    // proceeds for the replacement follower.
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    verify(mocks.leaseManager).tryAcquireLeadership(matViewGenId);
+    verify(replacement).becomeLeader();
+  }
+
+  @Test
+  public void dynamicLeader_acquireLease_replacedDuringAcquisition_backsOffInsteadOfActivating() {
+    // Regression test: refreshStatus()'s acquisition loop re-checks the map under the manager
+    // monitor after tryAcquireLeadership() returns, because a concurrent same-generation re-add
+    // can run replaceGenerator() in between — populating pendingShutdowns and installing a
+    // replacement — so the generator captured before the acquisition call is stale. Activating
+    // that replacement would bypass the deferred-activation pendingShutdowns drain (the only
+    // place that verifies the predecessor's shutdown/queue cleanup actually finished), so the
+    // recheck must back off and release the lease instead.
+    //
+    // The real interleaving (acquisition racing a concurrent add()) is reproduced
+    // single-threaded: the re-add runs inside the tryAcquireLeadership() answer, at exactly the
+    // point the concurrent add would land — after every pre-check, before the monitor.
+    // (The pre-CLOUDP-437680 form of this test ran the concurrent replacement through heartbeat
+    // pass 2's transitionToFollower with two parked threads; that entrance is closed now that
+    // refreshStatus skips acquisition while the local generator still leads, and the
+    // same-generation re-add is the reachable trigger.)
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
     MaterializedViewIndexGeneration matViewIndexGen =
         mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
     MaterializedViewGenerator staleGenerator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
     mocks.addIndexForReplication(matViewIndexGen);
-    // Generator was activated as leader during addIndexForReplication (matches the
-    // dynamicLeader_transitionToFollower_skipsWhenPendingShutdown precedent above).
-    verify(staleGenerator).becomeLeader();
-    assertTrue(staleGenerator.isLeader());
+    doReturn(IndexManager.State.STEADY_STATE).when(staleGenerator).getState();
     MaterializedViewGenerator replacement = mock(MaterializedViewGenerator.class);
     doReturn(IndexManager.State.STEADY_STATE).when(replacement).getState();
     doReturn(matViewIndexGen).when(replacement).getIndexGeneration();
@@ -3469,66 +3529,21 @@ public class MaterializedViewManagerTest {
             new LeaseManager.FollowerPollResult(
                 Map.of(matViewGenId, IndexStatus.unknown()), Set.of(matViewGenId)));
 
-    // Thread B blocks here first, inside tryAcquireLeadership() (no lock held — this models the
-    // real network round-trip), so it captures staleGenerator as generatorBeforeAcquisition and
-    // passes every up-front check (pendingShutdowns empty, generator healthy) before Thread A
-    // ever touches the manager monitor. refreshStatus() itself starts with the synchronized
-    // retryFailedGeneratorCreations(), so if Thread A grabbed the monitor before Thread B even
-    // began, Thread B would block there instead and never reach this call at all — the ordering
-    // below (start B, let it reach here, only then start A) is what makes the race Augment
-    // described reachable in this test.
-    CountDownLatch acquireEntered = new CountDownLatch(1);
-    CountDownLatch releaseAcquire = new CountDownLatch(1);
+    // The lease is acquired; while the acquisition call is in flight, a same-generation re-add
+    // replaces the generator and registers its predecessor's shutdown.
     when(mocks.leaseManager.tryAcquireLeadership(matViewGenId))
         .thenAnswer(
             invocation -> {
-              acquireEntered.countDown();
-              assertTrue(releaseAcquire.await(5, TimeUnit.SECONDS));
+              mocks.addIndexForReplication(matViewIndexGen);
               return true;
             });
-    CompletableFuture<Void> refresh =
-        CompletableFuture.runAsync(() -> mocks.runnableCaptor.orElseThrow().getValue().run());
-    assertTrue(acquireEntered.await(5, TimeUnit.SECONDS));
 
-    // Thread A: the heartbeat detects leadership loss (mocks.leaseManager.isLeader() now false)
-    // and demotes staleGenerator via transitionToFollower(), while Thread B is parked above,
-    // holding no lock. Blocking inside shutdown() parks Thread A mid-transition while it still
-    // holds the manager monitor for its whole synchronized body.
-    when(mocks.leaseManager.isLeader(matViewGenId)).thenReturn(false);
-    CountDownLatch shutdownEntered = new CountDownLatch(1);
-    CountDownLatch releaseShutdown = new CountDownLatch(1);
-    doAnswer(
-            invocation -> {
-              shutdownEntered.countDown();
-              assertTrue(releaseShutdown.await(5, TimeUnit.SECONDS));
-              return COMPLETED_FUTURE;
-            })
-        .when(staleGenerator)
-        .shutdown();
-    ArgumentCaptor<Runnable> heartbeatCaptor = ArgumentCaptor.forClass(Runnable.class);
-    verify(mocks.heartbeatExecutor)
-        .scheduleWithFixedDelay(heartbeatCaptor.capture(), anyLong(), anyLong(), any());
-    CompletableFuture<Void> demotion =
-        CompletableFuture.runAsync(() -> heartbeatCaptor.getValue().run());
-    assertTrue(shutdownEntered.await(5, TimeUnit.SECONDS));
+    mocks.runnableCaptor.orElseThrow().getValue().run();
 
-    // Release Thread B: tryAcquireLeadership() now returns, and it immediately tries to enter
-    // the manager monitor for the post-acquisition recheck — but Thread A holds it, blocked in
-    // shutdown(). Thread B blocks there in turn.
-    releaseAcquire.countDown();
-    // No signal exists for "about to attempt the monitor entry" (it's the very next bytecode
-    // after the mocked call returns); this pause biases against a spurious pass where Thread A
-    // finishes and releases the monitor before Thread B ever contends for it.
-    Thread.sleep(200);
-
-    // Release Thread A: it finishes transitionToFollower() (installs the replacement,
-    // populates pendingShutdowns, shuts staleGenerator down) and returns, releasing the monitor.
-    // Thread B then acquires it and must recheck pendingShutdowns before activating whatever
-    // generator it now finds.
-    releaseShutdown.countDown();
-    demotion.get(5, TimeUnit.SECONDS);
-    refresh.get(5, TimeUnit.SECONDS);
-
+    // The stale captured generator was drained by the re-add, and the recheck released the
+    // freshly acquired lease rather than activating the replacement mid-drain.
+    verify(staleGenerator).shutdown();
+    verify(mocks.leaseManager).releaseLeadership(matViewGenId);
     verify(replacement, never()).becomeLeader();
     assertTrue(mocks.manager.pendingShutdowns.containsKey(matViewGenId));
   }
@@ -3909,6 +3924,44 @@ public class MaterializedViewManagerTest {
                 "FACTORY_CREATE_AFTER_LEADERSHIP_LOSS",
                 "reason",
                 "NON_TRANSIENT")
+            .count(),
+        0.0);
+  }
+
+  @Test
+  public void dynamicLeader_acquireLease_heartbeatPartialUpdateOff_stillReacquiresWhileLeading() {
+    // The skip is gated on LEASE_HEARTBEAT_PARTIAL_UPDATE: with the flag off, a reacquisition
+    // granted while the prior local generator still leads is usually a benign CLOUDP-397647
+    // OCC self-heal (the lease still names this host unexpired, so no interim leader was
+    // possible), so master's immediate re-acquisition stays — and the tripwire counter keeps
+    // recording it (CLOUDP-437680).
+    Mocks mocks = Mocks.createDynamicFollowerWithAcquirableLeases();
+
+    MaterializedViewIndexGeneration matViewIndexGen =
+        mockMatViewIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    MaterializedViewGenerator generator = mocks.mockMaterializedViewGenerator(matViewIndexGen);
+    mocks.addIndexForReplication(matViewIndexGen);
+    doReturn(IndexManager.State.STEADY_STATE).when(generator).getState();
+    doReturn(true).when(generator).isLeader();
+    MaterializedViewGenerationId matViewGenId = matViewIndexGen.getGenerationId();
+    when(mocks.leaseManager.pollFollowerStatuses())
+        .thenReturn(
+            new LeaseManager.FollowerPollResult(
+                Map.of(matViewGenId, IndexStatus.unknown()), Set.of(matViewGenId)));
+    when(mocks.leaseManager.tryAcquireLeadership(matViewGenId)).thenReturn(true);
+    when(mocks.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.LEASE_HEARTBEAT_PARTIAL_UPDATE))
+        .thenReturn(false);
+
+    mocks.runnableCaptor.orElseThrow().getValue().run();
+
+    verify(mocks.leaseManager).tryAcquireLeadership(matViewGenId);
+    verify(generator).becomeLeader();
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .counter(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME)
             .count(),
         0.0);
   }
@@ -6573,6 +6626,12 @@ public class MaterializedViewManagerTest {
           .thenReturn(true);
       when(this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
               DynamicFeatureFlags.MV_GC_DELETION_ENABLED))
+          .thenReturn(true);
+      // The reacquisition skip (CLOUDP-437680) is gated on this flag; on by default so the
+      // dynamic-leader tests exercise the gated path, mirroring the post-flip state. The
+      // flag-off behavior (master's reacquisition-while-leading) is covered by its own test.
+      when(this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+              DynamicFeatureFlags.LEASE_HEARTBEAT_PARTIAL_UPDATE))
           .thenReturn(true);
       this.embeddingRetryCache = mock(EmbeddingRetryCache.class);
       // Every index is configured by default, so the GC current-version safeguard behaves as

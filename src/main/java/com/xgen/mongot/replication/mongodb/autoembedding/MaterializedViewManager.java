@@ -1838,6 +1838,33 @@ public class MaterializedViewManager implements ReplicationManager {
           generator.ifPresent(MaterializedViewGenerator::shutdown);
           continue;
         }
+        // The lease manager demoted this generation (that is what made the lease acquirable),
+        // but its generator still leads the prior tenure. Acquiring here would re-activate that
+        // generator under a fresh lease while its in-flight work holds the prior tenure's pin —
+        // the lose-and-reacquire ABA (CLOUDP-437680), reachable only because this acquisition can
+        // beat heartbeat pass 2, whose generator.isLeader() && !leaseManager.isLeader() check
+        // drains exactly this state. Skip acquisition for the cycle and leave the drain to pass
+        // 2; the replacement follower it installs acquires on a later cycle, pinning the new
+        // tenure's leaseVersion at beginTenure.
+        //
+        // Gated on LEASE_HEARTBEAT_PARTIAL_UPDATE (evaluated per tick, so a flip needs no
+        // restart). With the flag off, most reacquisitions-while-leading are benign
+        // CLOUDP-397647 OCC self-heals: the whole-document renewal demoted a live leader while
+        // the lease still named this host unexpired, so no interim leader was possible and
+        // re-acquiring is safe — skipping those would convert daily fleet self-heals into full
+        // generator replacements for no safety gain. The flag removes that demotion source, so
+        // the skip activates exactly when its residual triggers are real takeovers and
+        // expiries, where the drain is the correct behavior.
+        if (this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+                DynamicFeatureFlags.LEASE_HEARTBEAT_PARTIAL_UPDATE)
+            && generator.get().isLeader()) {
+          LOG.atInfo()
+              .addKeyValue("generationId", generationId)
+              .log(
+                  "Lease is acquirable but the local generator still leads the prior tenure;"
+                      + " skipping acquisition until the heartbeat drains it");
+          continue;
+        }
         MaterializedViewGenerator generatorBeforeAcquisition = generator.get();
         if (this.leaseManager.tryAcquireLeadership(generationId)) {
           // Synchronize on the manager monitor (same lock as transitionToFollower) to
