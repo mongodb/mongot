@@ -42,6 +42,7 @@ import com.xgen.testing.mongot.index.query.collectors.FacetDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
 import com.xgen.testing.mongot.index.query.scores.ScoreBuilder;
 import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
+import com.xgen.testing.mongot.metrics.FilteredCompositeRegistry;
 import com.xgen.testing.mongot.metrics.micrometer.PercentilesBuilder;
 import com.xgen.testing.mongot.metrics.micrometer.SerializableTimerBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
@@ -131,6 +132,31 @@ public class IndexMetricsUpdaterTest {
               .build();
       var result = mockedIndexMetricsUpdater.getMetrics();
       Assert.assertEquals(expected, result);
+    }
+
+    @Test
+    public void getMetrics_compositeWithDeniedChildren_reportsRecordedCounts() {
+      var indexMetricsUpdater =
+          IndexMetricsUpdaterBuilder.builder()
+              .metricsFactory(
+                  new PerIndexMetricsFactory(
+                      IndexMetricsUpdater.NAMESPACE,
+                      FilteredCompositeRegistry.create(),
+                      GenerationIdBuilder.create()))
+              .indexDefinition(
+                  SearchIndexDefinitionBuilder.builder().defaultMetadata().dynamicMapping().build())
+              .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+              .build();
+      indexMetricsUpdater
+          .getIndexingMetricsUpdater()
+          .getDocumentEventTypeCounter(DocumentEvent.EventType.INSERT)
+          .increment(3);
+      indexMetricsUpdater.getQueryingMetricsUpdater().getTotalQueryCounter().increment(5);
+      var metrics = indexMetricsUpdater.getMetrics();
+
+      assertThat(metrics.indexingMetrics().appliedDocumentEventTypeCountMap())
+          .containsEntry(DocumentEvent.EventType.INSERT, 3.0);
+      assertThat(metrics.queryingMetrics().totalQueryCount()).isEqualTo(5.0);
     }
 
     @Test

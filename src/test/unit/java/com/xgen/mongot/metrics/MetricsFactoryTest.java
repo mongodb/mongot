@@ -2,6 +2,7 @@ package com.xgen.mongot.metrics;
 
 import com.google.common.base.CaseFormat;
 import com.xgen.mongot.util.Enums;
+import com.xgen.testing.mongot.metrics.FilteredCompositeRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
@@ -11,6 +12,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import io.micrometer.core.instrument.search.MeterNotFoundException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
@@ -550,5 +552,55 @@ public class MetricsFactoryTest {
     factory.removeMeters("indexStatusCode", Tags.of("indexId", "a"));
 
     Assert.assertTrue(registry.getMeters().isEmpty());
+  }
+
+  @Test
+  public void counter_compositeWithDeniedChildren_readsRecordedValue() {
+    var registries = FilteredCompositeRegistry.create();
+    var metricsFactory =
+        new MetricsFactory(
+            "test", registries.meterRegistry(), Tags.empty(), false, registries.ftdcRegistry());
+    Counter counter = metricsFactory.counter("counter");
+
+    counter.increment(5);
+
+    Assert.assertEquals(5, counter.count(), 0.0);
+  }
+
+  @Test
+  public void timer_compositeWithDeniedChildren_readsRecordedValue() {
+    var registries = FilteredCompositeRegistry.create();
+    var metricsFactory =
+        new MetricsFactory(
+            "test", registries.meterRegistry(), Tags.empty(), false, registries.ftdcRegistry());
+    Timer timer = metricsFactory.timer("timer", TimeUnit.MILLISECONDS);
+
+    timer.record(3, TimeUnit.MILLISECONDS);
+
+    Assert.assertEquals(1, timer.count());
+    Assert.assertEquals(3, timer.totalTime(TimeUnit.MILLISECONDS), 0.0);
+  }
+
+  @Test
+  public void counter_compositeWithDeniedChildren_recordsOnceToReadRegistry() {
+    var registries = FilteredCompositeRegistry.create();
+    var metricsFactory =
+        new MetricsFactory(
+            "test", registries.meterRegistry(), Tags.empty(), false, registries.ftdcRegistry());
+
+    metricsFactory.counter("counter").increment(5);
+
+    Assert.assertEquals(5, registries.ftdcRegistry().get("test.counter").counter().count(), 0.0);
+  }
+
+  @Test
+  public void counter_readRegistryNotAChild_returnsRegisteredCounter() {
+    var composite = new CompositeMeterRegistry();
+    var metricsFactory =
+        new MetricsFactory("test", composite, Tags.empty(), false, new SimpleMeterRegistry());
+
+    Counter counter = metricsFactory.counter("counter");
+
+    Assert.assertSame(composite.get("test.counter").counter(), counter);
   }
 }

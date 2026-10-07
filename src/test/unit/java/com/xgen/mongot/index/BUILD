@@ -37,6 +37,7 @@ mongot_java_unit_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/query/scores",
         "//src/main/java/com/xgen/testing/mongot/index/query/sort",
         "//src/main/java/com/xgen/testing/mongot/index/version",
+        "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/metrics/micrometer",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@maven//:io_opentelemetry_opentelemetry_context",

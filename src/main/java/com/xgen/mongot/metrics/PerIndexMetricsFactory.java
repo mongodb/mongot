@@ -88,12 +88,22 @@ public class PerIndexMetricsFactory {
       MeterAndFtdcRegistry meterAndFtdcRegistry,
       Tags tags,
       boolean identitySafeClose) {
+    // Composite-registered meters read from FTDC, which is unfiltered and so holds real values.
     this(
         meterAndFtdcRegistry,
         new MetricsFactory(
-            namespace, meterAndFtdcRegistry.meterRegistry(), tags, identitySafeClose),
+            namespace,
+            meterAndFtdcRegistry.meterRegistry(),
+            tags,
+            identitySafeClose,
+            meterAndFtdcRegistry.ftdcRegistry()),
         new MetricsFactory(namespace, meterAndFtdcRegistry.ftdcRegistry(), tags, identitySafeClose),
-        new MetricsFactory(namespace, meterAndFtdcRegistry.meterRegistry()));
+        new MetricsFactory(
+            namespace,
+            meterAndFtdcRegistry.meterRegistry(),
+            Tags.empty(),
+            false,
+            meterAndFtdcRegistry.ftdcRegistry()));
   }
 
   private PerIndexMetricsFactory(

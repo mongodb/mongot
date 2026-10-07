@@ -18,6 +18,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/metrics/micrometer",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@maven//:com_google_guava_guava",
@@ -49,6 +50,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/metrics",
         "//src/main/java/com/xgen/testing/mongot/metrics/micrometer",
         "@maven//:com_google_flogger_flogger_system_backend",  # keep
         "@maven//:com_google_guava_guava",

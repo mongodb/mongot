@@ -5,6 +5,7 @@ java_library(
     testonly = True,
     srcs = [
         "CounterSubjects.java",
+        "FilteredCompositeRegistry.java",
         "MeterRef.java",
         "MeterSubject.java",
         "MultiCounterDefinedTags.java",
@@ -17,7 +18,10 @@ java_library(
         "TestMeterRegistry.java",
     ],
     visibility = ["//visibility:public"],
-    exports = ["@maven//:io_micrometer_micrometer_core"],
+    exports = [
+        "//src/main/java/com/xgen/mongot/metrics",
+        "@maven//:io_micrometer_micrometer_core",
+    ],
     deps = [
         "//src/main/java/com/xgen/mongot/metrics",
         "//src/main/java/com/xgen/mongot/util",

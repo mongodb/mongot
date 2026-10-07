@@ -8,6 +8,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.google.common.base.CaseFormat;
 import com.xgen.mongot.util.Enums;
+import com.xgen.testing.mongot.metrics.FilteredCompositeRegistry;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Meter;
@@ -422,5 +424,42 @@ public class PerIndexMetricsFactoryTest {
         withGeneration.stream()
             .filter(tag -> tag.getKey().equals(indexIdOnly.stream().toList().get(0).getKey()))
             .toList());
+  }
+
+  @Test
+  public void perIndexCounter_compositeWithDeniedChildren_readsRecordedValue() {
+    var factory =
+        new PerIndexMetricsFactory(
+            "test", FilteredCompositeRegistry.create(), INDEX_GENERATION_ID, INDEX_ID);
+    Counter counter = factory.perIndexCounter("counter");
+
+    counter.increment(5);
+
+    assertEquals(5, counter.count(), 0.0);
+  }
+
+  @Test
+  public void processCounter_compositeWithDeniedChildren_readsRecordedValue() {
+    var factory =
+        new PerIndexMetricsFactory(
+            "test", FilteredCompositeRegistry.create(), INDEX_GENERATION_ID, INDEX_ID);
+    Counter counter = factory.getProcessMetricsFactory().counter("counter");
+
+    counter.increment(5);
+
+    assertEquals(5, counter.count(), 0.0);
+  }
+
+  @Test
+  public void childPerIndexCounter_compositeWithDeniedChildren_readsRecordedValue() {
+    var factory =
+        new PerIndexMetricsFactory(
+                "test", FilteredCompositeRegistry.create(), INDEX_GENERATION_ID, INDEX_ID)
+            .childMetricsFactory("child");
+    Counter counter = factory.perIndexCounter("counter");
+
+    counter.increment(5);
+
+    assertEquals(5, counter.count(), 0.0);
   }
 }

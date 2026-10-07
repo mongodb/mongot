@@ -19,6 +19,8 @@ import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
+import io.micrometer.core.instrument.distribution.HistogramSnapshot;
 import io.micrometer.core.instrument.noop.NoopCounter;
 import io.micrometer.core.instrument.noop.NoopTimer;
 import io.micrometer.core.instrument.search.RequiredSearch;
@@ -30,9 +32,11 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -92,6 +96,9 @@ public class MetricsFactory {
   // leaderStatus gauge. Opt-in so behavior is unchanged for every non-matview factory.
   private final boolean identitySafeClose;
 
+  // Registry that counter and timer values are read from; see readFrom(Counter).
+  private final MeterRegistry readRegistry;
+
   public MetricsFactory(String namespace, MeterRegistry registry) {
     this(namespace, registry, Tags.empty());
   }
@@ -106,11 +113,26 @@ public class MetricsFactory {
 
   public MetricsFactory(
       String namespace, MeterRegistry registry, Tags factoryTags, boolean identitySafeClose) {
+    this(namespace, registry, factoryTags, identitySafeClose, registry);
+  }
+
+  /**
+   * Creates a factory whose counters and timers record to {@code registry} but read their values
+   * from {@code readRegistry} when it is a child of {@code registry}. Reading a composite meter
+   * returns an arbitrary child, which is a no-op for any child whose meter filter denies the meter.
+   */
+  public MetricsFactory(
+      String namespace,
+      MeterRegistry registry,
+      Tags factoryTags,
+      boolean identitySafeClose,
+      MeterRegistry readRegistry) {
     this.namespace = namespace;
     this.registry = registry;
     this.factoryTags = factoryTags;
     this.registeredMeters = ConcurrentHashMap.newKeySet();
     this.identitySafeClose = identitySafeClose;
+    this.readRegistry = readRegistry;
   }
 
   /**
@@ -163,7 +185,7 @@ public class MetricsFactory {
   public Counter counter(String name, Tags meterTags) {
     var counter = this.registry.counter(metricName(name), this.factoryTags.and(meterTags));
     this.registeredMeters.add(counter);
-    return counter;
+    return readFrom(counter);
   }
 
   /**
@@ -475,7 +497,7 @@ public class MetricsFactory {
             .publishPercentiles(percentiles)
             .register(this.registry);
     this.registeredMeters.add(timer);
-    return timer;
+    return readFrom(timer);
   }
 
   /** Used to track the duration of long-running tasks (over a minute). */
@@ -504,7 +526,8 @@ public class MetricsFactory {
         String.format("%s.%s", this.namespace, childNamespace),
         this.registry,
         this.factoryTags,
-        this.identitySafeClose);
+        this.identitySafeClose,
+        this.readRegistry);
   }
 
   /**
@@ -512,6 +535,99 @@ public class MetricsFactory {
    */
   public MetricsFactory siblingMetricsFactory(String namespace, Tags factoryTags) {
     return new MetricsFactory(namespace, this.registry, factoryTags);
+  }
+
+  private boolean shouldRedirectReads() {
+    return this.registry instanceof CompositeMeterRegistry composite
+        && composite.getRegistries().contains(this.readRegistry);
+  }
+
+  private Counter readFrom(Counter counter) {
+    if (!shouldRedirectReads()) {
+      return counter;
+    }
+    Meter.Id id = counter.getId();
+    return new ChildReadCounter(counter, this.readRegistry.counter(id.getName(), id.getTags()));
+  }
+
+  private Timer readFrom(Timer timer) {
+    if (!shouldRedirectReads()) {
+      return timer;
+    }
+    Meter.Id id = timer.getId();
+    return new ChildReadTimer(
+        timer, Timer.builder(id.getName()).tags(id.getTags()).register(this.readRegistry));
+  }
+
+  /** Records to the composite counter; reads the same meter in one of its children. */
+  private record ChildReadCounter(Counter recorder, Counter reader) implements Counter {
+    @Override
+    public Id getId() {
+      return this.recorder.getId();
+    }
+
+    @Override
+    public void increment(double amount) {
+      this.recorder.increment(amount);
+    }
+
+    @Override
+    public double count() {
+      return this.reader.count();
+    }
+  }
+
+  /** Records to the composite timer; reads the same meter in one of its children. */
+  private record ChildReadTimer(Timer recorder, Timer reader) implements Timer {
+    @Override
+    public Id getId() {
+      return this.recorder.getId();
+    }
+
+    @Override
+    public void record(long amount, TimeUnit unit) {
+      this.recorder.record(amount, unit);
+    }
+
+    @Override
+    public <T> T record(Supplier<T> f) {
+      return this.recorder.record(f);
+    }
+
+    @Override
+    public void record(Runnable f) {
+      this.recorder.record(f);
+    }
+
+    @Override
+    public <T> T recordCallable(Callable<T> f) throws Exception {
+      return this.recorder.recordCallable(f);
+    }
+
+    @Override
+    public long count() {
+      return this.reader.count();
+    }
+
+    @Override
+    public double totalTime(TimeUnit unit) {
+      return this.reader.totalTime(unit);
+    }
+
+    @Override
+    public double max(TimeUnit unit) {
+      return this.reader.max(unit);
+    }
+
+    @Override
+    public TimeUnit baseTimeUnit() {
+      return this.reader.baseTimeUnit();
+    }
+
+    @Override
+    public HistogramSnapshot takeSnapshot() {
+      return this.reader.takeSnapshot();
+    }
   }
 
   /** Closes all meters created by this MetricsFactory. */
