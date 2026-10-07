@@ -458,6 +458,72 @@ public class RecyclableReplicationIndexManagerTest {
     assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
   }
 
+  // ── getStateWithoutLock ─────────────────────────────────────────────────────
+
+  @Test
+  public void getStateWithoutLock_initiallyReturnsInitializing() {
+    var rrim = createManager(mockWrappedFactory());
+
+    assertThat(rrim.getStateWithoutLock()).isEqualTo(IndexManager.State.INITIALIZING);
+  }
+
+  @Test
+  public void getStateWithoutLock_whenLeader_delegatesToWrappedWithoutLock() {
+    var factory = mockWrappedFactory();
+    var innerRim = mock(ReplicationIndexManager.class);
+    when(innerRim.getStateWithoutLock()).thenReturn(IndexManager.State.STEADY_STATE);
+    when(factory.get()).thenReturn(innerRim);
+    var rrim = createManager(factory);
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    assertThat(rrim.getStateWithoutLock()).isEqualTo(IndexManager.State.STEADY_STATE);
+    verify(innerRim, never()).getState();
+  }
+
+  @Test
+  public void getStateWithoutLock_afterShutdown_whenLeader_returnsShutDown() {
+    var factory = mockWrappedFactory();
+    var innerRim = stubShutdown(mock(ReplicationIndexManager.class));
+    when(factory.get()).thenReturn(innerRim);
+    var rrim = createManager(factory);
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    rrim.shutdown();
+
+    assertThat(rrim.getStateWithoutLock()).isEqualTo(IndexManager.State.SHUT_DOWN);
+  }
+
+  @Test
+  public void getStateWithoutLock_whileMonitorHeld_doesNotBlock() throws Exception {
+    var rrim = createManager(mockWrappedFactory());
+    CountDownLatch monitorHeld = new CountDownLatch(1);
+    CountDownLatch releaseMonitor = new CountDownLatch(1);
+    Thread holder =
+        new Thread(
+            () -> {
+              synchronized (rrim) {
+                monitorHeld.countDown();
+                try {
+                  releaseMonitor.await();
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                }
+              }
+            });
+    holder.start();
+    try {
+      assertTrue(monitorHeld.await(5, TimeUnit.SECONDS));
+
+      IndexManager.State state =
+          CompletableFuture.supplyAsync(rrim::getStateWithoutLock).get(5, TimeUnit.SECONDS);
+
+      assertThat(state).isEqualTo(IndexManager.State.INITIALIZING);
+    } finally {
+      releaseMonitor.countDown();
+      holder.join();
+    }
+  }
+
   // ── shutdown ────────────────────────────────────────────────────────────────
 
   @Test

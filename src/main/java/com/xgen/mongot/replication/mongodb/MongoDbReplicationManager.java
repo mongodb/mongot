@@ -549,7 +549,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
   // lock is not needed because we iterate through a copy of managers
   private double gaugeReplicationManagers(IndexManager.State state) {
     return this.getIndexManagers().entrySet().stream()
-        .filter(m -> m.getValue().getState() == state)
+        .filter(m -> m.getValue().getStateWithoutLock() == state)
         .count();
   }
 

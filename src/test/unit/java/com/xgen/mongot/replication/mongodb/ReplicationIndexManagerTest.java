@@ -1612,6 +1612,40 @@ public class ReplicationIndexManagerTest {
   }
 
   @Test
+  public void getStateWithoutLock_shutdownBlockedClosingCommitter_returnsShutDown()
+      throws Exception {
+    try (Mocks mocks = Mocks.validUserData()) {
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .until(() -> mocks.manager.getState() == State.STEADY_STATE);
+      CountDownLatch closeStarted = new CountDownLatch(1);
+      CountDownLatch releaseClose = new CountDownLatch(1);
+      doAnswer(
+              invocation -> {
+                closeStarted.countDown();
+                releaseClose.await();
+                return null;
+              })
+          .when(mocks.periodicCommitter)
+          .close();
+      CompletableFuture<CompletableFuture<Void>> shutdown =
+          CompletableFuture.supplyAsync(mocks.manager::shutdown);
+      try {
+        assertThat(closeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+        State state =
+            CompletableFuture.supplyAsync(mocks.manager::getStateWithoutLock)
+                .get(5, TimeUnit.SECONDS);
+
+        assertThat(state).isEqualTo(State.SHUT_DOWN);
+      } finally {
+        releaseClose.countDown();
+        shutdown.get(5, TimeUnit.SECONDS);
+      }
+    }
+  }
+
+  @Test
   public void testFailedIndexShutsDownSynonymMappingManager() throws Exception {
     try (Mocks mocks = Mocks.exceptionalInitialSync(new AssertionError())) {
       verify(mocks.index, timeout(5000)).drop();

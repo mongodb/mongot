@@ -5505,6 +5505,30 @@ public class MaterializedViewManagerTest {
         0.0);
   }
 
+  @Test
+  public void generatorStateGauge_readsStateWithoutLock() {
+    Mocks mocks = Mocks.create();
+    var matViewIndexGeneration =
+        mockMatViewIndexGeneration(mockMatViewDefinitionGeneration(MOCK_MAT_VIEW_GENERATION_ID));
+    MaterializedViewGenerator generator =
+        mocks.mockMaterializedViewGenerator(matViewIndexGeneration);
+    doReturn(IndexManager.State.STEADY_STATE).when(generator).getStateWithoutLock();
+
+    mocks.addIndexForReplication(matViewIndexGeneration);
+
+    assertEquals(
+        1.0,
+        mocks
+            .meterRegistry
+            .get("replication.mongodb." + MaterializedViewManager.MAT_VIEW_MANAGER_STATE)
+            .tag(MaterializedViewManager.STATE_LABEL, IndexManager.State.STEADY_STATE.name())
+            .gauge()
+            .value(),
+        0.0);
+    // verify that the generator doesn't call getState()
+    verify(generator, never()).getState();
+  }
+
   /** Current value of the matViewGcIdle gauge. */
   private static double idleGaugeValue(Mocks mocks) {
     return mocks

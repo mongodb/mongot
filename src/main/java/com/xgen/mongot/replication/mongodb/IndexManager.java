@@ -31,6 +31,14 @@ public interface IndexManager {
   @Nullable
   State getState();
 
+  /**
+   * Returns the current state without taking the manager's monitor, so it never blocks behind a
+   * lifecycle operation that holds the monitor, such as a stalled {@link #shutdown()}. Use this for
+   * metrics. Use {@link #getState()} when the caller must wait for an in-progress transition to
+   * finish.
+   */
+  State getStateWithoutLock();
+
   CompletableFuture<Void> shutdown();
 
   CompletableFuture<Void> drop();

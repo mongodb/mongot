@@ -167,8 +167,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   private final MeterRegistry meterRegistry;
 
+  /** Volatile so {@link #getStateWithoutLock()} can read it without the monitor. */
   @GuardedBy("this")
-  private Optional<ReplicationIndexManager> wrapped;
+  private volatile Optional<ReplicationIndexManager> wrapped;
 
   /**
    * The current leadership session's document indexer, present while {@link #wrapped} is
@@ -236,8 +237,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @GuardedBy("this")
   private Optional<ScheduledFuture<?>> reconcileTickFuture;
 
+  /** Volatile so {@link #getStateWithoutLock()} can read it without the monitor. */
   @GuardedBy("this")
-  private State state;
+  private volatile State state;
 
   private RecyclableReplicationIndexManager(
       Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory,
@@ -283,6 +285,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @Override
   public synchronized IndexManager.State getState() {
     return this.wrapped.map(ReplicationIndexManager::getState).orElse(this.state);
+  }
+
+  @Override
+  @SuppressWarnings("GuardedBy") // volatile reads; writes still happen under this monitor
+  public IndexManager.State getStateWithoutLock() {
+    // Read wrapped first: shutdown() and drop() set state to SHUT_DOWN before clearing wrapped, so
+    // a reader that sees wrapped cleared by them also sees SHUT_DOWN.
+    return this.wrapped.map(ReplicationIndexManager::getStateWithoutLock).orElse(this.state);
   }
 
   @Override

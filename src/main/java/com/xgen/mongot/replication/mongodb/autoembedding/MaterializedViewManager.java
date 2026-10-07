@@ -667,7 +667,7 @@ public class MaterializedViewManager implements ReplicationManager {
   /** helper function similar to MongoDbReplicationManager::gaugeReplicationManagers */
   private double gaugeViewGenerators(IndexManager.State state) {
     return this.getMatViewGenerators().entrySet().stream()
-        .filter(m -> m.getValue().getState() == state)
+        .filter(m -> m.getValue().getStateWithoutLock() == state)
         .count();
   }
 

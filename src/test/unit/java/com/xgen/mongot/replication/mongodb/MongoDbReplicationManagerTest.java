@@ -588,6 +588,18 @@ public class MongoDbReplicationManagerTest {
   }
 
   @Test
+  public void indexManagerStateGauge_readsStateWithoutLock() {
+    Mocks mocks = Mocks.create();
+    ReplicationIndexManager replicationIndexManager = mocks.mockReplicationIndexManager();
+    when(replicationIndexManager.getStateWithoutLock()).thenReturn(IndexManager.State.SHUT_DOWN);
+
+    mocks.addIndexForReplication(mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+
+    mocks.waitForIndexReplicationManagerGaugeMetric(IndexManager.State.SHUT_DOWN.name(), 1);
+    verify(replicationIndexManager, never()).getState();
+  }
+
+  @Test
   public void testShutdownAfterNewManagerCreated() {
     Mocks mocks = Mocks.create();
 

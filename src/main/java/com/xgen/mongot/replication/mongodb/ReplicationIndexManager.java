@@ -150,9 +150,12 @@ public class ReplicationIndexManager implements IndexManager {
   /** Backoff duration on server ingress request rate limit */
   private final Duration requestRateLimitBackoff;
 
-  /** The current state of the ReplicationIndexManager. */
+  /**
+   * The current state of the ReplicationIndexManager. Volatile so {@link #getStateWithoutLock()}
+   * can read it without the monitor.
+   */
   @GuardedBy("this")
-  private State state;
+  private volatile State state;
 
   /** The future representing the work to initialize the ReplicationIndexManager. */
   @GuardedBy("this")
@@ -392,6 +395,12 @@ public class ReplicationIndexManager implements IndexManager {
 
   @Override
   public synchronized State getState() {
+    return this.state;
+  }
+
+  @Override
+  @SuppressWarnings("GuardedBy") // volatile read; writes still happen under this monitor
+  public State getStateWithoutLock() {
     return this.state;
   }
 
