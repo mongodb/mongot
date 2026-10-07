@@ -11,8 +11,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -22,7 +20,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.errorprone.annotations.Var;
-import com.xgen.mongot.blobstore.BlobstoreException;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.blobstore.BlobstoreSnapshotterManager;
@@ -53,7 +50,6 @@ import java.util.ArrayList;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.types.ObjectId;
@@ -394,94 +390,6 @@ public class DefaultLifecycleManagerTest {
     verify(mocks.lifecycleManager.getReplicationManager()).dropIndex(gen1);
     verify(mocks.snapshotterManager).drop(gen1);
     verify(mocks.snapshotterManager, times(0)).drop(gen2);
-  }
-
-  @Test
-  public void testLifecycleManagerInitialized() {
-    Mocks mocks = Mocks.create();
-    var index1 = mockIndexGeneration(MOCK_INDEX_GENERATION_ID);
-    CountDownLatch latch = new CountDownLatch(1);
-    doAnswer(
-            x -> {
-              latch.await();
-              return doCallRealMethod();
-            })
-        .when(mocks.lifecycleManager.getReplicationManager())
-        .add(index1);
-    mocks.lifecycleManager.add(index1);
-    IndexLifecycleManager indexLifecycleManager =
-        mocks.lifecycleManager.getIndexLifecycleManager(MOCK_INDEX_GENERATION_ID);
-    assertFalse(mocks.lifecycleManager.isInitialized());
-    when(mocks.lifecycleManager.getReplicationManager().isInitialized()).thenReturn(true);
-    assertFalse(mocks.lifecycleManager.isInitialized());
-    latch.countDown();
-    waitForState(indexLifecycleManager, IndexLifecycleManager.State.RUNNING);
-    assertTrue(mocks.lifecycleManager.isInitialized());
-    verify(mocks.snapshotterManager, timeout(10000)).scheduleUpload(index1);
-  }
-
-  @Test
-  public void testGetReplicationInitStateNoIndexes() {
-    Mocks mocks = Mocks.create();
-    assertFalse(mocks.lifecycleManager.isInitialized());
-    when(mocks.lifecycleManager.getReplicationManager().isInitialized()).thenReturn(true);
-    assertTrue(mocks.lifecycleManager.isInitialized());
-  }
-
-  @Test
-  public void testLifecycleManagerAllInitialized() {
-    Mocks mocks = Mocks.create();
-    var index1 = mockIndexGeneration(MOCK_INDEX_GENERATION_ID);
-    var index2 = mockIndexGeneration(uniqueMockGenerationDefinition());
-    mocks.lifecycleManager.add(index1);
-    mocks.lifecycleManager.add(index2);
-    IndexLifecycleManager indexLifecycleManager =
-        mocks.lifecycleManager.getIndexLifecycleManager(MOCK_INDEX_GENERATION_ID);
-    waitForState(indexLifecycleManager, IndexLifecycleManager.State.RUNNING);
-    waitForState(
-        mocks.lifecycleManager.getIndexLifecycleManager(index2.getGenerationId()),
-        IndexLifecycleManager.State.RUNNING);
-    assertFalse(mocks.lifecycleManager.isInitialized());
-    when(mocks.lifecycleManager.getReplicationManager().isInitialized()).thenReturn(true);
-    assertTrue(mocks.lifecycleManager.isInitialized());
-    // Once initialized, should be considered initialized after new indexes are added.
-    mocks.lifecycleManager.add(mockIndexGeneration(uniqueMockGenerationDefinition()));
-    assertTrue(mocks.lifecycleManager.isInitialized());
-    verify(mocks.snapshotterManager, timeout(10000)).scheduleUpload(index1);
-  }
-
-  @Test
-  public void testLifecycleManagerInitializedWithIndexDownloading() throws BlobstoreException {
-    Mocks mocks = Mocks.create();
-    var index1 = mockIndexGeneration(MOCK_INDEX_GENERATION_ID);
-    var index2 = mockIndexGeneration(uniqueMockGenerationDefinition());
-    CountDownLatch latch = new CountDownLatch(1);
-    IndexBlobstoreSnapshotter snapshotter = mock(IndexBlobstoreSnapshotter.class);
-    when(snapshotter.shouldDownloadIndex()).thenReturn(true);
-
-    when(mocks.snapshotterManager.get(index2.getGenerationId()))
-        .thenAnswer(x -> Optional.of(snapshotter));
-    doAnswer(
-            x -> {
-              latch.await();
-              return null;
-            })
-        .when(snapshotter)
-        .downloadIndex();
-
-    mocks.lifecycleManager.add(index1);
-    mocks.lifecycleManager.add(index2);
-    IndexLifecycleManager indexLifecycleManager =
-        mocks.lifecycleManager.getIndexLifecycleManager(MOCK_INDEX_GENERATION_ID);
-    waitForState(indexLifecycleManager, IndexLifecycleManager.State.RUNNING);
-    waitForState(
-        mocks.lifecycleManager.getIndexLifecycleManager(index2.getGenerationId()),
-        IndexLifecycleManager.State.DOWNLOADING);
-    assertFalse(mocks.lifecycleManager.isInitialized());
-    when(mocks.lifecycleManager.getReplicationManager().isInitialized()).thenReturn(true);
-    assertTrue(mocks.lifecycleManager.isInitialized());
-    latch.countDown();
-    verify(mocks.snapshotterManager, timeout(10000)).scheduleUpload(index1);
   }
 
   // ==================== MaterializedViewManager Propagation Tests ====================

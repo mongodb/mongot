@@ -60,6 +60,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
@@ -107,13 +108,14 @@ public class DefaultConfigManager implements ConfigManager {
   private final Counter autoEmbeddingReplicationPauseCounter;
   private final Counter autoEmbeddingReplicationResumeCounter;
 
+  // Readiness latch: true once replication has started (all live indexes report a known status),
+  // false while still initializing.
+  private final AtomicBoolean replicationInitialized;
+
   final FeatureFlags featureFlags;
 
   @GuardedBy("this")
   private boolean closed;
-
-  @GuardedBy("this")
-  private boolean replicationInitialized;
 
   @GuardedBy("this")
   private Instant replicationStatusChangeTimestamp;
@@ -127,7 +129,6 @@ public class DefaultConfigManager implements ConfigManager {
     this.metricsFactory = new MetricsFactory("configManager", meterRegistry);
 
     this.closed = false;
-    this.replicationInitialized = false;
     this.initialSyncGate = replicationStateMonitor.getInitialSyncGate();
     this.replicationGate = replicationStateMonitor.getReplicationGate();
     this.autoEmbeddingReplicationGate = replicationStateMonitor.getAutoEmbeddingReplicationGate();
@@ -144,6 +145,11 @@ public class DefaultConfigManager implements ConfigManager {
     this.autoEmbeddingReplicationResumeCounter =
         this.metricsFactory.counter(
             "autoEmbeddingReplicationGateTransitions", Tags.of("transition", "resume"));
+    this.replicationInitialized =
+        this.metricsFactory.objectValueGauge(
+            "replicationInitialized",
+            new AtomicBoolean(),
+            initialized -> initialized.get() ? 1 : 0);
     this.featureFlags = featureFlags;
     this.replicationStatusChangeTimestamp = Instant.now();
 
@@ -624,10 +630,19 @@ public class DefaultConfigManager implements ConfigManager {
 
   @Override
   public synchronized boolean isReplicationInitialized() {
-    if (!this.replicationInitialized) {
-      this.replicationInitialized = this.configState.getLifecycleManager().isInitialized();
+    if (!this.replicationInitialized.get()) {
+      // Only the live indexes matter here, since other indexes don't affect query availability.
+      // We can't rely on LifecycleManager because some indexes (e.g. VectorLite) aren't fully
+      // managed by it.
+      boolean initialized =
+          this.configState.indexCatalog.getIndexes().stream()
+              .noneMatch(indexGeneration -> indexGeneration.getIndex().getStatus().isUnknown());
+      if (initialized) {
+        this.replicationInitialized.set(true);
+      }
+      return initialized;
     }
-    return this.replicationInitialized;
+    return true;
   }
 
   @GuardedBy("this")

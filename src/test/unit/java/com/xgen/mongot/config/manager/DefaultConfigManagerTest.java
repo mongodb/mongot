@@ -2,6 +2,7 @@ package com.xgen.mongot.config.manager;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionGeneration;
+import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGeneration;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION_CURRENT;
@@ -18,6 +19,7 @@ import static java.util.Collections.singletonList;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1686,6 +1688,37 @@ public class DefaultConfigManagerTest {
         emptySet());
 
     verify(mocks.lifecycleManager, times(1)).add(any());
+  }
+
+  @Test
+  public void isReplicationInitialized_noLiveIndexes_returnsTrue() throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+
+    assertThat(mocks.configManager.isReplicationInitialized()).isTrue();
+  }
+
+  @Test
+  public void isReplicationInitialized_liveIndexWithUnknownStatus_returnsFalse() throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+    var liveIndex = mockIndexGeneration();
+    liveIndex.getIndex().setStatus(IndexStatus.unknown());
+    doReturn(List.of(liveIndex)).when(mocks.indexCatalog).getIndexes();
+
+    assertThat(mocks.configManager.isReplicationInitialized()).isFalse();
+  }
+
+  @Test
+  public void isReplicationInitialized_onceAllLiveIndexesKnown_latchesTrue() throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+    var liveIndex = mockIndexGeneration();
+    liveIndex.getIndex().setStatus(IndexStatus.steady());
+    doReturn(List.of(liveIndex)).when(mocks.indexCatalog).getIndexes();
+    assertThat(mocks.configManager.isReplicationInitialized()).isTrue();
+
+    // Reverting a live index to an unknown status does not un-latch replication readiness.
+    liveIndex.getIndex().setStatus(IndexStatus.unknown());
+
+    assertThat(mocks.configManager.isReplicationInitialized()).isTrue();
   }
 
   private static VectorIndexDefinitionGeneration customVectorEngineDefinitionGeneration() {

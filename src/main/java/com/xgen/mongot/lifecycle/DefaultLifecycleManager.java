@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicLong;
 import org.jetbrains.annotations.TestOnly;
 import org.slf4j.LoggerFactory;
 
@@ -54,10 +53,6 @@ public class DefaultLifecycleManager implements LifecycleManager {
   /** A mapping of existing IndexLifecycleManagers. */
   @GuardedBy("this")
   private final Map<GenerationId, IndexLifecycleManager> indexManagers;
-
-  /** If the existing IndexLifecycleManagers have started processing the index lifecycles. */
-  @GuardedBy("this")
-  private boolean initialized;
 
   @GuardedBy("this")
   private boolean shutdown;
@@ -93,7 +88,6 @@ public class DefaultLifecycleManager implements LifecycleManager {
   private Optional<SyncSourceConfig> syncSourceConfig;
 
   private final IndexLifecycleManager.Metrics metrics;
-  private final AtomicLong lifecycleInitialized;
 
   /**
    * A wrapper over the ReplicationManager that can be used across different instantiations of the
@@ -296,34 +290,11 @@ public class DefaultLifecycleManager implements LifecycleManager {
     this.meterRegistry = meterRegistry;
     MetricsFactory metricsFactory = new MetricsFactory("lifecycle", meterRegistry);
     this.indexManagers = new HashMap<>();
-    this.initialized = false;
     this.shutdown = false;
     this.metrics = IndexLifecycleManager.Metrics.create(metricsFactory);
-    this.lifecycleInitialized =
-        new MetricsFactory("readiness", meterRegistry).numGauge("lifecycleInitialized");
-    this.lifecycleInitialized.set(0);
     if (enableInitAttributionMetrics) {
       threadPoolResourceBindings.forSubsystem("init").register(initExecutor, meterRegistry);
     }
-  }
-
-  @Override
-  public synchronized boolean isInitialized() {
-    if (!this.initialized) {
-      this.initialized =
-          this.indexManagers.values().stream()
-                  .allMatch(
-                      indexManager ->
-                          indexManager.getState() != IndexLifecycleManager.State.NOT_STARTED
-                              && indexManager.getState() != IndexLifecycleManager.State.INITIALIZED)
-              // TODO(CLOUDP-361594): Should we include MaterializedViewManager::initialized in
-              // this method for HealthManager/ConfCall?
-              && this.replicationManagerWrapper.currentReplicationManager.isInitialized();
-      if (this.initialized) {
-        this.lifecycleInitialized.set(1);
-      }
-    }
-    return this.initialized;
   }
 
   @Override
@@ -435,8 +406,6 @@ public class DefaultLifecycleManager implements LifecycleManager {
     // on the indexing executor. As one of the shutdown tasks is shutting down that executor, this
     // will hang forever.
     this.shutdown = true;
-    this.initialized = false;
-    this.lifecycleInitialized.set(0);
     this.replicationManagerWrapper.setReplicationEnabled(false);
     var shutdownExecutor =
         Executors.fixedSizeThreadPool("lifecycle-manager-shutdown", 1, this.meterRegistry);

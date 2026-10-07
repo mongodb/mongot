@@ -44,8 +44,6 @@ public interface LifecycleManager {
    */
   Optional<SyncSourceConfig> getSyncSourceConfig();
 
-  boolean isInitialized();
-
   /**
    * Stops the LifecycleManager, gracefully shutting down all indexes.
    *

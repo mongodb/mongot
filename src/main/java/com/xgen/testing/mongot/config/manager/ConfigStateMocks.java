@@ -224,11 +224,7 @@ public class ConfigStateMocks {
   }
 
   public static ConfigStateMocks create() throws Exception {
-    ConfigStateMocks configStateMocks = create(getConfigJournalPath(), true);
-    Condition.await()
-        .atMost(Duration.ofSeconds(10))
-        .until(() -> configStateMocks.lifecycleManager.isInitialized());
-    return configStateMocks;
+    return create(getConfigJournalPath(), true);
   }
 
   public static ConfigStateMocks create(Path configJournalPath, boolean waitUntilInitialized)
