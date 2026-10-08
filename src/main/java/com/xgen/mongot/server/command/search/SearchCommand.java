@@ -56,6 +56,7 @@ import com.xgen.mongot.server.command.search.definition.request.SearchCommandDef
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.Bytes;
+import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
@@ -260,8 +261,10 @@ public class SearchCommand implements Command {
   }
 
   /**
-   * If the search query contains a vectorSearch operator with text input, embeds that text into a
-   * query vector using the queried field's auto-embedding model.
+   * Rewrites a vectorSearch operator against an auto-embedding index so it addresses the derived
+   * index: text input is embedded into a query vector using the queried field's auto-embedding
+   * model, and a user-supplied query vector is retargeted to the materialized-view vector path and
+   * reconciled against the field's indexed encoding.
    *
    * <p>For auto-embedding composite indexes the initialized index exposes the derived definition
    * (auto-embed fields replaced with regular vector fields); the raw definition carrying the
@@ -278,9 +281,6 @@ public class SearchCommand implements Command {
     }
     VectorSearchCriteria criteria = vecOp.criteria();
     Optional<String> textToEmbed = criteria.query().flatMap(VectorSearchQueryInput::getText);
-    if (textToEmbed.isEmpty()) {
-      return queryDefinition;
-    }
 
     Optional<IndexDefinition> effectiveDef =
         SearchAutoEmbeddingHelper.resolveAutoEmbeddingDefinition(
@@ -295,7 +295,6 @@ public class SearchCommand implements Command {
       return queryDefinition;
     }
 
-    Optional<String> queryModel = criteria.query().flatMap(VectorSearchQueryInput::getModel);
     var autoEmbeddingFieldsMapping =
         SearchAutoEmbeddingHelper.resolveAutoEmbeddingFieldsMapping(
             this.indexCatalog,
@@ -303,16 +302,36 @@ public class SearchCommand implements Command {
             this.definition.collectionUuid(),
             this.definition.viewName(),
             queryDefinition.index());
-    VectorSearchCriteria embeddedCriteria =
-        SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
-            criteria,
-            textToEmbed.get(),
-            queryModel,
-            searchDef,
-            autoEmbeddingFieldsMapping,
-            this.embeddingServiceManagerSupplier);
-    VectorSearchOperator embeddedOp = new VectorSearchOperator(vecOp.score(), embeddedCriteria);
-    return operatorQuery.withOperator(embeddedOp);
+
+    VectorSearchCriteria rewrittenCriteria;
+    if (textToEmbed.isPresent()) {
+      // Text query on an auto-embedding index: embed the text and retarget the criteria to the
+      // materialized-view vector path.
+      Optional<String> queryModel = criteria.query().flatMap(VectorSearchQueryInput::getModel);
+      rewrittenCriteria =
+          SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
+              criteria,
+              textToEmbed.get(),
+              queryModel,
+              searchDef,
+              autoEmbeddingFieldsMapping,
+              this.embeddingServiceManagerSupplier);
+    } else if (criteria.queryVector().isPresent()) {
+      // User-supplied queryVector. On an auto-embed field the declared path is retargeted to the
+      // materialized-view vector path and the dtype reconciled against the indexed encoding; on a
+      // regular type:vector field the criteria is returned unchanged.
+      rewrittenCriteria =
+          SearchAutoEmbeddingHelper.retargetQueryVectorCriteria(
+              criteria, criteria.queryVector().get(), searchDef, autoEmbeddingFieldsMapping);
+    } else {
+      // VectorSearchCriteria guarantees exactly one of query/queryVector, so a text query must be
+      // present here; getText() is empty only when that query carries no text.
+      Check.checkState(
+          criteria.query().isPresent(), "query must be present when queryVector is absent");
+      throw new InvalidQueryException(
+          "'query' field cannot be empty when querying Automated Embedding index");
+    }
+    return operatorQuery.withOperator(new VectorSearchOperator(vecOp.score(), rewrittenCriteria));
   }
 
   private void validateQueryAndCursorOptions(

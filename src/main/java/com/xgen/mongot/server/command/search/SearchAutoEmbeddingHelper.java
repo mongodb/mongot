@@ -17,9 +17,11 @@ import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.query.AutoEmbedQueryVectorReconciler;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.Vector;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -150,12 +152,8 @@ final class SearchAutoEmbeddingHelper {
       throws InvalidQueryException {
 
     FieldPath path = criteria.path();
-    // Resolve the auto-embed field by destination path. getRootFields() is keyed by full dotted
-    // FieldPath, so nested paths (e.g. a.b) resolve too, unlike the top-level-only fields() map.
     SearchAutoEmbedFieldDefinition autoEmbed =
-        Optional.ofNullable(
-                searchDef.getMappings().fieldHierarchyContext().getRootFields().get(path))
-            .flatMap(FieldDefinition::searchAutoEmbedFieldDefinition)
+        resolveAutoEmbedField(searchDef, path)
             .orElseThrow(
                 () ->
                     new InvalidQueryException(
@@ -198,5 +196,55 @@ final class SearchAutoEmbeddingHelper {
     // derived search index keys the auto-embed field by that path, not the user-facing path.
     FieldPath matViewPath = getMatViewFieldPath(autoEmbed.path(), autoEmbeddingFieldsMapping);
     return criteria.withQueryVector(result.vector.get()).withPath(matViewPath);
+  }
+
+  /**
+   * Retargets a user-supplied {@code queryVector} from the declared query path to the
+   * materialized-view vector path the derived search index keys the embedding under, and validates
+   * the vector's dtype against the field's indexed encoding.
+   *
+   * <p>Only used for the {@code queryVector} input: text queries are embedded by {@link
+   * #embedAndReplaceCriteria}, and {@link VectorSearchCriteria} enforces that {@code query} and
+   * {@code queryVector} are mutually exclusive.
+   *
+   * <p>There is no embedding provider call on this path, so the vector dtype must already match the
+   * auto-embed quantization; see {@link AutoEmbedQueryVectorReconciler}.
+   *
+   * @return {@code criteria} unchanged when the queried path is not an auto-embed field, so regular
+   *     vector fields in a composite auto-embedding index keep their declared path
+   * @throws InvalidQueryException if the vector dtype does not match the indexed encoding
+   */
+  static VectorSearchCriteria retargetQueryVectorCriteria(
+      VectorSearchCriteria criteria,
+      Vector queryVector,
+      SearchIndexDefinition searchDef,
+      Map<FieldPath, FieldPath> autoEmbeddingFieldsMapping)
+      throws InvalidQueryException {
+    FieldPath path = criteria.path();
+    Optional<SearchAutoEmbedFieldDefinition> autoEmbed = resolveAutoEmbedField(searchDef, path);
+    if (autoEmbed.isEmpty()) {
+      // Not an auto-embed field. Derived mappings carry regular type:vector fields over at their
+      // declared path (AutoEmbeddingIndexDefinitionUtils.copyForDerivedMapping), so there is
+      // nothing to retarget or reconcile here.
+      return criteria;
+    }
+    Vector reconciled =
+        AutoEmbedQueryVectorReconciler.reconcile(
+            queryVector, autoEmbed.get().specification().autoEmbedQuantization(), path);
+    FieldPath matViewPath = getMatViewFieldPath(autoEmbed.get().path(), autoEmbeddingFieldsMapping);
+    return criteria.withQueryVector(reconciled).withPath(matViewPath);
+  }
+
+  /**
+   * Resolves the auto-embed field declared at {@code path}, or empty when the path is not an
+   * auto-embed field (for example a regular vector field in a composite auto-embedding index).
+   */
+  private static Optional<SearchAutoEmbedFieldDefinition> resolveAutoEmbedField(
+      SearchIndexDefinition searchDef, FieldPath path) {
+    // getRootFields() is keyed by full dotted FieldPath, so nested paths (e.g. a.b) resolve too,
+    // unlike the top-level-only fields() map.
+    return Optional.ofNullable(
+            searchDef.getMappings().fieldHierarchyContext().getRootFields().get(path))
+        .flatMap(FieldDefinition::searchAutoEmbedFieldDefinition);
   }
 }
