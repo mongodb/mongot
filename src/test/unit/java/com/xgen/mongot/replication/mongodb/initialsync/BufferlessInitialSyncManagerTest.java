@@ -22,6 +22,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.monitor.ToggleGate;
+import com.xgen.mongot.replication.mongodb.common.BufferlessNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.BufferlessParallelNaturalOrderInitialSyncResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.BsonDocument;
+import org.bson.BsonInt64;
 import org.bson.BsonTimestamp;
 import org.junit.Assert;
 import org.junit.Test;
@@ -474,6 +476,44 @@ public class BufferlessInitialSyncManagerTest {
     verify(planner, never()).plan(any());
   }
 
+  /**
+   * A sequential natural-order resume has already indexed its way to a token. Planning would draw
+   * boundaries over the whole collection and re-scan every document behind that token, so the
+   * resume has to keep its single cursor however large the collection is.
+   */
+  @Test
+  public void testSequentialResumeScansOnInsteadOfPartitioning() throws Exception {
+    // A planner that would happily partition, so the resume staying sequential is the guard's
+    // doing and not a planner that had nothing to offer.
+    InitialSyncPartitionPlanner planner = mock(InitialSyncPartitionPlanner.class);
+    when(planner.plan(any())).thenReturn(partitionedPlan());
+    ParallelCollectionScanSessionFactory sessionFactory =
+        mock(ParallelCollectionScanSessionFactory.class);
+    BufferlessChangeStreamApplierFactory applierFactory = applierFactory();
+
+    BufferlessInitialSyncManager manager =
+        parallelManager(
+            /* parallelScanEnabled= */ true,
+            contextWithProgress -> planner,
+            sessionFactory,
+            mock(BufferlessCollectionScannerFactory.class),
+            applierFactory,
+            mockDocumentIndexer(),
+            Optional.of(sequentialNaturalOrderResumeInfo()));
+
+    syncIgnoringTheTail(manager);
+
+    // Asserted positively rather than through the never() calls alone, which would also hold if
+    // sync() stopped reaching the resolve at all.
+    ArgumentCaptor<Optional<ParallelCollectionScanResumeState>> applierSaw =
+        ArgumentCaptor.captor();
+    verify(applierFactory).create(any(), anyBoolean(), applierSaw.capture());
+    Assert.assertEquals(Optional.empty(), applierSaw.getValue());
+
+    verify(planner, never()).plan(any());
+    verify(sessionFactory, never()).create(any());
+  }
+
   @Test
   public void testFsyncSkippedWhenNaturalOrderScanDisabled() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -776,6 +816,14 @@ public class BufferlessInitialSyncManagerTest {
         Optional.of(resumeInfo),
         new MetricsFactory("initialSyncManager", new SimpleMeterRegistry()),
         mongoClient);
+  }
+
+  /** A resume from a single-cursor natural-order scan that had reached a record id. */
+  private static BufferlessNaturalOrderInitialSyncResumeInfo sequentialNaturalOrderResumeInfo() {
+    return new BufferlessNaturalOrderInitialSyncResumeInfo(
+        HIGH_WATER_MARK,
+        new BsonDocument("$recordId", new BsonInt64(250)),
+        Optional.of("testHost"));
   }
 
   private static BufferlessParallelNaturalOrderInitialSyncResumeInfo parallelResumeInfo() {

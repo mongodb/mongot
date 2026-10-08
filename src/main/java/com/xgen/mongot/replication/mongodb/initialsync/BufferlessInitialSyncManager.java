@@ -519,12 +519,12 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
   /**
    * The parallel scan this sync will run, or empty to scan the collection with a single cursor.
    *
-   * <p>A resume rebuilds the partitions the last attempt committed, so each picks up from the
-   * record id it had reached and the ones that finished are not read again. Every other sync asks
-   * the planner whether this collection can be split at all.
+   * <p>A parallel resume rebuilds the partitions the last attempt committed, so each picks up from
+   * the record id it had reached and the ones that finished are not read again. Only a fresh sync
+   * asks the planner whether this collection can be split at all.
    *
    * <p>Empty covers every route to the sequential scan: natural order is off, the parallel feature
-   * is off, or the planner declined to partition this collection.
+   * is off, a sequential scan is resuming, or the planner declined to partition this collection.
    */
   private Optional<ParallelCollectionScanResumeState> resolveParallelScan(
       BsonTimestamp highWaterMark) {
@@ -548,6 +548,17 @@ public class BufferlessInitialSyncManager implements InitialSyncManager {
           ParallelCollectionScanResumeState.fromPersisted(
               this.context.getGenerationId().generation.formatVersion.versionNumber(),
               resumed.get()));
+    }
+
+    // Any other resume is a sequential natural-order scan with a token and everything indexed
+    // behind it. Partitioning now would restart from freshly planned boundaries and re-scan all of
+    // that, so only a fresh sync is ever partitioned. A resume that had indexed nothing yet loses
+    // no indexed work by staying sequential, which is not worth reading its token to tell apart.
+    //
+    // The cost is that one restart, however early, leaves this generation sequential to the end.
+    // Partitioning the remainder above the resume record id would recover that.
+    if (this.resumeInfo.isPresent()) {
+      return Optional.empty();
     }
 
     // Namespace resolution matches on info.uuid, which only collections report, so a view cannot
