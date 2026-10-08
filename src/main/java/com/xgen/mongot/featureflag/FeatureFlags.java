@@ -3,6 +3,7 @@ package com.xgen.mongot.featureflag;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.errorprone.annotations.RestrictedApi;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
+import com.xgen.mongot.util.bson.JsonCodec;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
@@ -347,6 +348,7 @@ public class FeatureFlags implements DocumentEncodable {
       throw new IllegalStateException("global FeatureFlags already initialized");
     }
     globalFeatureFlags = Optional.of(featureFlags);
+    JsonCodec.setLosslessWriterSupplier(() -> featureFlags.isEnabled(Feature.LOSSLESS_JSON_CODEC));
   }
 
   /**
@@ -384,5 +386,6 @@ public class FeatureFlags implements DocumentEncodable {
   @VisibleForTesting
   static synchronized void resetForTest() {
     globalFeatureFlags = Optional.empty();
+    JsonCodec.setLosslessWriterSupplier(() -> false);
   }
 }

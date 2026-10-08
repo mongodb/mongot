@@ -4,7 +4,9 @@
       "description": "simple",
       "json": {
         "generationId": {
-          "indexId": "507f191e810c19729de860ea",
+          "indexId": {
+            "$oid": "507f191e810c19729de860ea"
+          },
           "userVersion": 0,
           "formatVersion": 6,
           "attemptNumber": 0

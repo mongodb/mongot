@@ -4,8 +4,12 @@
       "description": "simple search index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "SEARCH",
         "mainIndex": {
@@ -13,17 +17,24 @@
             "statusCode": "STEADY"
           },
           "definition": {
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-            "indexFeatureVersion": 0,
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "mappings": {
               "dynamic": true,
               "fields": {}
-            }
+            },
+            "indexFeatureVersion": 0
           }
         }
       },
@@ -68,8 +79,12 @@
       "description": "simple search index with synonym",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "SEARCH",
         "mainIndex": {
@@ -77,11 +92,18 @@
             "statusCode": "STEADY"
           },
           "definition": {
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "mappings": {
               "dynamic": true,
@@ -144,8 +166,12 @@
       "description": "simple search index with staged index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "SEARCH",
         "mainIndex": {
@@ -153,11 +179,18 @@
             "statusCode": "STEADY"
           },
           "definition": {
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "mappings": {
               "dynamic": true,
@@ -171,11 +204,18 @@
             "statusCode": "INITIAL_SYNC"
           },
           "definition": {
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "mappings": {
               "dynamic": true,
@@ -251,8 +291,12 @@
       "description": "simple search index with synonyms and staged index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "SEARCH",
         "mainIndex": {
@@ -260,11 +304,18 @@
             "statusCode": "STEADY"
           },
           "definition": {
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "mappings": {
               "dynamic": true,
@@ -284,11 +335,18 @@
             "statusCode": "INITIAL_SYNC"
           },
           "definition": {
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "mappings": {
               "dynamic": true,
@@ -382,8 +440,12 @@
       "description": "simple vector index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "VECTOR_SEARCH",
         "mainIndex": {
@@ -392,11 +454,18 @@
           },
           "definition": {
             "type": "vectorSearch",
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "fields": [
               {
@@ -464,8 +533,12 @@
       "description": "simple vector index with staged index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "VECTOR_SEARCH",
         "mainIndex": {
@@ -474,11 +547,18 @@
           },
           "definition": {
             "type": "vectorSearch",
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "fields": [
               {
@@ -501,11 +581,18 @@
           },
           "definition": {
             "type": "vectorSearch",
-            "indexID": "695301d3bb11192ef11c42f7",
+            "indexID": {
+              "$oid": "695301d3bb11192ef11c42f7"
+            },
             "name": "index",
             "database": "database",
             "lastObservedCollectionName": "collection",
-            "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+            "collectionUUID": {
+              "$binary": {
+                "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+                "subType": "04"
+              }
+            },
             "numPartitions": 1,
             "fields": [
               {
@@ -607,8 +694,12 @@
       "description": "search index with empty main index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "SEARCH"
       },
@@ -628,8 +719,12 @@
       "description": "vector index with empty main index",
       "json": {
         "_id": {
-          "serverId": "695301d3bb11192ef11c42f6",
-          "indexId": "695301d3bb11192ef11c42f7"
+          "serverId": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
+          "indexId": {
+            "$oid": "695301d3bb11192ef11c42f7"
+          }
         },
         "type": "VECTOR_SEARCH"
       },

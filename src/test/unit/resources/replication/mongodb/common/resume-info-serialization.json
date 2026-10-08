@@ -85,7 +85,12 @@
           "highWaterMark": 1234567890,
           "postBatchResumeToken": {
             "$recordId": 1,
-            "$initialSyncId": "390a604a-4979-4d10-9f4f-3d2552224aee"
+            "$initialSyncId": {
+              "$binary": {
+                "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+                "subType": "04"
+              }
+            }
           },
           "syncSourceHost": "testHost"
         }
@@ -155,9 +160,19 @@
       "json": {
         "bufferlessParallelNaturalOrderInitialSync": {
           "highWaterMark": 1234567890,
-          "initialSyncId": "390a604a-4979-4d10-9f4f-3d2552224aee",
+          "initialSyncId": {
+            "$binary": {
+              "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+              "subType": "04"
+            }
+          },
           "partitions": [
-            { "partitionId": 0, "upperRecordId": 1000, "resumeRecordId": 950, "isDone": false },
+            {
+              "partitionId": 0,
+              "upperRecordId": 1000,
+              "resumeRecordId": 950,
+              "isDone": false
+            },
             {
               "partitionId": 1,
               "lowerRecordId": 1000,
@@ -165,8 +180,18 @@
               "resumeRecordId": 2000,
               "isDone": true
             },
-            { "partitionId": 2, "lowerRecordId": 2000, "upperRecordId": 3000, "isDone": false },
-            { "partitionId": 3, "lowerRecordId": 3000, "resumeRecordId": 3500, "isDone": false }
+            {
+              "partitionId": 2,
+              "lowerRecordId": 2000,
+              "upperRecordId": 3000,
+              "isDone": false
+            },
+            {
+              "partitionId": 3,
+              "lowerRecordId": 3000,
+              "resumeRecordId": 3500,
+              "isDone": false
+            }
           ],
           "syncSourceHost": "testHost"
         }

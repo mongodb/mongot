@@ -7,6 +7,7 @@ import static org.junit.Assert.assertThrows;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import org.bson.BsonArray;
 import org.bson.BsonBinary;
@@ -26,16 +27,25 @@ import org.bson.BsonRegularExpression;
 import org.bson.BsonString;
 import org.bson.BsonSymbol;
 import org.bson.BsonTimestamp;
+import org.bson.BsonType;
 import org.bson.BsonUndefined;
+import org.bson.BsonValue;
 import org.bson.types.Decimal128;
 import org.bson.types.ObjectId;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
 
 @RunWith(Suite.class)
-@Suite.SuiteClasses(value = {JsonCodecTest.FromJson.class, JsonCodecTest.ToJson.class})
+@Suite.SuiteClasses(
+    value = {
+      JsonCodecTest.FromJson.class,
+      JsonCodecTest.ToJson.class,
+      JsonCodecTest.LossyWriter.class
+    })
 public class JsonCodecTest {
 
   public static class FromJson {
@@ -57,6 +67,16 @@ public class JsonCodecTest {
   }
 
   public static class ToJson {
+
+    @Before
+    public void enableLosslessWriter() {
+      JsonCodec.setLosslessWriterSupplier(() -> true);
+    }
+
+    @After
+    public void disableLosslessWriter() {
+      JsonCodec.setLosslessWriterSupplier(() -> false);
+    }
 
     @Test
     public void testFiniteDouble() {
@@ -106,7 +126,8 @@ public class JsonCodecTest {
           new BsonDocument(
               "a", new BsonBinary(UUID.fromString("00000000-1111-2222-3333-444444444444")));
       String json = JsonCodec.toJson(bson);
-      String expected = "{\"a\": \"00000000-1111-2222-3333-444444444444\"}";
+      String expected =
+          "{\"a\": {\"$binary\": {\"base64\": \"AAAAABERIiIzM0RERERERA==\", \"subType\": \"04\"}}}";
       Assert.assertEquals(expected, json);
     }
 
@@ -132,7 +153,7 @@ public class JsonCodecTest {
       BsonDocument bson =
           new BsonDocument("a", new BsonObjectId(new ObjectId("012345678901234567890123")));
       String json = JsonCodec.toJson(bson);
-      String expected = "{\"a\": \"012345678901234567890123\"}";
+      String expected = "{\"a\": {\"$oid\": \"012345678901234567890123\"}}";
       Assert.assertEquals(expected, json);
     }
 
@@ -175,7 +196,8 @@ public class JsonCodecTest {
           new BsonDocument(
               "a", new BsonDbPointer("foo.bar", new ObjectId("012345678901234567890123")));
       String json = JsonCodec.toJson(bson);
-      String expected = "{\"a\": {\"$ref\": \"foo.bar\", \"$id\": \"012345678901234567890123\"}}";
+      String expected =
+          "{\"a\": {\"$ref\": \"foo.bar\", \"$id\": {\"$oid\": \"012345678901234567890123\"}}}";
       Assert.assertEquals(expected, json);
     }
 
@@ -295,11 +317,13 @@ public class JsonCodecTest {
 
       BsonDocument bson = JsonCodec.fromJson(validUuidJson);
 
-      // Convert to JSON - should convert to UUID string format
+      // Convert to JSON - the UUID keeps its BSON type rather than collapsing to a string.
       String jsonOutput = JsonCodec.toJson(bson);
 
-      // Should be converted to a UUID string
-      assertThat(jsonOutput).contains("\"field\": \"00000000-0000-0000-0000-000000000000\"");
+      assertThat(jsonOutput)
+          .contains(
+              "\"field\": {\"$binary\": {\"base64\": \"AAAAAAAAAAAAAAAAAAAAAA==\","
+                  + " \"subType\": \"04\"}}");
     }
 
     @Test
@@ -440,6 +464,119 @@ public class JsonCodecTest {
       // Verify round-trip
       BsonDocument reparsed = JsonCodec.fromJson(jsonOutput);
       assertThat(reparsed.getArray("pipeline").size()).isEqualTo(2);
+    }
+
+    /**
+     * An ObjectId in a view pipeline must keep its BSON type across a JSON round trip. Flattening
+     * it to a bare hex string makes it compare unequal to the ObjectId stored in the documents,
+     * which silently rebuilds the index to zero rows.
+     */
+    @Test
+    public void toJson_objectIdInViewPipeline_preservesBsonType() throws Exception {
+      ObjectId objectId = new ObjectId("6597f1f7e19610656c4808a2");
+      BsonDocument bson =
+          new BsonDocument(
+              "effectivePipeline",
+              new BsonArray(
+                  Arrays.asList(
+                      new BsonDocument(
+                          "$match",
+                          new BsonDocument(
+                              "$expr",
+                              new BsonDocument(
+                                  "$eq",
+                                  new BsonArray(
+                                      Arrays.asList(
+                                          new BsonString("$subprojectId"),
+                                          new BsonObjectId(objectId)))))))));
+
+      BsonDocument roundTripped = JsonCodec.fromJson(JsonCodec.toJson(bson));
+
+      BsonValue literal =
+          roundTripped
+              .getArray("effectivePipeline")
+              .get(0)
+              .asDocument()
+              .getDocument("$match")
+              .getDocument("$expr")
+              .getArray("$eq")
+              .get(1);
+      assertThat(literal.getBsonType()).isEqualTo(BsonType.OBJECT_ID);
+      assertThat(literal.asObjectId().getValue()).isEqualTo(objectId);
+      Assert.assertEquals(bson, roundTripped);
+    }
+
+    /** UUIDs are flattened by the same defect, so cover them too. */
+    @Test
+    public void toJson_uuidInViewPipeline_preservesBsonType() throws Exception {
+      UUID uuid = UUID.fromString("00000000-1111-2222-3333-444444444444");
+      BsonDocument bson =
+          new BsonDocument(
+              "effectivePipeline",
+              new BsonArray(
+                  Arrays.asList(
+                      new BsonDocument(
+                          "$match",
+                          new BsonDocument(
+                              "$expr",
+                              new BsonDocument(
+                                  "$eq",
+                                  new BsonArray(
+                                      Arrays.asList(
+                                          new BsonString("$tenantId"), new BsonBinary(uuid)))))))));
+
+      BsonDocument roundTripped = JsonCodec.fromJson(JsonCodec.toJson(bson));
+
+      BsonValue literal =
+          roundTripped
+              .getArray("effectivePipeline")
+              .get(0)
+              .asDocument()
+              .getDocument("$match")
+              .getDocument("$expr")
+              .getArray("$eq")
+              .get(1);
+      assertThat(literal.getBsonType()).isEqualTo(BsonType.BINARY);
+      assertThat(literal.asBinary().asUuid()).isEqualTo(uuid);
+      Assert.assertEquals(bson, roundTripped);
+    }
+  }
+
+  /**
+   * The flag-off writer — the one production runs by default — must keep flattening ObjectId and
+   * UUID to bare strings, byte-identical to every released mongot. Guarding it explicitly so the
+   * lossless fixtures above cannot drift into being the only coverage of the writer.
+   */
+  public static class LossyWriter {
+
+    @Before
+    public void disableLosslessWriter() {
+      JsonCodec.setLosslessWriterSupplier(() -> false);
+    }
+
+    @After
+    public void restoreDefault() {
+      JsonCodec.setLosslessWriterSupplier(() -> false);
+    }
+
+    @Test
+    public void toJson_objectId_flattensToBareHexString() {
+      var bson =
+          new BsonDocument(
+              "pipeline",
+              new BsonArray(List.of(new BsonObjectId(new ObjectId("6597f1f7e19610656c4808a2")))));
+      String json = JsonCodec.toJson(bson);
+
+      assertThat(json).isEqualTo("{\"pipeline\": [\"6597f1f7e19610656c4808a2\"]}");
+    }
+
+    @Test
+    public void toJson_uuid_flattensToCanonicalString() {
+      var uuid = UUID.fromString("390a604a-4979-4d10-9f4f-3d2552224aee");
+      var bson = new BsonDocument("id", new BsonBinary(uuid));
+      String json = JsonCodec.toJson(bson);
+
+      assertThat(json).isEqualTo("{\"id\": \"390a604a-4979-4d10-9f4f-3d2552224aee\"}");
     }
   }
 }

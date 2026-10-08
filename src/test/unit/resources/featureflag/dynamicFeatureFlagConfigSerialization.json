@@ -6,11 +6,17 @@
         "featureFlagName": "test-feature",
         "phase": "CONTROLLED",
         "allowedList": [
-          "507f1f77bcf86cd799439011",
-          "507f1f77bcf86cd799439012"
+          {
+            "$oid": "507f1f77bcf86cd799439011"
+          },
+          {
+            "$oid": "507f1f77bcf86cd799439012"
+          }
         ],
         "blockedList": [
-          "507f1f77bcf86cd799439013"
+          {
+            "$oid": "507f1f77bcf86cd799439013"
+          }
         ],
         "rolloutPercentage": 50,
         "scope": "GROUP"
@@ -19,11 +25,17 @@
         "featureFlagName": "test-feature",
         "phase": "CONTROLLED",
         "allowedList": [
-          {"$oid": "507f1f77bcf86cd799439011"},
-          {"$oid": "507f1f77bcf86cd799439012"}
+          {
+            "$oid": "507f1f77bcf86cd799439011"
+          },
+          {
+            "$oid": "507f1f77bcf86cd799439012"
+          }
         ],
         "blockedList": [
-          {"$oid": "507f1f77bcf86cd799439013"}
+          {
+            "$oid": "507f1f77bcf86cd799439013"
+          }
         ],
         "rolloutPercentage": 50,
         "scope": "GROUP"

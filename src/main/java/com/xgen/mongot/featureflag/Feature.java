@@ -62,6 +62,7 @@ public enum Feature {
   INDEX_FEATURE_VERSION_FOUR("indexFeatureVersionFour", State.DISABLED),
   FLOOR_SEGMENT_MB("enableFloorSegmentMB", State.DISABLED),
   RESTART_WITH_NO_CONF_CALL("restartWithNoConfCall", State.DISABLED),
+  LOSSLESS_JSON_CODEC("losslessJsonCodec", State.DISABLED),
   SORTED_INDEX("enableSortedIndex", State.DISABLED),
   TRUNCATE_AUTOCOMPLETE_TOKENS("enableTruncateAutocompleteTokens", State.DISABLED),
   ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE("enableValidationOfReturnStoredSource", State.ENABLED),

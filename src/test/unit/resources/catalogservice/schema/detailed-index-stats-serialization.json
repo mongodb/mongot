@@ -7,11 +7,18 @@
           "statusCode": "INITIAL_SYNC"
         },
         "definition": {
-          "indexID": "695301d3bb11192ef11c42f6",
+          "indexID": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
           "name": "index",
           "database": "database",
           "lastObservedCollectionName": "collection",
-          "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+          "collectionUUID": {
+            "$binary": {
+              "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+              "subType": "04"
+            }
+          },
           "numPartitions": 1,
           "mappings": {
             "dynamic": true,
@@ -54,11 +61,18 @@
         },
         "definition": {
           "type": "vectorSearch",
-          "indexID": "695301d3bb11192ef11c42f6",
+          "indexID": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
           "name": "index",
           "database": "database",
           "lastObservedCollectionName": "collection",
-          "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+          "collectionUUID": {
+            "$binary": {
+              "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+              "subType": "04"
+            }
+          },
           "numPartitions": 1,
           "fields": [
             {
@@ -165,11 +179,18 @@
           "statusCode": "INITIAL_SYNC"
         },
         "definition": {
-          "indexID": "695301d3bb11192ef11c42f6",
+          "indexID": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
           "name": "index",
           "database": "database",
           "lastObservedCollectionName": "collection",
-          "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+          "collectionUUID": {
+            "$binary": {
+              "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+              "subType": "04"
+            }
+          },
           "numPartitions": 1,
           "mappings": {
             "dynamic": true,
@@ -213,11 +234,18 @@
           "statusCode": "INITIAL_SYNC"
         },
         "definition": {
-          "indexID": "695301d3bb11192ef11c42f6",
+          "indexID": {
+            "$oid": "695301d3bb11192ef11c42f6"
+          },
           "name": "index",
           "database": "database",
           "lastObservedCollectionName": "collection",
-          "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+          "collectionUUID": {
+            "$binary": {
+              "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+              "subType": "04"
+            }
+          },
           "numPartitions": 1,
           "mappings": {
             "dynamic": true,

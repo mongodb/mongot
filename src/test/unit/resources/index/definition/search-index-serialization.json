@@ -3,17 +3,24 @@
     {
       "description": "simple",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
-        }
+        },
+        "indexFeatureVersion": 0
       },
       "bson": {
         "indexID": {
@@ -39,18 +46,25 @@
     {
       "description": "with analyzer",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
         },
-        "analyzer": "my-analyzer"
+        "analyzer": "my-analyzer",
+        "indexFeatureVersion": 0
       },
       "bson": {
         "indexID": {
@@ -77,18 +91,25 @@
     {
       "description": "with typeSets",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
         },
         "analyzer": "my-analyzer",
+        "indexFeatureVersion": 0,
         "typeSets": [
           {
             "name": "foo",
@@ -163,12 +184,18 @@
     {
       "description": "with sort",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": false,
@@ -191,6 +218,7 @@
           }
         },
         "analyzer": "my-analyzer",
+        "indexFeatureVersion": 0,
         "sort": {
           "a": {
             "order": 1.0,
@@ -269,18 +297,25 @@
     {
       "description": "with searchAnalyzer",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
         },
-        "searchAnalyzer": "my-search-analyzer"
+        "searchAnalyzer": "my-search-analyzer",
+        "indexFeatureVersion": 0
       },
       "bson": {
         "indexID": {
@@ -307,12 +342,18 @@
     {
       "description": "with custom analyzer",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
@@ -321,14 +362,14 @@
         "analyzers": [
           {
             "name": "persian",
-            "tokenizer": {
-              "type": "whitespace"
-            },
             "charFilters": [
               {
                 "type": "persian"
               }
             ],
+            "tokenizer": {
+              "type": "whitespace"
+            },
             "tokenFilters": [
               {
                 "type": "icuNormalizer",
@@ -336,7 +377,8 @@
               }
             ]
           }
-        ]
+        ],
+        "indexFeatureVersion": 0
       },
       "bson": {
         "indexID": {
@@ -381,17 +423,24 @@
     {
       "description": "with stored fields boolean",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
         },
+        "indexFeatureVersion": 0,
         "storedSource": true
       },
       "bson": {
@@ -419,16 +468,17 @@
     {
       "description": "with view",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
-        "numPartitions": 1,
-        "mappings": {
-          "dynamic": true,
-          "fields": {}
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
         },
         "view": {
           "name": "myView",
@@ -445,7 +495,13 @@
             }
           ],
           "exists": true
-        }
+        },
+        "numPartitions": 1,
+        "mappings": {
+          "dynamic": true,
+          "fields": {}
+        },
+        "indexFeatureVersion": 0
       },
       "bson": {
         "indexID": {
@@ -487,17 +543,24 @@
     {
       "description": "with stored fields document inclusion",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
         },
+        "indexFeatureVersion": 0,
         "storedSource": {
           "include": [
             "a",
@@ -537,17 +600,24 @@
     {
       "description": "with stored fields document exclusion",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
         "mappings": {
           "dynamic": true,
           "fields": {}
         },
+        "indexFeatureVersion": 0,
         "storedSource": {
           "exclude": [
             "a",
@@ -587,17 +657,24 @@
     {
       "description": "with multiple index-partitions",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 2,
-        "indexFeatureVersion": 0,
         "mappings": {
           "dynamic": true,
           "fields": {}
-        }
+        },
+        "indexFeatureVersion": 0
       },
       "bson": {
         "indexID": {
@@ -623,17 +700,26 @@
     {
       "description": "with indexIdAtCreationTime",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexIDAtCreationTime": "607f191e810c19729de860eb",
         "mappings": {
           "dynamic": true,
           "fields": {}
+        },
+        "indexFeatureVersion": 0,
+        "indexIDAtCreationTime": {
+          "$oid": "607f191e810c19729de860eb"
         }
       },
       "bson": {
@@ -663,18 +749,25 @@
     {
       "description": "with autoEmbeddingDefinitionVersion",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "autoEmbeddingDefinitionVersion": 5,
         "mappings": {
           "dynamic": true,
           "fields": {}
-        }
+        },
+        "indexFeatureVersion": 0,
+        "autoEmbeddingDefinitionVersion": 5
       },
       "bson": {
         "indexID": {
@@ -703,18 +796,25 @@
     {
       "description": "with materializedViewNameFormatVersion",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "materializedViewNameFormatVersion": 2,
         "mappings": {
           "dynamic": true,
           "fields": {}
-        }
+        },
+        "indexFeatureVersion": 0,
+        "materializedViewNameFormatVersion": 2
       },
       "bson": {
         "indexID": {
@@ -743,19 +843,26 @@
     {
       "description": "with both autoEmbeddingDefinitionVersion and materializedViewNameFormatVersion",
       "json": {
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "index",
         "database": "database",
         "lastObservedCollectionName": "collection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-        "indexFeatureVersion": 0,
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "autoEmbeddingDefinitionVersion": 5,
-        "materializedViewNameFormatVersion": 2,
         "mappings": {
           "dynamic": true,
           "fields": {}
-        }
+        },
+        "indexFeatureVersion": 0,
+        "autoEmbeddingDefinitionVersion": 5,
+        "materializedViewNameFormatVersion": 2
       },
       "bson": {
         "indexID": {

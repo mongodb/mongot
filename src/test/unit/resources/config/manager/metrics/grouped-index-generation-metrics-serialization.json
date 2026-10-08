@@ -3,11 +3,15 @@
     {
       "description": "simple",
       "json": {
-        "indexId": "507f191e810c19729de860ea",
+        "indexId": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "generations": [
           {
             "generationId": {
-              "indexId": "507f191e810c19729de860ea",
+              "indexId": {
+                "$oid": "507f191e810c19729de860ea"
+              },
               "userVersion": 1,
               "formatVersion": 6,
               "attemptNumber": 3

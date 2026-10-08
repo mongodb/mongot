@@ -5,8 +5,12 @@
       "json": {
         "pauseAllInitialSyncs": false,
         "pauseInitialSyncOnIndexIds": [
-          "68784215b86a4a2d55787ae6",
-          "687d201de90e474dfbc7c1d4"
+          {
+            "$oid": "68784215b86a4a2d55787ae6"
+          },
+          {
+            "$oid": "687d201de90e474dfbc7c1d4"
+          }
         ],
         "enableSplitLargeChangeStreamEvents": false,
         "excludedChangestreamFields": [
@@ -73,12 +77,24 @@
         },
         "globalMemoryBudgetHeapPercent": 75,
         "perBatchMemoryBudgetHeapPercent": 60,
-        "leaseManagerHeartbeatIntervalMs": { "$numberLong": "1000" },
-        "materializedViewStatusRefreshIntervalMs": { "$numberLong": "2000" },
-        "materializedViewOptimeUpdateIntervalMs": { "$numberLong": "3000" },
-        "staleLeaseScanIntervalMs": { "$numberLong": "300000" },
-        "staleLeaseMarkGracePeriodMs": { "$numberLong": "1800000" },
-        "staleLeaseDeleteGracePeriodMs": { "$numberLong": "172800000" }
+        "leaseManagerHeartbeatIntervalMs": {
+          "$numberLong": "1000"
+        },
+        "materializedViewStatusRefreshIntervalMs": {
+          "$numberLong": "2000"
+        },
+        "materializedViewOptimeUpdateIntervalMs": {
+          "$numberLong": "3000"
+        },
+        "staleLeaseScanIntervalMs": {
+          "$numberLong": "300000"
+        },
+        "staleLeaseMarkGracePeriodMs": {
+          "$numberLong": "1800000"
+        },
+        "staleLeaseDeleteGracePeriodMs": {
+          "$numberLong": "172800000"
+        }
       }
     }
   ]

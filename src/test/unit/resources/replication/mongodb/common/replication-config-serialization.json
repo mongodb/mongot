@@ -13,8 +13,12 @@
         "enableSteadyStateChangeStreamProjection": true,
         "pauseAllInitialSyncs": false,
         "pauseInitialSyncOnIndexIds": [
-          "68784215b86a4a2d55787ae6",
-          "687d201de90e474dfbc7c1d4"
+          {
+            "$oid": "68784215b86a4a2d55787ae6"
+          },
+          {
+            "$oid": "687d201de90e474dfbc7c1d4"
+          }
         ],
         "maxInFlightEmbeddingGetMores": 8,
         "maxConcurrentEmbeddingInitialSyncs": 9,
@@ -25,7 +29,7 @@
         "matchCollectionUUIDForUpdateLookup": true,
         "enableSplitLargeChangeStreamEvents": false,
         "splitLargeChangeStreamEventsForInitialSync": false,
-        "requestRateLimitBackoffMs" : 11,
+        "requestRateLimitBackoffMs": 11,
         "steadyStatePriorityOptimeThresholdSeconds": 50,
         "changeStreamInactivityThresholdSec": 1800,
         "changeStreamKeepAliveIntervalSec": 3600,
@@ -60,7 +64,7 @@
         "matchCollectionUUIDForUpdateLookup": true,
         "enableSplitLargeChangeStreamEvents": false,
         "splitLargeChangeStreamEventsForInitialSync": false,
-        "requestRateLimitBackoffMs" : 11,
+        "requestRateLimitBackoffMs": 11,
         "steadyStatePriorityOptimeThresholdSeconds": 50,
         "changeStreamInactivityThresholdSec": 1800,
         "changeStreamKeepAliveIntervalSec": 3600,

@@ -55,19 +55,33 @@ public class BsonSerializationTestSuite<T> {
     return new BsonSerializationTestSuite<>(testSuite.tests, encoder);
   }
 
+  /**
+   * Runs the named test case: arms the lossless writer for the duration of the assertions and
+   * restores the process default in a finally, so a failed assertion cannot leak the armed state to
+   * later tests in the same JVM.
+   *
+   * <p>Arming happens per test rather than in the constructor because suites are built in static
+   * initializers — a constructor-side set would run once at class-load and another test resetting
+   * the supplier afterwards would strand an already-constructed suite. (CLOUDP-424155)
+   */
   public void runTest(TestSpec<T> testSpec) throws Exception {
-    SuiteTestCase testCase =
-        this.testCases.stream()
-            .filter(t -> t.description.equals(testSpec.getName()))
-            .findFirst()
-            .orElseThrow(
-                () ->
-                    new AssertionError(
-                        String.format(
-                            "could not find valid test case \"%s\"", testSpec.getName())));
+    JsonCodec.setLosslessWriterSupplier(() -> true);
+    try {
+      SuiteTestCase testCase =
+          this.testCases.stream()
+              .filter(t -> t.description.equals(testSpec.getName()))
+              .findFirst()
+              .orElseThrow(
+                  () ->
+                      new AssertionError(
+                          String.format(
+                              "could not find valid test case \"%s\"", testSpec.getName())));
 
-    testBson(testSpec, testCase);
-    testJson(testSpec, testCase);
+      testBson(testSpec, testCase);
+      testJson(testSpec, testCase);
+    } finally {
+      JsonCodec.setLosslessWriterSupplier(() -> false);
+    }
   }
 
   private void testBson(TestSpec<T> testSpec, SuiteTestCase testCase) throws Exception {

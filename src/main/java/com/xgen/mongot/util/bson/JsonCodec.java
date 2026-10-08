@@ -3,6 +3,7 @@ package com.xgen.mongot.util.bson;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentEncodable;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import org.bson.BsonBinary;
 import org.bson.BsonBinarySubType;
 import org.bson.BsonDocument;
@@ -46,11 +47,7 @@ public class JsonCodec {
       (value, writer) -> writer.writeString(value.toHexString());
 
   /**
-   * We want to encode BSON into JSON in a safe way, while also interop-ing with standard JSON if
-   * possible.
-   *
-   * <p>To support this, we want to encode BSON types that have directly corresponding JSON types
-   * into those types:
+   * Encode BSON types that have directly corresponding JSON types into those types:
    *
    * <ul>
    *   <li>BsonString -> string
@@ -66,41 +63,58 @@ public class JsonCodec {
    *
    * <p>Relaxed Extended JSON will encode all of the above mentioned types into their corresponding
    * JSON types.
-   *
-   * <p>Additionally, we want to encode ObjectIDs and UUIDs as strings, so we override their
-   * converters to do so.
    */
-  private static final JsonWriterSettings.Builder SETTINGS_BUILDER =
+  private static final JsonWriterSettings.Builder LOSSLESS_SETTINGS_BUILDER =
+      JsonWriterSettings.builder().outputMode(JsonMode.RELAXED);
+
+  private static final JsonWriterSettings LOSSLESS_SETTINGS = LOSSLESS_SETTINGS_BUILDER.build();
+  private static final JsonWriterSettings LOSSLESS_PRETTY_SETTINGS =
+      LOSSLESS_SETTINGS_BUILDER.indent(true).build();
+
+  /**
+   * The lossy writer, retained behind the {@code losslessJsonCodec} feature flag: it flattens
+   * ObjectId and UUID to bare strings. That is the encoding every released mongot has written, and
+   * the flag gates the switch between the two so that clusters with definitions already persisted
+   * in the lossy form can be migrated deliberately -- the lossless writer is what makes an MMS-side
+   * repair of a degraded pipeline stick; without it the next conf call re-degrades the pipeline and
+   * the index rebuilds wrong again.
+   */
+  private static final JsonWriterSettings.Builder LOSSY_SETTINGS_BUILDER =
       JsonWriterSettings.builder()
           .outputMode(JsonMode.RELAXED)
           .binaryConverter(UUID_TO_STRING_CONVERTER)
           .objectIdConverter(OBJECT_ID_TO_STRING_CONVERTER);
 
-  private static final JsonWriterSettings SETTINGS = SETTINGS_BUILDER.build();
-  private static final JsonWriterSettings PRETTY_SETTINGS = SETTINGS_BUILDER.indent(true).build();
+  private static final JsonWriterSettings LOSSY_SETTINGS = LOSSY_SETTINGS_BUILDER.build();
+  private static final JsonWriterSettings LOSSY_PRETTY_SETTINGS =
+      LOSSY_SETTINGS_BUILDER.indent(true).build();
 
-  /** Encodes the supplied BSON into JSON, using the settings defined in SETTINGS. */
-  public static String toJson(BsonDocument bson) {
-    return bson.toJson(SETTINGS);
+  private static volatile BooleanSupplier losslessWriterEnabled = () -> false;
+
+  public static void setLosslessWriterSupplier(BooleanSupplier losslessWriterEnabled) {
+    JsonCodec.losslessWriterEnabled = losslessWriterEnabled;
   }
 
-  /** Encodes the supplied DocumentEncodable into JSON, using the settings defined in SETTINGS. */
+  private static boolean losslessWriterEnabled() {
+    return JsonCodec.losslessWriterEnabled.getAsBoolean();
+  }
+
+  /** Encodes the supplied BSON into JSON. */
+  public static String toJson(BsonDocument bson) {
+    return bson.toJson(losslessWriterEnabled() ? LOSSLESS_SETTINGS : LOSSY_SETTINGS);
+  }
+
+  /** Encodes the supplied DocumentEncodable into JSON. */
   public static String toJson(DocumentEncodable encodable) {
     return toJson(encodable.toBson());
   }
 
-  /**
-   * Encodes the supplied BSON into JSON, using the settings defined in SETTINGS and indenting
-   * fields.
-   */
+  /** Encodes the supplied BSON into JSON, indenting fields. */
   public static String toPrettyJson(BsonDocument bson) {
-    return bson.toJson(PRETTY_SETTINGS);
+    return bson.toJson(losslessWriterEnabled() ? LOSSLESS_PRETTY_SETTINGS : LOSSY_PRETTY_SETTINGS);
   }
 
-  /**
-   * Encodes the supplied DocumentEncodable into JSON, using the settings defined in SETTINGS and
-   * indenting fields.
-   */
+  /** Encodes the supplied DocumentEncodable into JSON, indenting fields. */
   public static String toPrettyJson(DocumentEncodable encodable) {
     return toPrettyJson(encodable.toBson());
   }

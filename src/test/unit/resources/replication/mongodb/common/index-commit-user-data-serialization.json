@@ -2,10 +2,8 @@
   "tests": [
     {
       "description": "empty",
-      "bson": {
-      },
-      "json": {
-      }
+      "bson": {},
+      "json": {}
     },
     {
       "description": "index format version only",
@@ -100,7 +98,12 @@
             "highWaterMark": 1234567890,
             "postBatchResumeToken": {
               "$recordId": 1,
-              "$initialSyncId": "390a604a-4979-4d10-9f4f-3d2552224aee"
+              "$initialSyncId": {
+                "$binary": {
+                  "base64": "OQpgSkl5TRCfTz0lUiJK7g==",
+                  "subType": "04"
+                }
+              }
             },
             "syncSourceHost": "testHost"
           }

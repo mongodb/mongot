@@ -3,24 +3,31 @@
     {
       "description": "simple",
       "json": {
-        "generation": {
-          "userVersion": 1,
-          "formatVersion": 2
-        },
         "index": {
-          "indexID": "507f191e810c19729de860ea",
+          "indexID": {
+            "$oid": "507f191e810c19729de860ea"
+          },
           "name": "index",
           "database": "database",
           "lastObservedCollectionName": "collection",
-          "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
-          "indexFeatureVersion": 0,
+          "collectionUUID": {
+            "$binary": {
+              "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+              "subType": "04"
+            }
+          },
           "numPartitions": 1,
           "mappings": {
             "dynamic": true,
             "fields": {}
-          }
+          },
+          "indexFeatureVersion": 0
         },
-        "analyzers": []
+        "analyzers": [],
+        "generation": {
+          "userVersion": 1,
+          "formatVersion": 2
+        }
       },
       "bson": {
         "generation": {

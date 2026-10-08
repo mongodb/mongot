@@ -3,7 +3,9 @@
     {
       "description": "simple",
       "json": {
-        "_id": "000003e8464f5e2393000000",
+        "_id": {
+          "$oid": "000003e8464f5e2393000000"
+        },
         "serverName": "server",
         "lastHeartbeatTs": {
           "$date": "2025-12-29T10:00:00Z"

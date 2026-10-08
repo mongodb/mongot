@@ -33,13 +33,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -51,7 +57,8 @@
             "type": "filter",
             "path": "my.filter.field"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -87,13 +94,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -105,7 +118,8 @@
             "type": "filter",
             "path": "my.filter.field"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -149,13 +163,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -175,7 +195,8 @@
             "numDimensions": 3,
             "similarity": "euclidean"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -235,11 +256,18 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "view": {
           "name": "myView",
           "effectivePipeline": [
@@ -257,7 +285,6 @@
           "exists": true
         },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -277,7 +304,8 @@
             "numDimensions": 3,
             "similarity": "euclidean"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -313,13 +341,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 2,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -331,7 +365,8 @@
             "type": "filter",
             "path": "my.filter.field"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -367,25 +402,32 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
             "path": "my.vector.field",
             "numDimensions": 2048,
-            "similarity": "cosine",
             "hnswOptions": {
               "maxEdges": 32,
               "numEdgeCandidates": 500
-            }
+            },
+            "similarity": "cosine"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -424,13 +466,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -439,6 +487,7 @@
             "similarity": "cosine"
           }
         ],
+        "indexFeatureVersion": 3,
         "storedSource": {
           "include": [
             "a",
@@ -484,13 +533,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
@@ -499,6 +554,7 @@
             "similarity": "cosine"
           }
         ],
+        "indexFeatureVersion": 3,
         "storedSource": {
           "exclude": [
             "a",
@@ -536,20 +592,27 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "text",
             "path": "my.vector.text.field",
             "model": "voyage-3-large"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -581,13 +644,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "text",
@@ -595,7 +664,8 @@
             "model": "voyage-3.5",
             "similarity": "dotProduct"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -628,13 +698,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "text",
@@ -643,7 +719,8 @@
             "similarity": "dotProduct",
             "quantization": "scalar"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -676,22 +753,29 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
         "fields": [
           {
             "type": "vector",
             "path": "my.vector.field",
             "numDimensions": 1024,
-            "similarity": "cosine",
-            "indexingMethod": "flat"
+            "indexingMethod": "flat",
+            "similarity": "cosine"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3
       }
     },
     {
@@ -726,14 +810,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
-        "indexIDAtCreationTime": "607f191e810c19729de860eb",
         "fields": [
           {
             "type": "vector",
@@ -741,7 +830,11 @@
             "numDimensions": 2048,
             "similarity": "cosine"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3,
+        "indexIDAtCreationTime": {
+          "$oid": "607f191e810c19729de860eb"
+        }
       }
     },
     {
@@ -776,14 +869,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
-        "autoEmbeddingDefinitionVersion": 5,
         "fields": [
           {
             "type": "vector",
@@ -791,7 +889,9 @@
             "numDimensions": 2048,
             "similarity": "cosine"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3,
+        "autoEmbeddingDefinitionVersion": 5
       }
     },
     {
@@ -826,14 +926,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
-        "materializedViewNameFormatVersion": 2,
         "fields": [
           {
             "type": "vector",
@@ -841,7 +946,9 @@
             "numDimensions": 2048,
             "similarity": "cosine"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3,
+        "materializedViewNameFormatVersion": 2
       }
     },
     {
@@ -879,15 +986,19 @@
       },
       "json": {
         "type": "vectorSearch",
-        "indexID": "507f191e810c19729de860ea",
+        "indexID": {
+          "$oid": "507f191e810c19729de860ea"
+        },
         "name": "myVectorIndex",
         "database": "myDatabase",
         "lastObservedCollectionName": "myCollection",
-        "collectionUUID": "eb6c40ca-f25e-47e8-b48c-02a05b64a5aa",
+        "collectionUUID": {
+          "$binary": {
+            "base64": "62xAyvJeR+i0jAKgW2Slqg==",
+            "subType": "04"
+          }
+        },
         "numPartitions": 1,
-        "indexFeatureVersion": 3,
-        "autoEmbeddingDefinitionVersion": 5,
-        "materializedViewNameFormatVersion": 2,
         "fields": [
           {
             "type": "vector",
@@ -895,7 +1006,10 @@
             "numDimensions": 2048,
             "similarity": "cosine"
           }
-        ]
+        ],
+        "indexFeatureVersion": 3,
+        "autoEmbeddingDefinitionVersion": 5,
+        "materializedViewNameFormatVersion": 2
       }
     }
   ]

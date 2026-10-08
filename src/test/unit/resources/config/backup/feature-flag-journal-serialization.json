@@ -22,10 +22,14 @@
             "featureFlagName": "test-feature-flag-name2",
             "phase": "CONTROLLED",
             "allowedList": [
-              "507f1f77bcf86cd799439011"
+              {
+                "$oid": "507f1f77bcf86cd799439011"
+              }
             ],
             "blockedList": [
-              "507f1f77bcf86cd799439012"
+              {
+                "$oid": "507f1f77bcf86cd799439012"
+              }
             ],
             "rolloutPercentage": 100,
             "scope": "MONGOT_CLUSTER"
@@ -63,4 +67,3 @@
     }
   ]
 }
-
