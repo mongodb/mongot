@@ -44,6 +44,7 @@ import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
+import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
@@ -57,11 +58,16 @@ import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformation
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.query.CollectorQuery;
 import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.aggregation.AggregationNodeStats;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
 import com.xgen.mongot.index.query.collectors.FacetDefinition;
+import com.xgen.mongot.index.query.counts.Count;
+import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
+import com.xgen.mongot.index.query.operators.VectorSearchOperator;
+import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.IndexFormatVersion;
@@ -71,12 +77,14 @@ import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.ErrorType;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
 import com.xgen.mongot.util.mongodb.MongoDbVersion;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.QueryExplainInformationBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.TermQueryBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.tracing.FakeExplain;
+import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.metrics.TestMeterRegistry;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.server.command.search.definition.request.CursorOptionsDefinitionBuilder;
@@ -100,6 +108,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonDouble;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
+import org.bson.BsonValue;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
@@ -1949,6 +1958,167 @@ public class SearchCommandTest {
     Assert.assertTrue(errmsg.contains("numCandidates is required for approximate vector search"));
     Assert.assertFalse(errmsg.contains("INITIAL_SYNC"));
     verify(mockSearchIndex, never()).throwIfUnavailableForQuerying();
+  }
+
+  /**
+   * An empty text query on an auto-embedding field must be rejected with the auto-embedding error
+   * instead of falling through to the vector path without a queryVector, where it failed with the
+   * internal "queryVector must be present" assertion (CLOUDP-454602).
+   */
+  @Test
+  public void maybeEmbedSearchQuery_emptyQueryText_throwsEmptyQueryError() throws Exception {
+    assertEmptyQueryTextRejected(new VectorSearchQueryInput.Text(""));
+  }
+
+  @Test
+  public void maybeEmbedSearchQuery_emptyMultiModalQueryText_throwsEmptyQueryError()
+      throws Exception {
+    assertEmptyQueryTextRejected(new VectorSearchQueryInput.MultiModal(Optional.of("")));
+  }
+
+  @Test
+  public void searchVectorSearch_emptyQueryText_returnsEmptyQueryError() throws Exception {
+    assertSearchWithEmptyQueryTextReturnsEmptyQueryError(new BsonString(""));
+  }
+
+  @Test
+  public void searchVectorSearch_emptyQueryDocumentText_returnsEmptyQueryError() throws Exception {
+    assertSearchWithEmptyQueryTextReturnsEmptyQueryError(
+        new BsonDocument().append("text", new BsonString("")));
+  }
+
+  /** An omitted query and queryVector is still reported as the missing-input parse error. */
+  @Test
+  public void searchVectorSearch_omittedQueryAndQueryVector_returnsMissingInputError()
+      throws Exception {
+    BsonDocument vectorSearch =
+        new BsonDocument()
+            .append("path", new BsonString("embedding"))
+            .append("numCandidates", new BsonInt32(100))
+            .append("limit", new BsonInt32(10));
+    SearchCommand command =
+        buildSearchCommand(
+            new DefaultIndexCatalog(), new BsonDocument().append("vectorSearch", vectorSearch));
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(
+        result
+            .getString("errmsg")
+            .getValue()
+            .contains("Exactly one and only one of query and queryVector can be present"));
+  }
+
+  private static void assertEmptyQueryTextRejected(VectorSearchQueryInput queryInput)
+      throws Exception {
+    SearchCommand command = buildSearchCommand(new DefaultIndexCatalog());
+    SearchIndexDefinition autoEmbeddingDefinition =
+        SearchIndex.mockAutoEmbeddingSearchDefinition(new ObjectId());
+
+    InvalidQueryException exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                command.maybeEmbedSearchQuery(
+                    vectorSearchQueryDefinition(queryInput), autoEmbeddingDefinition));
+    Assert.assertEquals(
+        "'query' field cannot be empty when querying Automated Embedding index",
+        exception.getMessage());
+  }
+
+  private static void assertSearchWithEmptyQueryTextReturnsEmptyQueryError(BsonValue queryInput)
+      throws Exception {
+    SearchIndexDefinition autoEmbeddingDefinition =
+        SearchIndex.mockAutoEmbeddingSearchDefinition(new ObjectId());
+    var indexGeneration = mockIndexGeneration(autoEmbeddingDefinition);
+    IndexCatalog catalog = mock(IndexCatalog.class);
+    InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
+    InitializedIndex initializedIndex = mock(InitializedSearchIndex.class);
+    when(initializedIndex.getDefinition()).thenReturn(autoEmbeddingDefinition);
+    when(catalog.getIndex(DATABASE_NAME, COLLECTION_UUID, Optional.empty(), INDEX_NAME))
+        .thenReturn(Optional.of(indexGeneration));
+    when(initializedIndexCatalog.getIndex(indexGeneration.getGenerationId()))
+        .thenReturn(Optional.of(initializedIndex));
+
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            catalog,
+            initializedIndexCatalog,
+            new IncompatibleIndexes(TestMeterRegistry.get()),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(emptyQueryTextVectorSearchQuery(queryInput))
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertEquals(
+        "'query' field cannot be empty when querying Automated Embedding index",
+        result.getString("errmsg").getValue());
+  }
+
+  private static SearchCommand buildSearchCommand(IndexCatalog catalog) throws Exception {
+    return buildSearchCommand(catalog, VALID_OPERATOR_QUERY);
+  }
+
+  private static SearchCommand buildSearchCommand(IndexCatalog catalog, BsonDocument query)
+      throws Exception {
+    return new SearchCommand(
+        new SearchCommand.Metrics(mockMetricsFactory()),
+        getCursorManager(),
+        catalog,
+        new InitializedIndexCatalog(),
+        new IncompatibleIndexes(TestMeterRegistry.get()),
+        SearchCommandDefinitionBuilder.builder()
+            .db(DATABASE_NAME)
+            .collectionName(COLLECTION_NAME)
+            .collectionUuid(COLLECTION_UUID)
+            .query(query)
+            .build(),
+        BOOTSTRAPPER_METADATA,
+        CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+        () -> null);
+  }
+
+  private static OperatorQuery vectorSearchQueryDefinition(VectorSearchQueryInput queryInput) {
+    VectorSearchCriteria criteria =
+        ApproximateVectorQueryCriteriaBuilder.builder()
+            .limit(10)
+            .numCandidates(100)
+            .query(queryInput)
+            .path(FieldPath.parse("embedding"))
+            .build();
+    return new OperatorQuery(
+        new VectorSearchOperator(null, criteria),
+        INDEX_NAME,
+        Count.DEFAULT,
+        Optional.empty(),
+        Optional.empty(),
+        false,
+        false,
+        false,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  private static BsonDocument emptyQueryTextVectorSearchQuery(BsonValue queryInput) {
+    return new BsonDocument()
+        .append(
+            "vectorSearch",
+            new BsonDocument()
+                .append("path", new BsonString("embedding"))
+                .append("query", queryInput)
+                .append("numCandidates", new BsonInt32(100))
+                .append("limit", new BsonInt32(10)));
   }
 
   /**
