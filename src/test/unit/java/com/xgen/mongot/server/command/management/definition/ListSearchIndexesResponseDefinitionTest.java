@@ -91,6 +91,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion,
@@ -138,6 +139,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion,
@@ -169,6 +171,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "READY",
             true,
             defVersion,
@@ -213,6 +216,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "READY",
             true,
             defVersion,
@@ -252,6 +256,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion,
@@ -265,6 +270,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860eb"),
             "vectorIndex1",
+            "vectorSearch",
             "READY",
             true,
             defVersion,
@@ -315,6 +321,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion,
@@ -374,6 +381,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "READY",
             true,
             defVersion1,
@@ -402,6 +410,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion,
@@ -430,6 +439,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "READY",
             true,
             defVersion,
@@ -467,6 +477,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion,
@@ -512,6 +523,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "READY",
             true,
             defVersion,
@@ -554,6 +566,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "PENDING",
             false,
             defVersion,
@@ -596,6 +609,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "BUILDING",
             false,
             defVersion,
@@ -656,6 +670,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "searchIndex1",
+            "search",
             "READY",
             true,
             defVersion1,
@@ -699,6 +714,7 @@ public class ListSearchIndexesResponseDefinitionTest {
         new IndexEntry(
             new ObjectId("507f191e810c19729de860ea"),
             "vectorIndex1",
+            "vectorSearch",
             "PENDING",
             false,
             defVersion,

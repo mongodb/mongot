@@ -46,6 +46,7 @@ public class IndexEntryMapper {
     return new ListSearchIndexesResponseDefinition.IndexEntry(
         definition.getIndexId(),
         definition.getName(),
+        IndexMapper.toExternalType(definition.getType()),
         IndexMapper.toExternalStatus(
             computeConsolidatedIndexStatus(
                 indexStatsPerServer.values(),

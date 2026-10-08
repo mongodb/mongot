@@ -22,6 +22,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -59,6 +60,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -131,6 +133,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -208,6 +211,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -249,6 +253,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -321,6 +326,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -346,6 +352,7 @@
             {
               "id": "507f191e810c19729de860eb",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -387,6 +394,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -464,6 +472,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -547,6 +556,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -580,6 +590,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -615,6 +626,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -662,6 +674,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -728,6 +741,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "PENDING",
               "queryable": false,
               "latestDefinitionVersion": {
@@ -782,6 +796,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "BUILDING",
               "queryable": false,
               "latestDefinitionVersion": {
@@ -846,6 +861,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "searchIndex1",
+              "type": "search",
               "status": "READY",
               "queryable": true,
               "latestDefinitionVersion": {
@@ -917,6 +933,7 @@
             {
               "id": "507f191e810c19729de860ea",
               "name": "vectorIndex1",
+              "type": "vectorSearch",
               "status": "PENDING",
               "queryable": false,
               "latestDefinitionVersion": {

@@ -61,6 +61,7 @@ public class IndexEntryMapperTest {
     assertNotNull(result);
     assertEquals(TEST_INDEX_ID, result.indexId());
     assertEquals(TEST_INDEX_NAME, result.name());
+    assertEquals("search", result.type());
     assertEquals("READY", result.status());
     assertTrue(result.queryable());
     assertEquals(1, result.latestDefinitionVersion().version());
@@ -403,6 +404,7 @@ public class IndexEntryMapperTest {
     assertNotNull(result);
     assertEquals(TEST_INDEX_ID, result.indexId());
     assertEquals(TEST_INDEX_NAME, result.name());
+    assertEquals("vectorSearch", result.type());
     assertEquals("READY", result.status());
     assertTrue(result.queryable());
     assertEquals(1, result.latestDefinitionVersion().version());

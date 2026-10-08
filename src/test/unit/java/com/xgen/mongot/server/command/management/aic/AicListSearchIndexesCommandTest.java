@@ -145,6 +145,7 @@ public class AicListSearchIndexesCommandTest {
     assertEquals(1, response.getInt32("ok").getValue());
     assertEquals(1, batch.size());
     assertEquals(INDEX_NAME, batch.getFirst().asDocument().getString("name").getValue());
+    assertEquals("search", batch.getFirst().asDocument().getString("type").getValue());
   }
 
   @Test

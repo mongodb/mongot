@@ -80,6 +80,7 @@ public record ListSearchIndexesResponseDefinition(int ok, Cursor cursor)
   public record IndexEntry(
       ObjectId indexId,
       String name,
+      String type,
       String status,
       boolean queryable,
       DefinitionVersion latestDefinitionVersion,
@@ -97,6 +98,9 @@ public record ListSearchIndexesResponseDefinition(int ok, Cursor cursor)
 
       private static final Field.Required<String> NAME =
           Field.builder("name").stringField().required();
+
+      private static final Field.Required<String> TYPE =
+          Field.builder("type").stringField().required();
 
       private static final Field.Required<String> STATUS =
           Field.builder("status").stringField().required();
@@ -135,6 +139,7 @@ public record ListSearchIndexesResponseDefinition(int ok, Cursor cursor)
       return BsonDocumentBuilder.builder()
           .field(Fields.ID, this.indexId)
           .field(Fields.NAME, this.name)
+          .field(Fields.TYPE, this.type)
           .field(Fields.STATUS, this.status)
           .field(Fields.QUERYABLE, this.queryable)
           .field(Fields.LATEST_DEFINITION_VERSION, this.latestDefinitionVersion.toBson())
