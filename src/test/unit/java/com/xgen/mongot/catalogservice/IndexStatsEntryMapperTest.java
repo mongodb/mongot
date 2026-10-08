@@ -18,6 +18,7 @@ import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,6 +56,7 @@ public class IndexStatsEntryMapperTest {
         new IndexDetailedStatus.Search(
             synonymStatusMap,
             searchDef,
+            List.of(),
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Generation.CURRENT.generationId(INDEX_ID),
             Optional.of(new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L)));
@@ -106,6 +108,7 @@ public class IndexStatsEntryMapperTest {
         new IndexDetailedStatus.Search(
             mainSynonymStatusMap,
             searchDef,
+            List.of(),
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Generation.CURRENT.generationId(INDEX_ID),
             Optional.empty());
@@ -114,6 +117,7 @@ public class IndexStatsEntryMapperTest {
         new IndexDetailedStatus.Search(
             stagedSynonymStatusMap,
             searchDef,
+            List.of(),
             new IndexStatus(IndexStatus.StatusCode.INITIAL_SYNC),
             Generation.CURRENT.generationId(INDEX_ID),
             Optional.empty());
@@ -161,6 +165,7 @@ public class IndexStatsEntryMapperTest {
         new IndexDetailedStatus.Search(
             Collections.emptyMap(),
             searchDef,
+            List.of(),
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Generation.CURRENT.generationId(INDEX_ID),
             Optional.empty());

@@ -2,9 +2,12 @@ package com.xgen.mongot.index;
 
 import static com.xgen.mongot.util.Check.checkArg;
 
+import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
+import com.xgen.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
+import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
 import com.xgen.mongot.index.version.GenerationId;
 
 /** Couples an Index with its generation information. */
@@ -32,6 +35,13 @@ public class IndexGeneration {
 
   public IndexDefinition getDefinition() {
     return this.definitionGeneration.getIndexDefinition();
+  }
+
+  /** The overridden analyzers bound to this generation, or empty when it has none. */
+  public ImmutableList<OverriddenBaseAnalyzerDefinition> getOverriddenAnalyzers() {
+    return this.definitionGeneration instanceof SearchIndexDefinitionGeneration search
+        ? search.definition().analyzerDefinitions()
+        : ImmutableList.of();
   }
 
   public Index getIndex() {

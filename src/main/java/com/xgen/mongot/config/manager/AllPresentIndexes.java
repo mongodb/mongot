@@ -255,6 +255,7 @@ class AllPresentIndexes {
               new IndexDetailedStatus.Search(
                   Map.of(),
                   searchDef,
+                  indexGeneration.getOverriddenAnalyzers(),
                   this.indexStatuses.get(indexGeneration),
                   indexGeneration.getGenerationId(),
                   indexMetrics);
@@ -276,6 +277,7 @@ class AllPresentIndexes {
                     .getSynonymRegistry()
                     .getDetailedStatuses(),
                 indexGeneration.getDefinition().asSearchDefinition(),
+                indexGeneration.getOverriddenAnalyzers(),
                 this.indexStatuses.get(indexGeneration),
                 indexGeneration.getGenerationId(),
                 indexMetrics);
@@ -294,6 +296,7 @@ class AllPresentIndexes {
               yield new IndexDetailedStatus.Search(
                   composite.derivedIndex.asSearchIndex().getSynonymRegistry().getDetailedStatuses(),
                   searchDef,
+                  indexGeneration.getOverriddenAnalyzers(),
                   this.indexStatuses.get(indexGeneration),
                   indexGeneration.getGenerationId(),
                   indexMetrics);

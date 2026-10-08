@@ -913,6 +913,7 @@ public class DefaultConfigManagerTest {
                     new IndexDetailedStatus.Search(
                         MOCK_SYNONYM_DETAILED_STATUS,
                         MOCK_INDEX_DEFINITION,
+                        List.of(),
                         MOCK_INDEX_STATUS,
                         MOCK_INDEX_DEFINITION_GENERATION_CURRENT.getGenerationId(),
                         Optional.of(new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0)))),

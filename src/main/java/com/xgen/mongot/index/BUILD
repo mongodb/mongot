@@ -73,6 +73,7 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
+        "//src/main/java/com/xgen/mongot/index/analyzer/definition",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/facet",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
@@ -93,6 +94,7 @@ java_library(
     deps = [
         "//src/main/java/com/xgen/mongot/cursor/batch",
         "//src/main/java/com/xgen/mongot/index/analyzer",
+        "//src/main/java/com/xgen/mongot/index/analyzer/definition",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/facet",

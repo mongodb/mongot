@@ -765,6 +765,7 @@ public class CommunityMetadataUpdaterTest {
         new IndexDetailedStatus.Search(
             Collections.emptyMap(),
             definition,
+            List.of(),
             status,
             Generation.CURRENT.generationId(definition.getIndexId()),
             Optional.empty());
