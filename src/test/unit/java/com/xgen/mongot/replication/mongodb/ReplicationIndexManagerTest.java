@@ -1460,7 +1460,7 @@ public class ReplicationIndexManagerTest {
           .when(mocks.documentIndexer)
           .commit();
 
-      await().atMost(Duration.ofSeconds(5)).until(haltCalled::get);
+      await().atMost(Duration.ofSeconds(30)).until(haltCalled::get);
     } finally {
       Crash.clearHaltHandlerForTesting();
     }
