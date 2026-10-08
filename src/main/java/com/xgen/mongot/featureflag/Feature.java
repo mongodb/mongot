@@ -114,6 +114,11 @@ public enum Feature {
   // down with it. Disabled by default: until it is enabled the journal is still read
   // fail-fast, exactly as before.
   QUARANTINE_UNPARSEABLE_INDEX("quarantineUnparseableIndex", State.DISABLED),
+  // Kill switch for the compat gate. Enabling stops the conf call enforcing either registry, so a
+  // gated member is neither rejected nor carry-forward-checked, without needing a rollback. Named
+  // for the off action so the gate stays on by default and MMS can turn it off by writing true,
+  // the same shape every other flag piped through MongotConfigSvc.configFeatureFlags uses.
+  FORCE_DISABLE_COMPAT_GATE("forceDisableCompatGate", State.DISABLED),
   // Constructs blobstore snapshotter resources at startup even when blobstore uploads and downloads
   // are disabled, so a later runtime request can flip them on without restarting mongot.
   ALWAYS_BOOTSTRAP_SNAPSHOTTER_RESOURCES("alwaysBootstrapSnapshotterResources", State.DISABLED),

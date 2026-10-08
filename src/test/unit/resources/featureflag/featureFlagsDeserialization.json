@@ -70,6 +70,7 @@
         "bloomFilterOnHeap": true,
         "lucene104Codec": true,
         "quarantineUnparseableIndex": true,
+        "forceDisableCompatGate": true,
         "alwaysBootstrapSnapshotterResources": true,
         "aeResyncIdOrderTripwireFailFast": true,
         "aeResyncHashJoin": true
@@ -128,6 +129,7 @@
         "bloomFilterOnHeap": false,
         "lucene104Codec": false,
         "quarantineUnparseableIndex": false,
+        "forceDisableCompatGate": false,
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
         "aeResyncHashJoin": false
