@@ -516,7 +516,8 @@ public class EmbeddingIndexingWorkSchedulerTest {
                     Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
                     meterRegistry,
                     Optional.empty())),
-            generationId);
+            generationId,
+            meterRegistry);
 
     VectorIndexDefinition vectorIndexDefinition =
         VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
@@ -537,6 +538,93 @@ public class EmbeddingIndexingWorkSchedulerTest {
     var e = assertThrows(ExecutionException.class, indexingFuture::get);
     assertThat(e.getCause()).isInstanceOf(SteadyStateException.class);
     assertThat(((SteadyStateException) e.getCause()).isShutdown()).isTrue();
+
+    // The last-event timestamp gauge must advance alongside the counter (CLOUDP-451834).
+    assertThat(
+            meterRegistry
+                .get("embeddingIndexingWorkScheduler.embeddingBatchErrorsLastEventEpochSeconds")
+                .tag("exceptionType", "MaterializedViewNonTransientException")
+                .tag("reason", "invalid_lease")
+                .gauge()
+                .value())
+        .isWithin(60.0)
+        .of(System.currentTimeMillis() / 1000.0);
+  }
+
+  @Test
+  public void testBatchErrorLastEventGaugeSharedAcrossSchedulerInstances() throws Exception {
+    // MongoDbReplicationManager and MaterializedViewManager each construct a scheduler over the
+    // same registry and namespace, so the last-event gauge must be registered once and its state
+    // shared: errors recorded by either instance must advance the exported timestamp.
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    var firstGeneration =
+        new MaterializedViewGenerationId(
+            new ObjectId(), new MaterializedViewGeneration(Generation.CURRENT));
+    var secondGeneration =
+        new MaterializedViewGenerationId(
+            new ObjectId(), new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingIndexingWorkScheduler first =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(embeddingServiceManager(meterRegistry)),
+            firstGeneration,
+            meterRegistry);
+    EmbeddingIndexingWorkScheduler second =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(embeddingServiceManager(meterRegistry)),
+            secondGeneration,
+            meterRegistry);
+
+    recordInvalidLeaseBatchError(first, firstGeneration);
+    double afterFirst = lastEventGaugeValue(meterRegistry);
+    Thread.sleep(1100); // epoch-second gauge resolution: ensure the next event advances it
+
+    recordInvalidLeaseBatchError(second, secondGeneration);
+    double afterSecond = lastEventGaugeValue(meterRegistry);
+    assertThat(afterSecond).isGreaterThan(afterFirst);
+    Thread.sleep(1100);
+
+    // Regression: before the shared cache, the second scheduler's registration stranded the
+    // first's state object, so this event stopped advancing the exported timestamp.
+    recordInvalidLeaseBatchError(first, firstGeneration);
+    assertThat(lastEventGaugeValue(meterRegistry)).isGreaterThan(afterSecond);
+  }
+
+  private EmbeddingServiceManager embeddingServiceManager(MeterRegistry meterRegistry) {
+    return new EmbeddingServiceManager(
+        List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+        new FakeEmbeddingClientFactory(),
+        Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+        meterRegistry,
+        Optional.empty());
+  }
+
+  private void recordInvalidLeaseBatchError(
+      EmbeddingIndexingWorkScheduler scheduler, MaterializedViewGenerationId generationId)
+      throws Exception {
+    ObjectId indexId = generationId.indexId;
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField(indexId + ".a").build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    doThrow(
+            new MaterializedViewNonTransientException(
+                "leadership lost", MaterializedViewNonTransientException.Reason.INVALID_LEASE))
+        .when(indexer)
+        .commit();
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), createBasicBson()));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+    assertThrows(ExecutionException.class, schedule(scheduler, event, indexer, generationId)::get);
+  }
+
+  private double lastEventGaugeValue(MeterRegistry meterRegistry) {
+    return meterRegistry
+        .get("embeddingIndexingWorkScheduler.embeddingBatchErrorsLastEventEpochSeconds")
+        .tag("exceptionType", "MaterializedViewNonTransientException")
+        .tag("reason", "invalid_lease")
+        .gauge()
+        .value();
   }
 
   @Test
@@ -2318,8 +2406,23 @@ public class EmbeddingIndexingWorkSchedulerTest {
   private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
       Supplier<EmbeddingServiceManager> supplier,
       MaterializedViewGenerationId generationId,
+      MeterRegistry meterRegistry) {
+    return schedulerForMaterializedViewIndex(supplier, generationId, VERSION_ZERO, meterRegistry);
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
       MaterializedViewSchemaMetadata schemaMetadata) {
-    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    return schedulerForMaterializedViewIndex(
+        supplier, generationId, schemaMetadata, new SimpleMeterRegistry());
+  }
+
+  private EmbeddingIndexingWorkScheduler schedulerForMaterializedViewIndex(
+      Supplier<EmbeddingServiceManager> supplier,
+      MaterializedViewGenerationId generationId,
+      MaterializedViewSchemaMetadata schemaMetadata,
+      MeterRegistry meterRegistry) {
     NamedExecutorService executor = Executors.fixedSizeThreadPool("indexing", 2, meterRegistry);
     var matViewCollectionMetadataCatalog = new MaterializedViewCollectionMetadataCatalog();
     matViewCollectionMetadataCatalog.addMetadata(

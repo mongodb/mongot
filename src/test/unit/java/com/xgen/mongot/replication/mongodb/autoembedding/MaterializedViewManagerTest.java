@@ -3964,6 +3964,16 @@ public class MaterializedViewManagerTest {
             .counter(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME)
             .count(),
         0.0);
+    // The last-event timestamp gauge must advance alongside the counter (CLOUDP-451834).
+    var lastEventSeconds =
+        mocks
+            .meterRegistry
+            .get(MaterializedViewManager.UNSAFE_LEADERSHIP_REACQUISITION_LAST_EVENT_GAUGE_NAME)
+            .gauge()
+            .value();
+    assertTrue(
+        "gauge should record an epoch-seconds timestamp near now",
+        Math.abs(lastEventSeconds - System.currentTimeMillis() / 1000.0) < 60.0);
   }
 
   // ==================== Stale generator guard in refreshStatus ====================

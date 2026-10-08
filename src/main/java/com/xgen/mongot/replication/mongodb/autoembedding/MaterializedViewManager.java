@@ -56,6 +56,7 @@ import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
@@ -74,6 +75,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
@@ -111,6 +113,16 @@ public class MaterializedViewManager implements ReplicationManager {
   /** Counts lease reacquisitions granted while the prior local generator still leads. */
   public static final String UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME =
       "matViewUnsafeLeadershipReacquisitions";
+
+  /**
+   * Epoch-seconds timestamp of the most recent unsafe leadership reacquisition, alongside {@link
+   * #UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME}. An absolute timestamp lets alerting detect a
+   * new event with a single time() comparison, unaffected by scrape gaps or process restarts; an
+   * increase over the counter's window cannot distinguish a new event from an old value replayed
+   * after a reporting gap (CLOUDP-451834).
+   */
+  public static final String UNSAFE_LEADERSHIP_REACQUISITION_LAST_EVENT_GAUGE_NAME =
+      "matViewUnsafeLeadershipReacquisitionsLastEventEpochSeconds";
 
   /** Counts generations retired because their materialized-view collection is missing. */
   public static final String RETIRED_GENERATION_COUNTER_NAME = "matViewRetiredGenerations";
@@ -150,6 +162,9 @@ public class MaterializedViewManager implements ReplicationManager {
   private final DecodingWorkScheduler decodingWorkScheduler;
 
   private final MeterRegistry meterRegistry;
+
+  /** State for {@link #UNSAFE_LEADERSHIP_REACQUISITION_LAST_EVENT_GAUGE_NAME}; set on event. */
+  private final AtomicLong unsafeLeadershipReacquisitionLastEventEpochSeconds;
 
   /** A mapping of materialized view collections to active GenerationIds. */
   @GuardedBy("this")
@@ -330,6 +345,17 @@ public class MaterializedViewManager implements ReplicationManager {
     matViewGeneratorFactory.setOnSourceCollectionDropped(
         this::cleanUpMatViewResourcesForDroppedSourceCollection);
     this.meterRegistry = meterRegistry;
+    this.unsafeLeadershipReacquisitionLastEventEpochSeconds = new AtomicLong();
+    // Registered against the raw registry (like its counter) rather than this.metricsFactory, so
+    // the exported name sits beside mongot_matViewUnsafeLeadershipReacquisitions_total instead of
+    // under the replication.mongodb namespace.
+    Gauge.builder(
+            UNSAFE_LEADERSHIP_REACQUISITION_LAST_EVENT_GAUGE_NAME,
+            this.unsafeLeadershipReacquisitionLastEventEpochSeconds,
+            Number::doubleValue)
+        // strong reference so the state object is not garbage collected
+        .strongReference(true)
+        .register(this.meterRegistry);
     this.managedMaterializedViewGenerators = new ConcurrentHashMap<>();
     this.activeGenerationIdCatalog = new ActiveGenerationIdCatalog(matViewMetadataCatalog);
     this.heartbeatExecutor = heartbeatExecutor;
@@ -1889,6 +1915,8 @@ public class MaterializedViewManager implements ReplicationManager {
             if (currentGenerator.get() == generatorBeforeAcquisition
                 && currentGenerator.get().isLeader()) {
               this.meterRegistry.counter(UNSAFE_LEADERSHIP_REACQUISITION_COUNTER_NAME).increment();
+              this.unsafeLeadershipReacquisitionLastEventEpochSeconds.set(
+                  System.currentTimeMillis() / 1000);
               LOG.atError()
                   .addKeyValue("generationId", generationId)
                   .log(

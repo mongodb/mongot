@@ -48,6 +48,7 @@ import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.LoggableIdUtils;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -62,6 +63,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -118,6 +120,26 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
   private final MaterializedViewCollectionMetadataCatalog materializedViewCollectionMetadataCatalog;
   private final MetricsFactory metricsFactory;
 
+  /**
+   * The registry this scheduler's metrics are exported on. Both MongoDbReplicationManager and
+   * MaterializedViewManager construct an EmbeddingIndexingWorkScheduler over the same process-wide
+   * registry and the same "embeddingIndexingWorkScheduler" namespace, so meters here are shared
+   * across those scheduler instances.
+   */
+  private final MeterRegistry meterRegistry;
+
+  /**
+   * Process-wide state for the {@code embeddingBatchErrorsLastEventEpochSeconds} gauges, keyed by
+   * registry and tag set. Gauges with identical names and tags must be registered once per registry
+   * — their state object belongs to the registry, not the caller, and a second registration (from
+   * the other scheduler instance sharing this registry) would replace the first's gauge and strand
+   * its AtomicLong, silently dropping that scheduler's events from the exported timestamp. Keyed
+   * per tag set because the set of (exceptionType, reason) pairs is bounded by the exception reason
+   * enums.
+   */
+  private static final ConcurrentHashMap<MeterRegistry, ConcurrentHashMap<Tags, AtomicLong>>
+      BATCH_ERROR_LAST_EVENT_EPOCH_SECONDS_GAUGES = new ConcurrentHashMap<>();
+
   private final AutoEmbeddingMemoryBudget globalBudget;
 
   private final long perBatchBudgetBytes;
@@ -168,6 +190,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     this.cacheEnabled = cacheEnabled;
     this.skipInvalidRequestEnabledForIndex = skipInvalidRequestEnabledForIndex;
     this.ownsUsableLease = ownsUsableLease;
+    this.meterRegistry = indexingExecutor.getMeterRegistry();
     this.metricsFactory =
         new MetricsFactory("embeddingIndexingWorkScheduler", indexingExecutor.getMeterRegistry());
   }
@@ -779,11 +802,18 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
   }
 
   private void recordBatchErrorMetric(String exceptionType, String reason) {
-    this.metricsFactory
-        .counter(
-            "embeddingBatchErrors",
-            Tags.of("exceptionType", exceptionType, "reason", reason.toLowerCase(Locale.ROOT)))
-        .increment();
+    var tags = Tags.of("exceptionType", exceptionType, "reason", reason.toLowerCase(Locale.ROOT));
+    this.metricsFactory.counter("embeddingBatchErrors", tags).increment();
+    // CLOUDP-451834: alongside the counter, record when the error happened as an absolute
+    // epoch-seconds gauge. Alerting on the counter's increase over a window cannot distinguish
+    // a new event from an old value replayed after a scrape gap, which false-paged these
+    // alerts; an absolute timestamp is unaffected by gaps and process restarts, so consumers
+    // can detect a new event with a single time() comparison and no gap reasoning.
+    BATCH_ERROR_LAST_EVENT_EPOCH_SECONDS_GAUGES
+        .computeIfAbsent(this.meterRegistry, r -> new ConcurrentHashMap<>())
+        .computeIfAbsent(
+            tags, t -> this.metricsFactory.numGauge("embeddingBatchErrorsLastEventEpochSeconds", t))
+        .set(System.currentTimeMillis() / 1000);
   }
 
   @Override
