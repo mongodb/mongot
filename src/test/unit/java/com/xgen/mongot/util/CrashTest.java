@@ -3,14 +3,24 @@ package com.xgen.mongot.util;
 import static com.xgen.mongot.util.Crash.buildCrashLogs;
 import static org.junit.Assert.assertEquals;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.google.common.util.concurrent.Uninterruptibles;
 import com.xgen.mongot.util.Crash.CrashCategory;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.bson.BsonDocument;
 import org.bson.json.JsonObject;
 import org.junit.Test;
+import org.slf4j.LoggerFactory;
 
 public class CrashTest {
+
+  private static final Logger CRASH_LOG = (Logger) LoggerFactory.getLogger(Crash.class);
 
   /**
    * Bootstrap reads the crash log path twice: leniently before the config is parsed, and again from
@@ -133,5 +143,43 @@ public class CrashTest {
     Crash.setShutdownStartedFlag();
     Crash shutdownCrash = Crash.because("of any reason at all");
     assertEquals(CrashCategory.SHUTDOWN, shutdownCrash.assignCrashCategory(""));
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void ifDoesNotJoin_timesOutWithCategory_logsCrashWithThatCategory() {
+    CountDownLatch release = new CountDownLatch(1);
+    Thread stuck = new Thread(() -> Uninterruptibles.awaitUninterruptibly(release), "stuck");
+    stuck.setDaemon(true);
+    stuck.start();
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    CRASH_LOG.addAppender(appender);
+    AtomicInteger exitCode = new AtomicInteger(-1);
+    Crash.setHaltHandlerForTesting(exitCode::set);
+
+    try {
+      Crash.ifDoesNotJoin(stuck, Duration.ofMillis(50), CrashCategory.EXECUTOR_SHUTDOWN);
+    } finally {
+      Crash.clearHaltHandlerForTesting();
+      CRASH_LOG.detachAppender(appender);
+      release.countDown();
+    }
+
+    assertEquals("expected fail-exit code 1", 1, exitCode.get());
+    String crashLog = crashLogValue(appender.list.get(0));
+    BsonDocument structuredLog = new JsonObject(crashLog.split("\n")[0]).toBsonDocument();
+    assertEquals(
+        CrashCategory.EXECUTOR_SHUTDOWN.toString(),
+        structuredLog.getString("crashCategory").getValue());
+  }
+
+  private static String crashLogValue(ILoggingEvent event) {
+    return (String)
+        event.getKeyValuePairs().stream()
+            .filter(keyValue -> keyValue.key.equals("crashLog"))
+            .findFirst()
+            .orElseThrow()
+            .value;
   }
 }

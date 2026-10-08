@@ -69,6 +69,7 @@ import com.xgen.mongot.monitor.ToggleGate;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.FileUtils;
+import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.bson.JsonCodec;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
@@ -90,6 +91,7 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -99,8 +101,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -1417,6 +1421,48 @@ public class DefaultConfigManagerTest {
     verify(mocks.lifecycleManager).updateSyncSource(ConfigStateMocks.MOCK_SYNC_SOURCE_CONFIG);
     verify(mocks.lifecycleManager, never()).shutdownAutoEmbeddingReplication();
     verify(mocks.lifecycleManager, never()).restartAutoEmbeddingReplication(any());
+  }
+
+  /**
+   * The lifecycle manager blocks inside shutdownReplication() before it returns its future
+   * (CLOUDP-447488), so the timeout only bounds the shutdown when it runs off the calling thread. A
+   * shutdown that never finishes has to crash at the timeout instead of holding the config manager
+   * monitor that conf calls need; the caller thread terminating is what releases that monitor.
+   */
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void shutdownReplication_shutdownNeverFinishes_crashesAtTimeout() throws Exception {
+    var mocks = DefaultConfigManagerMocks.create();
+    CountDownLatch releaseShutdown = new CountDownLatch(1);
+    Mockito.doAnswer(
+            invocation -> {
+              releaseShutdown.await();
+              return FutureUtils.COMPLETED_FUTURE;
+            })
+        .when(mocks.lifecycleManager)
+        .shutdownReplication();
+    AtomicInteger exitCode = new AtomicInteger(-1);
+    AtomicReference<Throwable> thrown = new AtomicReference<>();
+    Crash.setHaltHandlerForTesting(
+        code -> {
+          exitCode.set(code);
+          throw new HaltError();
+        });
+    Thread caller =
+        new Thread(() -> mocks.configManager.shutdownReplication(Duration.ofMillis(100)));
+    caller.setUncaughtExceptionHandler((ignored, throwable) -> thrown.set(throwable));
+
+    caller.start();
+    caller.join(Duration.ofSeconds(30).toMillis());
+
+    try {
+      assertThat(caller.isAlive()).isFalse();
+      assertThat(thrown.get()).isInstanceOf(HaltError.class);
+      assertEquals("expected fail-exit code 1", 1, exitCode.get());
+    } finally {
+      Crash.clearHaltHandlerForTesting();
+      releaseShutdown.countDown();
+    }
   }
 
   private static ReplicationStateMonitor replicationStateMonitor(ToggleGate replicationGate) {

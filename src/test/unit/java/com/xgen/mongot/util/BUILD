@@ -48,6 +48,8 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/testing",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
+        "@maven//:ch_qos_logback_logback_classic",
+        "@maven//:ch_qos_logback_logback_core",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_flogger_flogger",
         "@maven//:com_google_guava_guava",

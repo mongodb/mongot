@@ -655,18 +655,35 @@ public class DefaultConfigManager implements ConfigManager {
   }
 
   private void shutdownReplication() {
-    Crash.because("failed waiting for lifecycle manager to shut down replication")
-        .ifThrows(
-            () -> {
-              // Need to reassure the compiler that we are locking prior to accessing
-              // this.configState since it cannot understand when the lambda is invoked.
-              synchronized (this) {
+    shutdownReplication(REPLICATION_MANAGER_SHUTDOWN_TIMEOUT);
+  }
+
+  /**
+   * Shuts replication down, crashing if it has not finished within {@code timeout}.
+   *
+   * <p>The shutdown runs on its own thread because {@link LifecycleManager#shutdownReplication()}
+   * blocks before it returns its future (CLOUDP-447488). Waiting on that future from this thread
+   * never reaches the timeout, so a stuck shutdown holds this monitor indefinitely and blocks conf
+   * calls.
+   */
+  @VisibleForTesting
+  synchronized void shutdownReplication(Duration timeout) {
+    LifecycleManager lifecycleManager = this.configState.getLifecycleManager();
+    Thread shutdownThread =
+        new Thread(
+            () ->
                 Crash.because("failed to shut down replication manager")
-                    .ifCompletesExceptionally(
-                        this.configState.getLifecycleManager().shutdownReplication())
-                    .get(REPLICATION_MANAGER_SHUTDOWN_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-              }
-            });
+                    .withThreadDump()
+                    .ifThrowsExceptionOrError(
+                        () -> {
+                          lifecycleManager.shutdownReplication().get();
+                        }),
+            "replication-shutdown");
+
+    shutdownThread.setDaemon(true);
+    shutdownThread.start();
+
+    Crash.ifDoesNotJoin(shutdownThread, timeout, Crash.CrashCategory.EXECUTOR_SHUTDOWN);
   }
 
   private void shutdownAutoEmbeddingReplication() {
