@@ -35,7 +35,8 @@ public class SearchAggregationBootstrapTest {
 
   @Test
   public void installRegistryIfEnabled_flagDisabled_leavesRegistryEmpty() {
-    SearchAggregationBootstrap.installRegistryIfEnabled(FeatureFlags.getDefault());
+    SearchAggregationBootstrap.installRegistryIfEnabled(
+        FeatureFlags.withDefaults().disable(Feature.SEARCH_AGGREGATION).build());
 
     assertThrows(
         IllegalArgumentException.class,
@@ -103,7 +104,8 @@ public class SearchAggregationBootstrapTest {
 
   @Test
   public void installRegistryIfEnabled_flagDisabled_leavesMinMaxUnregistered() {
-    SearchAggregationBootstrap.installRegistryIfEnabled(FeatureFlags.getDefault());
+    SearchAggregationBootstrap.installRegistryIfEnabled(
+        FeatureFlags.withDefaults().disable(Feature.SEARCH_AGGREGATION).build());
 
     assertThrows(
         IllegalArgumentException.class,

@@ -194,6 +194,7 @@ public class FeatureFlagsTest {
           FeatureFlags.getDefault().isEnabled(Feature.ENABLE_VALIDATION_OF_RETURN_STORED_SOURCE));
       assertTrue(FeatureFlags.getDefault().isEnabled(Feature.VECTOR_STORED_SOURCE));
       assertTrue(FeatureFlags.getDefault().isEnabled(Feature.NESTED_VECTOR));
+      assertTrue(FeatureFlags.getDefault().isEnabled(Feature.SEARCH_AGGREGATION));
     }
 
     @Test

@@ -328,7 +328,8 @@ public class SearchCommandTest {
 
   @Test
   public void getBatch_searchAggregationDisabled_doesNotRecordCursorId() throws Exception {
-    runSearchAndAssertCursorId(FeatureFlags.getDefault(), Optional.empty());
+    runSearchAndAssertCursorId(
+        FeatureFlags.withDefaults().disable(Feature.SEARCH_AGGREGATION).build(), Optional.empty());
   }
 
   @Test

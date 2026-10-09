@@ -47,6 +47,8 @@ public class ShardedSearchPlannerTest {
   private static final FeatureFlags DEFAULT_FEATURE_FLAGS = FeatureFlags.getDefault();
   private static final FeatureFlags AGGREGATION_ENABLED_FEATURE_FLAGS =
       FeatureFlags.withDefaults().enable(Feature.SEARCH_AGGREGATION).build();
+  private static final FeatureFlags AGGREGATION_DISABLED_FEATURE_FLAGS =
+      FeatureFlags.withDefaults().disable(Feature.SEARCH_AGGREGATION).build();
 
   @BeforeClass
   public static void setUpAggregationRegistry() {
@@ -1129,7 +1131,7 @@ public class ShardedSearchPlannerTest {
             ShardedSearchPlanner.planSearch(
                 query,
                 new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-                DEFAULT_FEATURE_FLAGS));
+                AGGREGATION_DISABLED_FEATURE_FLAGS));
   }
 
   @Test
@@ -1305,7 +1307,7 @@ public class ShardedSearchPlannerTest {
                 ShardedSearchPlanner.planSearch(
                     query,
                     new PlanShardedSearchCommandDefinition.SearchFeatures(0),
-                    DEFAULT_FEATURE_FLAGS));
+                    AGGREGATION_DISABLED_FEATURE_FLAGS));
 
     BsonDocument errorBody = MessageUtils.createErrorBody(exception);
     Assert.assertEquals(0, errorBody.getInt32("ok").getValue());

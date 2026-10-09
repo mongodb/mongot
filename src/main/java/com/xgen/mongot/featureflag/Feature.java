@@ -89,7 +89,9 @@ public enum Feature {
   FCIS_CONSISTENT_SNAPSHOTS_LEADERSHIP("fcisConsistentSnapshotsLeadership", State.DISABLED),
   FCIS_CONSISTENT_SNAPSHOTS_DOWNLOAD("fcisConsistentSnapshotsDownload", State.DISABLED),
   FCIS_INDEX_DATA_CONDITIONAL_WRITES("fcisIndexDataConditionalWrites", State.DISABLED),
-  SEARCH_AGGREGATION("searchAggregation", State.DISABLED),
+  // Enabled by default so Search Playground, which does not consult the feature flag system, can
+  // serve $search facet aggregations. MMS can still disable it per group via the conf call.
+  SEARCH_AGGREGATION("searchAggregation", State.ENABLED),
   BYTE_BINARY_QUANTIZATION("byteBinaryQuantization", State.DISABLED),
   // Kill-switch for the CLOUDP-416232 one-time stale-internal-search-checkpoint reset guard in
   // ReplicationIndexManager. Enabled by default; disable to skip the reset without a rollback.
