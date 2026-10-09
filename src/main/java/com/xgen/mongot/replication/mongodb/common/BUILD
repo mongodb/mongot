@@ -62,6 +62,7 @@ java_library(
         "PartitionPlanningMongoClient.java",
         "PartitionResumeInfo.java",
         "PartitionedChangeStreamClient.java",
+        "PartitionedChangeStreamProgressTracker.java",
         "PauseInitialSyncException.java",
         "PeriodicIndexCommitter.java",
         "Projection.java",

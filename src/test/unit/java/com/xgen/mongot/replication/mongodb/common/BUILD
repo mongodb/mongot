@@ -39,6 +39,7 @@ java_test_suite(
         "PartitionPlanningMongoClientTest.java",
         "PartitionResumeInfoTest.java",
         "PartitionedChangeStreamClientTest.java",
+        "PartitionedChangeStreamProgressTrackerTest.java",
         "PeriodicIndexCommitterTest.java",
         "ProjectionTest.java",
         "QueryRejectedBySettingsExceptionUtilsTest.java",
