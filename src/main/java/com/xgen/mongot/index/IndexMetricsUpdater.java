@@ -330,6 +330,7 @@ public class IndexMetricsUpdater implements Closeable {
           isIndexFeatureVersionFourEnabled
               ? Tags.of(INDEX_FEATURE_VERSION_NAME, String.valueOf(indexFeatureVersion))
               : Tags.empty();
+      Tags indexTypeTags = Tags.of(INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue);
       this.metricsFactory = metricsFactory;
       // Process-level factory for metrics that don't need a per-index breakdown in FTDC or MMS
       // (see PerIndexMetricsFactory#getProcessMetricsFactory). Only the per-index metrics
@@ -339,9 +340,7 @@ public class IndexMetricsUpdater implements Closeable {
           metricsFactory.perIndexCounter(TOTAL_BYTES_PROCESSED_COUNTER_NAME);
       this.commitTimer = processMetricsFactory.timer(COMMIT_TIMER_NAME, TimeUnit.MILLISECONDS);
       this.documentEventTypeCounterMap =
-          metricsFactory.getPerIndexEnumCounterMap(
-              DocumentEvent.EventType.class,
-              Tags.of(INDEX_TYPE_TAG_NAME, indexType.name().toLowerCase(Locale.ROOT)));
+          metricsFactory.getPerIndexEnumCounterMap(DocumentEvent.EventType.class, indexTypeTags);
       this.initialSyncExceptionCounter =
           metricsFactory.perIndexCounter(
               INITIAL_SYNC_EXCEPTION_COUNTER_NAME, indexFeatureVersionTag);
@@ -405,7 +404,7 @@ public class IndexMetricsUpdater implements Closeable {
           this.metricsFactory.timer(
               ServerStatusDataExtractor.ReplicationMeterData.IndexingMeterData
                   .INDEXING_BATCH_DURATIONS,
-              Tags.of("indexType", indexType.name().toLowerCase(Locale.ROOT)));
+              indexTypeTags);
 
       this.changeStreamEventSizeCounters = new HashMap<>();
       for (Bytes threshold : CHANGE_STREAM_EVENT_SIZE_THRESHOLDS) {
@@ -698,6 +697,7 @@ public class IndexMetricsUpdater implements Closeable {
           isIndexFeatureVersionFourEnabled
               ? Tags.of(INDEX_FEATURE_VERSION_NAME, String.valueOf(indexFeatureVersion))
               : Tags.empty();
+      Tags indexTypeTags = Tags.of(INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue);
       this.metricsFactory = metricsFactory;
       // Process-level factory for metrics that don't need a per-index breakdown in FTDC or MMS
       // (see PerIndexMetricsFactory#getProcessMetricsFactory). Metrics serialized into the
@@ -705,9 +705,10 @@ public class IndexMetricsUpdater implements Closeable {
       // per-index factory so their per-index values remain readable.
       MetricsFactory processMetricsFactory = metricsFactory.getProcessMetricsFactory();
       this.totalQueryCounter =
-          metricsFactory.perIndexCounter("totalQueries", indexFeatureVersionTag);
+          metricsFactory.perIndexCounter("totalQueries", indexFeatureVersionTag.and(indexTypeTags));
       this.failedQueryCounter =
-          metricsFactory.perIndexCounter("failedQueries", indexFeatureVersionTag);
+          metricsFactory.perIndexCounter(
+              "failedQueries", indexFeatureVersionTag.and(indexTypeTags));
       this.invalidQueryCounter = processMetricsFactory.counter("invalidQueries");
       this.internallyFailedQueryCounter =
           processMetricsFactory.counter("internallyFailedQueries", indexFeatureVersionTag);
@@ -717,7 +718,7 @@ public class IndexMetricsUpdater implements Closeable {
       this.lenientFailureCounter = metricsFactory.counter("lenientFailures");
       this.searchGetMoreCommandCounter =
           isSearchIndex
-              ? metricsFactory.perIndexCounter("getMoreCommandCalls")
+              ? metricsFactory.perIndexCounter("getMoreCommandCalls", indexTypeTags)
               : MetricsFactory.NOOP_COUNTER;
       this.vectorCommandCounter =
           processMetricsFactory.counter(

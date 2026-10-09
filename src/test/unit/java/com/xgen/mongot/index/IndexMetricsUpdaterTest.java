@@ -29,6 +29,7 @@ import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
+import com.xgen.mongot.metrics.ServerStatusDataExtractor;
 import com.xgen.mongot.util.Enums;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.testing.mongot.index.IndexMetricsBuilder;
@@ -518,6 +519,40 @@ public class IndexMetricsUpdaterTest {
                 .count(),
             0);
       }
+
+      @Test
+      public void searchAutoEmbeddingIndexTagsBasicIndexingMetrics() {
+        var metricsFactory = mockMetricsFactory(IndexingMetricsUpdater.NAMESPACE);
+        IndexingMetricsUpdater metricsUpdater =
+            new IndexingMetricsUpdater(
+                metricsFactory,
+                IndexDefinition.Type.SEARCH,
+                IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
+                SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
+                true);
+
+        metricsUpdater.getDocumentEventTypeCounter(DocumentEvent.EventType.INSERT).increment();
+        metricsUpdater.getBatchIndexingTimer().record(Duration.ofMillis(10));
+
+        String indexType = IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING.tagValue;
+        assertThat(
+                metricsFactory
+                    .get(
+                        Enums.convertNameTo(CaseFormat.LOWER_CAMEL, DocumentEvent.EventType.INSERT))
+                    .tag(INDEX_TYPE_TAG_NAME, indexType)
+                    .counter()
+                    .count())
+            .isEqualTo(1);
+        assertThat(
+                metricsFactory
+                    .get(
+                        ServerStatusDataExtractor.ReplicationMeterData.IndexingMeterData
+                            .INDEXING_BATCH_DURATIONS)
+                    .tag(INDEX_TYPE_TAG_NAME, indexType)
+                    .timer()
+                    .count())
+            .isEqualTo(1);
+      }
     }
 
     public static class TestReplicationMetricsUpdater {
@@ -768,6 +803,57 @@ public class IndexMetricsUpdaterTest {
         var vectorBatchLatencies =
             metricsFactory.get("vectorResultLatencies").tag("indexType", "vector_search").timer();
         assertThat(vectorBatchLatencies.totalTime(TimeUnit.MILLISECONDS)).isEqualTo(100);
+      }
+
+      @Test
+      public void searchAutoEmbeddingIndexTagsBasicQueryMetrics() {
+        ObjectId indexId = new ObjectId();
+        var metricsFactory =
+            new PerIndexMetricsFactory(
+                IndexMetricsUpdater.QueryingMetricsUpdater.NAMESPACE,
+                MeterAndFtdcRegistry.createWithSimpleRegistries(),
+                GenerationIdBuilder.create(indexId));
+        var queryingMetricsUpdater =
+            new IndexMetricsUpdater.QueryingMetricsUpdater(
+                metricsFactory,
+                IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
+                SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
+                true,
+                /* isSearchAggregationEnabled= */ true);
+
+        queryingMetricsUpdater.getTotalQueryCounter().increment();
+        queryingMetricsUpdater.getFailedQueryCounter().increment();
+        queryingMetricsUpdater.getSearchAndGetMoreCommandCounter().increment();
+        queryingMetricsUpdater.getSearchResultBatchLatencyTimer().record(Duration.ofMillis(100));
+
+        Tags perIndexTags = Tags.of("indexId logString", indexId.toHexString());
+        assertThat(
+                metricsFactory
+                    .get("totalQueries")
+                    .tags(perIndexTags)
+                    .tag(INDEX_TYPE_TAG_NAME, "search_auto_embedding")
+                    .counter()
+                    .count())
+            .isEqualTo(1);
+        assertThat(
+                metricsFactory
+                    .get("failedQueries")
+                    .tags(perIndexTags)
+                    .tag(INDEX_TYPE_TAG_NAME, "search_auto_embedding")
+                    .counter()
+                    .count())
+            .isEqualTo(1);
+        assertThat(
+                metricsFactory
+                    .get("getMoreCommandCalls")
+                    .tags(perIndexTags)
+                    .tag(INDEX_TYPE_TAG_NAME, "search_auto_embedding")
+                    .counter()
+                    .count())
+            .isEqualTo(1);
+        assertThat(
+                metricsFactory.get("searchResultBatchLatencies").tags(perIndexTags).timer().count())
+            .isEqualTo(1);
       }
 
       @Test
