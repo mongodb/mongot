@@ -416,6 +416,8 @@ public class IndexMetricsTest {
                               .percentile99(3.0)
                               .build())
                       .build())
+              .warmQueriesCount(7)
+              .coldQueriesCount(3)
               .build();
 
       IndexMetrics.IndexingMetrics indexingMetrics =
@@ -432,6 +434,8 @@ public class IndexMetricsTest {
               .numMongoDbDocs(25)
               .indexSize(2L)
               .vectorFieldSize(0L)
+              .coldStorageSizeBytes(1000)
+              .warmCacheSizeBytes(200)
               .requiredMemory(500000000L)
               .numFields(30)
               .batchIndexingTimer(

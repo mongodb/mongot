@@ -71,4 +71,13 @@ public interface IndexMetricValuesSupplier {
   default long getRequiredMemoryForVectorData() {
     return 0L;
   }
+
+  /**
+   * Returns the tiered storage metrics for this index.
+   *
+   * <p>Returns {@link TieredStorageMetrics#ZERO} for indexes without tiered storage.
+   */
+  default TieredStorageMetrics getTieredStorageMetrics() {
+    return TieredStorageMetrics.ZERO;
+  }
 }

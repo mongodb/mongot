@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -222,13 +223,19 @@ public class IndexMetricsUpdater implements Closeable {
    */
   public IndexMetrics getMetrics() {
     IndexDefinition indexDefinition = getIndexDefinition();
+    // Mockito mocks of the supplier return null from this record-typed default method.
+    TieredStorageMetrics tiered =
+        Objects.requireNonNullElse(
+            this.indexMetricValuesSupplier.getTieredStorageMetrics(), TieredStorageMetrics.ZERO);
     return IndexMetrics.create(
         indexDefinition,
         this.indexMetricValuesSupplier.getIndexStatus(),
         getIndexingMetricsUpdater()
             .getMetrics(
-                this.indexMetricValuesSupplier, computeNumNestedVectorFields(indexDefinition)),
-        getQueryingMetricsUpdater().getMetrics());
+                this.indexMetricValuesSupplier,
+                computeNumNestedVectorFields(indexDefinition),
+                tiered),
+        getQueryingMetricsUpdater().getMetrics(tiered));
   }
 
   private int computeNumNestedVectorFields(IndexDefinition indexDefinition) {
@@ -474,7 +481,9 @@ public class IndexMetricsUpdater implements Closeable {
 
     @VisibleForTesting
     IndexMetrics.IndexingMetrics getMetrics(
-        IndexMetricValuesSupplier indexMetricValuesSupplier, int numNestedVectorFields) {
+        IndexMetricValuesSupplier indexMetricValuesSupplier,
+        int numNestedVectorFields,
+        TieredStorageMetrics tiered) {
       DocCounts docCounts = indexMetricValuesSupplier.getDocCounts();
       return IndexMetrics.IndexingMetrics.create(
           this.documentEventTypeCounterMap,
@@ -493,7 +502,8 @@ public class IndexMetricsUpdater implements Closeable {
           docCounts.numMongoDbDocs,
           getBatchIndexingTimer(),
           indexMetricValuesSupplier.getRequiredMemoryForVectorData(),
-          numNestedVectorFields);
+          numNestedVectorFields,
+          tiered);
     }
 
     @Override
@@ -1140,7 +1150,7 @@ public class IndexMetricsUpdater implements Closeable {
     }
 
     @VisibleForTesting
-    IndexMetrics.QueryingMetrics getMetrics() {
+    IndexMetrics.QueryingMetrics getMetrics(TieredStorageMetrics tiered) {
       return IndexMetrics.QueryingMetrics.create(
           this.totalQueryCounter,
           this.failedQueryCounter,
@@ -1149,7 +1159,8 @@ public class IndexMetricsUpdater implements Closeable {
           this.searchResultBatchLatencyTimer,
           this.tokenFacetsStateRefreshLatencyTimer,
           this.stringFacetsStateRefreshLatencyTimer,
-          this.queryFeaturesMetricsUpdater.getMetrics());
+          this.queryFeaturesMetricsUpdater.getMetrics(),
+          tiered);
     }
 
     public QueryFeaturesMetricsUpdater getQueryFeaturesMetricsUpdater() {

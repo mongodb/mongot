@@ -23,6 +23,8 @@
         "vectorFieldSizeBytes": 0,
         "requiredMemoryBytes": 500000000,
         "numNestedVectorFields": 0,
+        "coldStorageSizeBytes": 1000,
+        "warmCacheSizeBytes": 200,
         "numFields": 30,
         "numFieldsPerDatatype": {
           "autocomplete": 0.0,
@@ -120,6 +122,8 @@
               "99th": 3.0
             }
           },
+          "warmQueriesCount": 7,
+          "coldQueriesCount": 3,
           "synonymCount": 6.0,
           "textSynonymCount": 4.0,
           "textSynonymsWithoutMatchCriteriaCount": 3.0,
@@ -331,6 +335,8 @@
           "$numberLong": "500000000"
         },
         "numNestedVectorFields": 0,
+        "coldStorageSizeBytes": {"$numberLong": "1000"},
+        "warmCacheSizeBytes": {"$numberLong": "200"},
         "numFields": 30,
         "numFieldsPerDatatype": {
           "autocomplete": 0.0,
@@ -436,6 +442,8 @@
               "99th": 3.0
             }
           },
+          "warmQueriesCount": {"$numberLong": "7"},
+          "coldQueriesCount": {"$numberLong": "3"},
           "synonymCount": 6.0,
           "textSynonymCount": 4.0,
           "textSynonymsWithoutMatchCriteriaCount": 3.0,

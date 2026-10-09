@@ -212,6 +212,41 @@ public class IndexMetricsUpdaterTest {
           2, indexMetricsUpdater.getMetrics().indexingMetrics().numNestedVectorFields());
     }
 
+    @Test
+    public void getMetrics_copiesTieredStorageMetricsFromSupplier() {
+      var supplier = IndexMetricsSupplier.mockEmptyIndexMetricsSupplier();
+      Mockito.doReturn(new TieredStorageMetrics(1, 2, 3, 4))
+          .when(supplier)
+          .getTieredStorageMetrics();
+      IndexMetrics result = buildUpdater(supplier).getMetrics();
+
+      Assert.assertEquals(1, result.indexingMetrics().coldStorageSizeBytes());
+      Assert.assertEquals(2, result.indexingMetrics().warmCacheSizeBytes());
+      Assert.assertEquals(3, result.queryingMetrics().warmQueriesCount());
+      Assert.assertEquals(4, result.queryingMetrics().coldQueriesCount());
+    }
+
+    @Test
+    public void getMetrics_nullTieredStorageMetrics_defaultsToZero() {
+      var supplier = IndexMetricsSupplier.mockEmptyIndexMetricsSupplier();
+      Assert.assertNull(supplier.getTieredStorageMetrics());
+      IndexMetrics result = buildUpdater(supplier).getMetrics();
+
+      Assert.assertEquals(0, result.indexingMetrics().coldStorageSizeBytes());
+      Assert.assertEquals(0, result.indexingMetrics().warmCacheSizeBytes());
+      Assert.assertEquals(0, result.queryingMetrics().warmQueriesCount());
+      Assert.assertEquals(0, result.queryingMetrics().coldQueriesCount());
+    }
+
+    private static IndexMetricsUpdater buildUpdater(IndexMetricValuesSupplier supplier) {
+      return IndexMetricsUpdaterBuilder.builder()
+          .metricsFactory(mockMetricsFactory(IndexMetricsUpdater.NAMESPACE))
+          .indexDefinition(
+              SearchIndexDefinitionBuilder.builder().defaultMetadata().dynamicMapping().build())
+          .indexMetricsSupplier(supplier)
+          .build();
+    }
+
     public static class TestIndexingMetricsUpdater {
       @Test
       public void testIndexingMetricsSuppliers() {
@@ -236,7 +271,9 @@ public class IndexMetricsUpdaterTest {
             .when(mockedIndexingMetricsUpdater)
             .getReplicationOpTimeInfo();
 
-        var result = mockedIndexingMetricsUpdater.getMetrics(mockedIndexMetricsSupplier, 0);
+        var result =
+            mockedIndexingMetricsUpdater.getMetrics(
+                mockedIndexMetricsSupplier, 0, TieredStorageMetrics.ZERO);
         var expected =
             IndexMetricsBuilder.IndexingMetricsBuilder.builder()
                 .replicationOpTime(new BsonTimestamp(10L))
@@ -267,7 +304,10 @@ public class IndexMetricsUpdaterTest {
 
         Assert.assertTrue(
             indexingMetricsUpdater
-                .getMetrics(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier(), 0)
+                .getMetrics(
+                    IndexMetricsSupplier.mockEmptyIndexMetricsSupplier(),
+                    0,
+                    TieredStorageMetrics.ZERO)
                 .replicationLagMs()
                 .isPresent());
         // it should also be reported to the meter registry
@@ -565,7 +605,7 @@ public class IndexMetricsUpdaterTest {
         var queryingMetricsUpdater = new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory);
         queryingMetricsUpdater.getFailedQueryCounter().increment();
 
-        var result = queryingMetricsUpdater.getMetrics();
+        var result = queryingMetricsUpdater.getMetrics(TieredStorageMetrics.ZERO);
         var expected =
             IndexMetricsBuilder.QueryingMetricsBuilder.builder().failedQueryCount(1).build();
 

@@ -147,7 +147,9 @@ public record IndexMetrics(
       Map<FieldName.TypeField, Double> numFieldsPerDatatype,
       Optional<SerializableTimer> batchIndexingTimer,
       Bytes requiredMemory,
-      int numNestedVectorFields)
+      int numNestedVectorFields,
+      long coldStorageSizeBytes,
+      long warmCacheSizeBytes)
       implements DocumentEncodable {
 
     private static class Fields {
@@ -212,6 +214,18 @@ public record IndexMetrics(
 
       private static final Field.WithDefault<Integer> NUM_NESTED_VECTOR_FIELDS =
           Field.builder("numNestedVectorFields").intField().optional().withDefault(0);
+
+      private static final Field.WithDefault<Long> COLD_STORAGE_SIZE_BYTES =
+          Field.builder(TieredStorageMetrics.COLD_STORAGE_SIZE_BYTES)
+              .longField()
+              .optional()
+              .withDefault(0L);
+
+      private static final Field.WithDefault<Long> WARM_CACHE_SIZE_BYTES =
+          Field.builder(TieredStorageMetrics.WARM_CACHE_SIZE_BYTES)
+              .longField()
+              .optional()
+              .withDefault(0L);
     }
 
     static IndexingMetrics create(
@@ -230,7 +244,8 @@ public record IndexMetrics(
         long numMongoDbDocs,
         Timer batchIndexingTimer,
         long requiredMemory,
-        int numNestedVectorFields) {
+        int numNestedVectorFields,
+        TieredStorageMetrics tiered) {
       return new IndexingMetrics(
           getCurrentStatsFromCounters(DocumentEvent.EventType.class, documentEventTypeCounterMap),
           initialSyncExceptionCounter.count(),
@@ -248,7 +263,9 @@ public record IndexMetrics(
           getCurrentStatsFromDouble(FieldName.TypeField.class, numFieldsPerDatatype),
           Optional.of(SerializableTimer.create(batchIndexingTimer)),
           Bytes.ofBytes(requiredMemory),
-          numNestedVectorFields);
+          numNestedVectorFields,
+          tiered.coldStorageSizeBytes(),
+          tiered.warmCacheSizeBytes());
     }
 
     @Override
@@ -273,6 +290,8 @@ public record IndexMetrics(
           .field(Fields.BATCH_INDEXING_TIMER, this.batchIndexingTimer)
           .field(Fields.REQUIRED_MEMORY, this.requiredMemory.toBytes())
           .field(Fields.NUM_NESTED_VECTOR_FIELDS, this.numNestedVectorFields)
+          .field(Fields.COLD_STORAGE_SIZE_BYTES, this.coldStorageSizeBytes)
+          .field(Fields.WARM_CACHE_SIZE_BYTES, this.warmCacheSizeBytes)
           .build();
     }
 
@@ -297,7 +316,9 @@ public record IndexMetrics(
               parser.getField(Fields.NUM_FIELDS_PER_DATATYPE).unwrap(), FieldName.TypeField.class),
           parser.getField(Fields.BATCH_INDEXING_TIMER).unwrap(),
           Bytes.ofBytes(parser.getField(Fields.REQUIRED_MEMORY).unwrap()),
-          parser.getField(Fields.NUM_NESTED_VECTOR_FIELDS).unwrap());
+          parser.getField(Fields.NUM_NESTED_VECTOR_FIELDS).unwrap(),
+          parser.getField(Fields.COLD_STORAGE_SIZE_BYTES).unwrap(),
+          parser.getField(Fields.WARM_CACHE_SIZE_BYTES).unwrap());
     }
   }
 
@@ -309,7 +330,9 @@ public record IndexMetrics(
       SerializableTimer searchResultBatchLatencyStats,
       Optional<SerializableTimer> tokenFacetsStateRefreshLatency,
       Optional<SerializableTimer> stringFacetsStateRefreshLatency,
-      QueryFeaturesMetrics queryFeaturesMetrics)
+      QueryFeaturesMetrics queryFeaturesMetrics,
+      long warmQueriesCount,
+      long coldQueriesCount)
       implements DocumentEncodable {
 
     private static class Fields {
@@ -352,6 +375,20 @@ public record IndexMetrics(
               .disallowUnknownFields()
               .optional()
               .noDefault();
+
+      /** See {@link TieredStorageMetrics#warmQueriesCount()}. */
+      private static final Field.WithDefault<Long> WARM_QUERIES_COUNT =
+          Field.builder(TieredStorageMetrics.WARM_QUERIES_COUNT)
+              .longField()
+              .optional()
+              .withDefault(0L);
+
+      /** See {@link TieredStorageMetrics#coldQueriesCount()}. */
+      private static final Field.WithDefault<Long> COLD_QUERIES_COUNT =
+          Field.builder(TieredStorageMetrics.COLD_QUERIES_COUNT)
+              .longField()
+              .optional()
+              .withDefault(0L);
     }
 
     static QueryingMetrics create(
@@ -362,7 +399,8 @@ public record IndexMetrics(
         Timer searchResultBatchLatencyTimer,
         Timer tokenFacetsStateRefreshLatencyTimer,
         Timer stringFacetsStateRefreshLatencyTimer,
-        QueryFeaturesMetrics queryFeaturesMetrics) {
+        QueryFeaturesMetrics queryFeaturesMetrics,
+        TieredStorageMetrics tiered) {
 
       return new QueryingMetrics(
           totalQueryCounter.count(),
@@ -372,7 +410,9 @@ public record IndexMetrics(
           SerializableTimer.create(searchResultBatchLatencyTimer),
           Optional.of(SerializableTimer.create(tokenFacetsStateRefreshLatencyTimer)),
           Optional.of(SerializableTimer.create(stringFacetsStateRefreshLatencyTimer)),
-          queryFeaturesMetrics);
+          queryFeaturesMetrics,
+          tiered.warmQueriesCount(),
+          tiered.coldQueriesCount());
     }
 
     @Override
@@ -387,6 +427,8 @@ public record IndexMetrics(
               .field(Fields.TOKEN_FACET_STATE_REFRESH_LATENCY, this.tokenFacetsStateRefreshLatency)
               .field(
                   Fields.STRING_FACET_STATE_REFRESH_LATENCY, this.stringFacetsStateRefreshLatency)
+              .field(Fields.WARM_QUERIES_COUNT, this.warmQueriesCount)
+              .field(Fields.COLD_QUERIES_COUNT, this.coldQueriesCount)
               .build();
 
       queryingStats.putAll(this.queryFeaturesMetrics.toBson());
@@ -403,7 +445,9 @@ public record IndexMetrics(
           parser.getField(Fields.SEARCH_GET_RESULT_BATCH_LATENCY).unwrap(),
           parser.getField(Fields.TOKEN_FACET_STATE_REFRESH_LATENCY).unwrap(),
           parser.getField(Fields.STRING_FACET_STATE_REFRESH_LATENCY).unwrap(),
-          QueryFeaturesMetrics.fromBson(parser));
+          QueryFeaturesMetrics.fromBson(parser),
+          parser.getField(Fields.WARM_QUERIES_COUNT).unwrap(),
+          parser.getField(Fields.COLD_QUERIES_COUNT).unwrap());
     }
 
     public record QueryFeaturesMetrics(

@@ -230,6 +230,8 @@ public class IndexMetricsBuilder {
             .build();
     private IndexMetrics.QueryingMetrics.QueryFeaturesMetrics queryFeaturesMetrics =
         QueryFeaturesMetricsBuilder.builder().build();
+    private long warmQueriesCount = 0;
+    private long coldQueriesCount = 0;
 
     public static QueryingMetricsBuilder builder() {
       return new QueryingMetricsBuilder();
@@ -279,6 +281,16 @@ public class IndexMetricsBuilder {
       return this;
     }
 
+    public QueryingMetricsBuilder warmQueriesCount(long warmQueriesCount) {
+      this.warmQueriesCount = warmQueriesCount;
+      return this;
+    }
+
+    public QueryingMetricsBuilder coldQueriesCount(long coldQueriesCount) {
+      this.coldQueriesCount = coldQueriesCount;
+      return this;
+    }
+
     public IndexMetrics.QueryingMetrics build() {
       return new IndexMetrics.QueryingMetrics(
           this.totalQueryCount,
@@ -288,7 +300,9 @@ public class IndexMetricsBuilder {
           this.searchResultBatchLatency,
           Optional.of(this.tokenFacetsStateRefresh),
           Optional.of(this.stringFacetsStateRefresh),
-          this.queryFeaturesMetrics);
+          this.queryFeaturesMetrics,
+          this.warmQueriesCount,
+          this.coldQueriesCount);
     }
 
     public static class QueryFeaturesMetricsBuilder {
@@ -555,6 +569,10 @@ public class IndexMetricsBuilder {
 
     private int numNestedVectorFields = 0;
 
+    private long coldStorageSizeBytes = 0;
+
+    private long warmCacheSizeBytes = 0;
+
     public static IndexingMetricsBuilder builder() {
       return new IndexingMetricsBuilder();
     }
@@ -646,6 +664,16 @@ public class IndexMetricsBuilder {
       return this;
     }
 
+    public IndexingMetricsBuilder coldStorageSizeBytes(long coldStorageSizeBytes) {
+      this.coldStorageSizeBytes = coldStorageSizeBytes;
+      return this;
+    }
+
+    public IndexingMetricsBuilder warmCacheSizeBytes(long warmCacheSizeBytes) {
+      this.warmCacheSizeBytes = warmCacheSizeBytes;
+      return this;
+    }
+
     public IndexMetrics.IndexingMetrics build() {
       return new IndexMetrics.IndexingMetrics(
           this.documentEventTypeCountMap,
@@ -664,7 +692,9 @@ public class IndexMetricsBuilder {
           this.numFieldsPerDatatype,
           Optional.of(this.batchIndexingTimer),
           this.requiredMemory,
-          this.numNestedVectorFields);
+          this.numNestedVectorFields,
+          this.coldStorageSizeBytes,
+          this.warmCacheSizeBytes);
     }
   }
 

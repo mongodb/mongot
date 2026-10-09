@@ -65,6 +65,7 @@ java_library(
         "SearchIndexReader.java",
         "SearchResult.java",
         "SearchSortValues.java",
+        "TieredStorageMetrics.java",
         "Variables.java",
         "VectorIndex.java",
         "VectorIndexReader.java",

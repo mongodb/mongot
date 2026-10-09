@@ -46,6 +46,8 @@
             "99th": 3.0
           }
         },
+        "warmQueriesCount": 0,
+        "coldQueriesCount": 0,
         "synonymCount": 6.0,
         "textSynonymCount": 4.0,
         "textSynonymsWithoutMatchCriteriaCount": 3.0,
@@ -271,6 +273,8 @@
             "99th": 3.0
           }
         },
+        "warmQueriesCount": {"$numberLong": "0"},
+        "coldQueriesCount": {"$numberLong": "0"},
         "synonymCount": 6.0,
         "textSynonymCount": 4.0,
         "textSynonymsWithoutMatchCriteriaCount": 3.0,
