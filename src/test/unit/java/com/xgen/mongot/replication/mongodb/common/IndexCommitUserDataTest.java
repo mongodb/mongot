@@ -40,6 +40,9 @@ import org.junit.runners.Suite;
     })
 public class IndexCommitUserDataTest {
 
+  // No factory builds a record carrying the format version alone, so this one is assembled
+  // directly.
+  @IndexCommitUserData.TestOnlyShape
   private static final IndexCommitUserData USER_DATA_WITH_INDEX_FORMAT_VERSION_ONLY =
       new IndexCommitUserData(
           Optional.empty(),
@@ -312,11 +315,11 @@ public class IndexCommitUserDataTest {
               EncodedUserData.fromString(userData.toJson()), Optional.empty());
 
       // Verify that the known fields were correctly parsed
-      Assert.assertTrue(parsed.getStaleStateInfo().isPresent());
+      Assert.assertTrue(parsed.staleStateInfo().isPresent());
       Assert.assertEquals(
-          new BsonTimestamp(1234567890L), parsed.getStaleStateInfo().get().getLastOptime());
+          new BsonTimestamp(1234567890L), parsed.staleStateInfo().get().getLastOptime());
       Assert.assertEquals(
-          StaleStatusReason.DOCS_EXCEEDED, parsed.getStaleStateInfo().get().getReason());
+          StaleStatusReason.DOCS_EXCEEDED, parsed.staleStateInfo().get().getReason());
     }
 
     @Test
@@ -325,20 +328,20 @@ public class IndexCommitUserDataTest {
           USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.withAutoEmbeddingMetadata(
               new AutoEmbeddingCommitMetadata(true));
       Assert.assertEquals(
-          Optional.of(new AutoEmbeddingCommitMetadata(true)), data.getAutoEmbeddingMetadata());
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), data.autoEmbeddingMetadata());
 
       IndexCommitUserData decoded =
           IndexCommitUserData.fromEncodedData(data.toEncodedData(), Optional.empty());
       Assert.assertEquals(data, decoded);
       Assert.assertEquals(
-          Optional.of(new AutoEmbeddingCommitMetadata(true)), decoded.getAutoEmbeddingMetadata());
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), decoded.autoEmbeddingMetadata());
     }
 
     @Test
     public void testAutoEmbeddingMetadataAbsentByDefault() {
-      Assert.assertEquals(Optional.empty(), IndexCommitUserData.EMPTY.getAutoEmbeddingMetadata());
+      Assert.assertEquals(Optional.empty(), IndexCommitUserData.EMPTY.autoEmbeddingMetadata());
       Assert.assertEquals(
-          Optional.empty(), USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.getAutoEmbeddingMetadata());
+          Optional.empty(), USER_DATA_WITH_CHANGE_STREAM_RESUME_INFO.autoEmbeddingMetadata());
     }
 
     /**
@@ -376,7 +379,7 @@ public class IndexCommitUserDataTest {
               EncodedUserData.fromString(userData.toJson()), Optional.empty());
 
       Assert.assertEquals(
-          Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.getAutoEmbeddingMetadata());
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.autoEmbeddingMetadata());
     }
 
     @Test
@@ -398,7 +401,7 @@ public class IndexCommitUserDataTest {
       IndexCommitUserData decoded =
           IndexCommitUserData.fromEncodedData(data.toEncodedData(), Optional.empty());
       Assert.assertEquals(data, decoded);
-      Assert.assertEquals(Optional.of(metadata), decoded.getAutoEmbeddingMetadata());
+      Assert.assertEquals(Optional.of(metadata), decoded.autoEmbeddingMetadata());
     }
 
     @Test
@@ -415,10 +418,10 @@ public class IndexCommitUserDataTest {
               EncodedUserData.fromString(userData.toJson()), Optional.empty());
 
       Assert.assertEquals(
-          Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.getAutoEmbeddingMetadata());
+          Optional.of(new AutoEmbeddingCommitMetadata(true)), parsed.autoEmbeddingMetadata());
       Assert.assertTrue(
           parsed
-              .getAutoEmbeddingMetadata()
+              .autoEmbeddingMetadata()
               .orElseThrow()
               .materializedViewCollectionMetadata()
               .isEmpty());

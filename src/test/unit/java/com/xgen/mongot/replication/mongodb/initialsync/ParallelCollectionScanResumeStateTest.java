@@ -98,9 +98,8 @@ public class ParallelCollectionScanResumeStateTest {
 
     IndexCommitUserData userData = resumeState.snapshot();
 
-    assertThat(userData.getBackendIndexVersion())
-        .hasValue(IndexFormatVersion.CURRENT.versionNumber);
-    assertThat(userData.getInitialSyncResumeInfo())
+    assertThat(userData.backendIndexVersion()).hasValue(IndexFormatVersion.CURRENT.versionNumber);
+    assertThat(userData.initialSyncResumeInfo())
         .hasValue(
             new BufferlessParallelNaturalOrderInitialSyncResumeInfo(
                 new BsonTimestamp(1_000, 1),
@@ -157,7 +156,7 @@ public class ParallelCollectionScanResumeStateTest {
         ParallelCollectionScanResumeState.fromPersisted(
             IndexFormatVersion.CURRENT.versionNumber, persisted);
 
-    assertThat(resumeState.snapshot().getInitialSyncResumeInfo()).hasValue(persisted);
+    assertThat(resumeState.snapshot().initialSyncResumeInfo()).hasValue(persisted);
     assertThat(resumeState.getPartitions().get(1).isDone()).isTrue();
   }
 
@@ -180,7 +179,7 @@ public class ParallelCollectionScanResumeStateTest {
 
     BufferlessParallelNaturalOrderInitialSyncResumeInfo resumeInfo =
         (BufferlessParallelNaturalOrderInitialSyncResumeInfo)
-            resumeState.snapshot().getInitialSyncResumeInfo().orElseThrow();
+            resumeState.snapshot().initialSyncResumeInfo().orElseThrow();
 
     assertThat(resumeInfo.getResumeOperationTime()).isEqualTo(new BsonTimestamp(2_000, 3));
     assertThat(resumeInfo.getPartitions()).hasSize(1);
@@ -213,7 +212,7 @@ public class ParallelCollectionScanResumeStateTest {
     BufferlessParallelNaturalOrderInitialSyncResumeInfo persisted =
         (BufferlessParallelNaturalOrderInitialSyncResumeInfo)
             IndexCommitUserData.fromEncodedData(committed.getValue(), Optional.empty())
-                .getInitialSyncResumeInfo()
+                .initialSyncResumeInfo()
                 .orElseThrow();
 
     assertThat(persisted.getResumeOperationTime()).isEqualTo(new BsonTimestamp(2_000, 3));

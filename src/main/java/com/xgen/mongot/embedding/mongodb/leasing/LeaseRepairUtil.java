@@ -63,7 +63,7 @@ public final class LeaseRepairUtil {
 
   /** Returns the {@code db.collection} namespace recorded in the lease's commitInfo, if any. */
   public static Optional<String> extractNamespace(Lease lease) {
-    return parseCommitInfo(lease).getResumeInfo().map(info -> info.getNamespace().getFullName());
+    return parseCommitInfo(lease).resumeInfo().map(info -> info.getNamespace().getFullName());
   }
 
   /** Whether a lease's commitInfo namespace is a flex→dedicated migration artifact. */
@@ -99,7 +99,7 @@ public final class LeaseRepairUtil {
       return RepairNeed.NONE;
     }
     Optional<String> commitInfoDatabase =
-        parseCommitInfo(lease).getResumeInfo().map(info -> info.getNamespace().getDatabaseName());
+        parseCommitInfo(lease).resumeInfo().map(info -> info.getNamespace().getDatabaseName());
     if (commitInfoDatabase.isEmpty()) {
       return RepairNeed.NONE;
     }
@@ -149,7 +149,7 @@ public final class LeaseRepairUtil {
     // it canonicalizes the source identity even when collectionName holds a stale view leaf.
     var sourceNamespace =
         parseCommitInfo(lease)
-            .getResumeInfo()
+            .resumeInfo()
             .map(info -> info.getNamespace())
             .orElseThrow(
                 () ->

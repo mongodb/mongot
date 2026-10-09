@@ -95,7 +95,7 @@ public class StaleStateInfo implements DocumentEncodable {
       StaleStatusReason reason, String message, IndexCommitUserData indexCommitUserData) {
     ChangeStreamResumeInfo changeStreamResumeInfo =
         indexCommitUserData
-            .getResumeInfo()
+            .resumeInfo()
             .orElseThrow(
                 () ->
                     new IllegalStateException(
@@ -106,7 +106,7 @@ public class StaleStateInfo implements DocumentEncodable {
         reason,
         message,
         Optional.of(changeStreamResumeInfo),
-        indexCommitUserData.getBackendIndexVersion());
+        indexCommitUserData.backendIndexVersion());
   }
 
   /**

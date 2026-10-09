@@ -129,7 +129,7 @@ public class DefaultDocumentIndexerTest {
             argThat(
                 encoded ->
                     IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
-                        .getAutoEmbeddingMetadata()
+                        .autoEmbeddingMetadata()
                         .equals(Optional.of(new AutoEmbeddingCommitMetadata(true)))));
   }
 
@@ -162,7 +162,7 @@ public class DefaultDocumentIndexerTest {
             argThat(
                 encoded ->
                     IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
-                        .getAutoEmbeddingMetadata()
+                        .autoEmbeddingMetadata()
                         .equals(Optional.of(new AutoEmbeddingCommitMetadata(true)))));
   }
 
@@ -181,7 +181,7 @@ public class DefaultDocumentIndexerTest {
             argThat(
                 encoded ->
                     IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
-                        .getAutoEmbeddingMetadata()
+                        .autoEmbeddingMetadata()
                         .equals(Optional.of(new AutoEmbeddingCommitMetadata(false)))));
   }
 
@@ -199,7 +199,7 @@ public class DefaultDocumentIndexerTest {
             argThat(
                 encoded ->
                     IndexCommitUserData.fromEncodedData(encoded, Optional.empty())
-                        .getAutoEmbeddingMetadata()
+                        .autoEmbeddingMetadata()
                         .isEmpty()));
   }
 

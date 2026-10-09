@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb.common;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.RestrictedApi;
 import com.xgen.mongot.index.EncodedUserData;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.util.bson.JsonCodec;
@@ -18,7 +19,16 @@ import org.bson.json.JsonWriterSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class IndexCommitUserData implements DocumentEncodable {
+public record IndexCommitUserData(
+    Optional<ChangeStreamResumeInfo> resumeInfo,
+    Optional<Integer> backendIndexVersion,
+    Optional<String> exceededLimitsReason,
+    Optional<InitialSyncResumeInfo> initialSyncResumeInfo,
+    Optional<StaleStateInfo> staleStateInfo,
+    Optional<IndexStateInfo> indexStateInfo,
+    Optional<Long> customVectorEngineLsn,
+    Optional<AutoEmbeddingCommitMetadata> autoEmbeddingMetadata)
+    implements DocumentEncodable {
   private static final Logger LOG = LoggerFactory.getLogger(IndexCommitUserData.class);
 
   public static final IndexCommitUserData EMPTY =
@@ -31,15 +41,6 @@ public class IndexCommitUserData implements DocumentEncodable {
           Optional.empty(),
           Optional.empty(),
           Optional.empty());
-
-  private final Optional<ChangeStreamResumeInfo> resumeInfo;
-  private final Optional<Integer> backendIndexVersion;
-  private final Optional<String> exceededLimitsReason;
-  private final Optional<InitialSyncResumeInfo> initialSyncResumeInfo;
-  private final Optional<StaleStateInfo> staleStateInfo;
-  private final Optional<IndexStateInfo> indexStateInfo;
-  private final Optional<Long> customVectorEngineLsn;
-  private final Optional<AutoEmbeddingCommitMetadata> autoEmbeddingMetadata;
 
   private static class Fields {
     private static final Field.Optional<ChangeStreamResumeInfo> CHANGE_STREAM_RESUME_INFO =
@@ -108,30 +109,40 @@ public class IndexCommitUserData implements DocumentEncodable {
             .noDefault();
   }
 
+  /** Marks a declaration allowed to assemble a record field by field. Tests only. */
+  public @interface TestOnlyShape {}
+
   /**
-   * Package-private so every record written outside this package comes from a named factory or
-   * {@code with} method. Those are the entry points IndexCommitUserDataFieldInventory enumerates to
-   * work out which fields mongot can persist, and a caller assembling the record field by field
-   * would be invisible to it.
+   * A record is public, so its canonical constructor has to be too. Restricted instead, so every
+   * record built outside this class still comes from a named factory or {@code with} method. Those
+   * are the entry points the commit metadata field inventory enumerates to work out which fields
+   * mongot can persist, and a caller assembling a record field by field would be invisible to it,
+   * letting a newly written field reach disk without the rollback review it needs.
+   *
+   * <p>Every component is part of the persisted shape, so a null is rejected here rather than left
+   * to surface as a {@code NullPointerException} from {@code toBson()}, {@code equals()}, or a
+   * later read. Matches {@link AutoEmbeddingCommitMetadata}.
    */
   @VisibleForTesting
-  IndexCommitUserData(
-      Optional<ChangeStreamResumeInfo> resumeInfo,
-      Optional<Integer> backendIndexVersion,
-      Optional<String> exceededLimitsReason,
-      Optional<InitialSyncResumeInfo> initialSyncResumeInfo,
-      Optional<StaleStateInfo> staleStateInfo,
-      Optional<IndexStateInfo> indexStateInfo,
-      Optional<Long> customVectorEngineLsn,
-      Optional<AutoEmbeddingCommitMetadata> autoEmbeddingMetadata) {
-    this.resumeInfo = resumeInfo;
-    this.backendIndexVersion = backendIndexVersion;
-    this.exceededLimitsReason = exceededLimitsReason;
-    this.initialSyncResumeInfo = initialSyncResumeInfo;
-    this.staleStateInfo = staleStateInfo;
-    this.indexStateInfo = indexStateInfo;
-    this.customVectorEngineLsn = customVectorEngineLsn;
-    this.autoEmbeddingMetadata = autoEmbeddingMetadata;
+  @RestrictedApi(
+      explanation =
+          "Build an IndexCommitUserData through a named factory or with method, so the commit"
+              + " metadata field inventory can tell which fields mongot persists. For compilation"
+              + " to succeed, annotate the call site with @IndexCommitUserData.TestOnlyShape.",
+      link = "https://jira.mongodb.org/browse/CLOUDP-411951",
+      // The factories below are the named entry points this restriction points callers at, and
+      // RestrictedApi does not exempt the declaring file on its own.
+      allowedOnPath = ".*/replication/mongodb/common/IndexCommitUserData\\.java",
+      allowlistAnnotations = {TestOnlyShape.class})
+  public IndexCommitUserData {
+    Objects.requireNonNull(resumeInfo, "resumeInfo");
+    Objects.requireNonNull(backendIndexVersion, "backendIndexVersion");
+    Objects.requireNonNull(exceededLimitsReason, "exceededLimitsReason");
+    Objects.requireNonNull(initialSyncResumeInfo, "initialSyncResumeInfo");
+    Objects.requireNonNull(staleStateInfo, "staleStateInfo");
+    Objects.requireNonNull(indexStateInfo, "indexStateInfo");
+    Objects.requireNonNull(customVectorEngineLsn, "customVectorEngineLsn");
+    Objects.requireNonNull(autoEmbeddingMetadata, "autoEmbeddingMetadata");
   }
 
   public static IndexCommitUserData createExceeded(String reason) {
@@ -246,38 +257,6 @@ public class IndexCommitUserData implements DocumentEncodable {
     return this.resumeInfo.isEmpty() && this.backendIndexVersion.isEmpty();
   }
 
-  public Optional<ChangeStreamResumeInfo> getResumeInfo() {
-    return this.resumeInfo;
-  }
-
-  public Optional<Integer> getBackendIndexVersion() {
-    return this.backendIndexVersion;
-  }
-
-  public Optional<String> getExceededLimitsReason() {
-    return this.exceededLimitsReason;
-  }
-
-  public Optional<StaleStateInfo> getStaleStateInfo() {
-    return this.staleStateInfo;
-  }
-
-  public Optional<InitialSyncResumeInfo> getInitialSyncResumeInfo() {
-    return this.initialSyncResumeInfo;
-  }
-
-  public Optional<IndexStateInfo> getIndexStateInfo() {
-    return this.indexStateInfo;
-  }
-
-  public Optional<Long> getCustomVectorEngineLsn() {
-    return this.customVectorEngineLsn;
-  }
-
-  public Optional<AutoEmbeddingCommitMetadata> getAutoEmbeddingMetadata() {
-    return this.autoEmbeddingMetadata;
-  }
-
   public IndexCommitUserData withCustomVectorEngineLsn(long lsn) {
     return new IndexCommitUserData(
         this.resumeInfo,
@@ -330,37 +309,5 @@ public class IndexCommitUserData implements DocumentEncodable {
         .field(Fields.CUSTOM_VECTOR_ENGINE_LSN, this.customVectorEngineLsn)
         .field(Fields.AUTO_EMBEDDING_METADATA, this.autoEmbeddingMetadata)
         .build();
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (o == null || getClass() != o.getClass()) {
-      return false;
-    }
-    IndexCommitUserData userData = (IndexCommitUserData) o;
-    return this.resumeInfo.equals(userData.resumeInfo)
-        && this.backendIndexVersion.equals(userData.backendIndexVersion)
-        && this.exceededLimitsReason.equals(userData.exceededLimitsReason)
-        && this.staleStateInfo.equals(userData.staleStateInfo)
-        && this.initialSyncResumeInfo.equals(userData.initialSyncResumeInfo)
-        && this.indexStateInfo.equals(userData.indexStateInfo)
-        && this.customVectorEngineLsn.equals(userData.customVectorEngineLsn)
-        && this.autoEmbeddingMetadata.equals(userData.autoEmbeddingMetadata);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(
-        this.resumeInfo,
-        this.backendIndexVersion,
-        this.exceededLimitsReason,
-        this.staleStateInfo,
-        this.initialSyncResumeInfo,
-        this.indexStateInfo,
-        this.customVectorEngineLsn,
-        this.autoEmbeddingMetadata);
   }
 }

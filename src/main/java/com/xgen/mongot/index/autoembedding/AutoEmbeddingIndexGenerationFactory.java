@@ -190,7 +190,7 @@ public class AutoEmbeddingIndexGenerationFactory {
       IndexFactory indexFactory, IndexDefinitionGeneration rawDefinitionGeneration) {
     Optional<AutoEmbeddingCommitMetadata> metadata =
         readPersistedCommit(indexFactory, rawDefinitionGeneration)
-            .flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
+            .flatMap(IndexCommitUserData::autoEmbeddingMetadata);
     return reconstructOfflineDerivedIndex(indexFactory, rawDefinitionGeneration, metadata)
         .flatMap(
             derived ->
@@ -269,7 +269,7 @@ public class AutoEmbeddingIndexGenerationFactory {
     Optional<IndexCommitUserData> commit =
         readPersistedCommit(indexFactory, rawDefinitionGeneration);
     Optional<AutoEmbeddingCommitMetadata> metadata =
-        commit.flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
+        commit.flatMap(IndexCommitUserData::autoEmbeddingMetadata);
     Optional<ReconstructedDerived> reconstructed =
         reconstructOfflineDerivedIndex(indexFactory, rawDefinitionGeneration, metadata);
 
@@ -334,15 +334,15 @@ public class AutoEmbeddingIndexGenerationFactory {
    * from the change-stream resume token. Empty when the commit carries neither.
    */
   private static Optional<BsonTimestamp> lastCommittedOptime(IndexCommitUserData commit) {
-    if (commit.getStaleStateInfo().isPresent()) {
-      return Optional.of(commit.getStaleStateInfo().get().getLastOptime());
+    if (commit.staleStateInfo().isPresent()) {
+      return Optional.of(commit.staleStateInfo().get().getLastOptime());
     }
-    if (commit.getResumeInfo().isEmpty()) {
+    if (commit.resumeInfo().isEmpty()) {
       return Optional.empty();
     }
     try {
       return Optional.of(
-          ResumeTokenUtils.opTimeFromResumeToken(commit.getResumeInfo().get().getResumeToken()));
+          ResumeTokenUtils.opTimeFromResumeToken(commit.resumeInfo().get().getResumeToken()));
     } catch (DecoderException | RuntimeException e) {
       // A malformed resume token must not abort resolution; without an optime the caller falls back
       // to FAILED/retry.

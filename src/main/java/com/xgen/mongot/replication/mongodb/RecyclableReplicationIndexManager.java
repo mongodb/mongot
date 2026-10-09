@@ -828,7 +828,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         IndexCommitUserData.fromEncodedData(
             encodedUserData, Optional.of(ctx.indexGeneration().getGenerationId()));
 
-    Optional<String> exceededReason = userData.getExceededLimitsReason();
+    Optional<String> exceededReason = userData.exceededLimitsReason();
     if (exceededReason.isPresent()) {
       setFollowerStatus(
           index,
@@ -837,7 +837,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       return;
     }
 
-    Optional<StaleStateInfo> staleStateInfo = userData.getStaleStateInfo();
+    Optional<StaleStateInfo> staleStateInfo = userData.staleStateInfo();
     if (staleStateInfo.isPresent()) {
       // Update optime info metric before setting index to STALE to ensure metrics consistency.
       // Acquire unset lock to ensure another thread does not unset the metric while we update it.
@@ -864,20 +864,20 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     }
 
     if (featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
-      Optional<IndexStateInfo> indexStateInfo = userData.getIndexStateInfo();
+      Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
         setFollowerStatus(index, IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
         return;
       }
     }
 
-    if (userData.getInitialSyncResumeInfo().isPresent()) {
+    if (userData.initialSyncResumeInfo().isPresent()) {
       setFollowerStatus(index, IndexStatus.initialSync());
       return;
     }
 
-    if (userData.getResumeInfo().isPresent()) {
-      ChangeStreamResumeInfo resumeInfo = userData.getResumeInfo().get();
+    if (userData.resumeInfo().isPresent()) {
+      ChangeStreamResumeInfo resumeInfo = userData.resumeInfo().get();
       // A resume token optime will have an inc that is one greater than the "actual" optime of the
       // last event in the change stream. (see: https://tinyurl.com/ydbjkv8k)
       // We subtract one from the inc value of the resume token to get the operation time of the

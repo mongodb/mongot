@@ -783,9 +783,9 @@ public record Lease(
     EncodedUserData encodedUserData = EncodedUserData.fromString(this.commitInfo);
     IndexCommitUserData userData =
         IndexCommitUserData.fromEncodedData(encodedUserData, Optional.empty());
-    if (userData.getResumeInfo().isPresent()) {
+    if (userData.resumeInfo().isPresent()) {
       try {
-        BsonDocument resumeToken = userData.getResumeInfo().get().getResumeToken();
+        BsonDocument resumeToken = userData.resumeInfo().get().getResumeToken();
         return Optional.of(ResumeTokenUtils.opTimeFromResumeToken(resumeToken));
       } catch (DecoderException e) {
         return Optional.empty();

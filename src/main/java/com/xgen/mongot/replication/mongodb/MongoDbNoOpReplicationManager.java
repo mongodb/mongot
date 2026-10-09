@@ -166,13 +166,13 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
     EncodedUserData encodedUserData = index.getWriter().getCommitUserData();
     IndexCommitUserData userData =
         IndexCommitUserData.fromEncodedData(encodedUserData, Optional.empty());
-    Optional<String> exceededReason = userData.getExceededLimitsReason();
+    Optional<String> exceededReason = userData.exceededLimitsReason();
     if (exceededReason.isPresent()) {
       index.setStatus(IndexStatus.failed(EXCEEDED_LIMIT_REASON_PREFIX + exceededReason.get()));
       return;
     }
 
-    Optional<StaleStateInfo> staleStateInfo = userData.getStaleStateInfo();
+    Optional<StaleStateInfo> staleStateInfo = userData.staleStateInfo();
     if (staleStateInfo.isPresent()) {
       // Update optime info metric before setting index to STALE to ensure metrics consistency.
       // Acquire unset lock to ensure another thread does not unset the metric while we update it.
@@ -189,20 +189,20 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
     }
 
     if (this.featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
-      Optional<IndexStateInfo> indexStateInfo = userData.getIndexStateInfo();
+      Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
         index.setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
         return;
       }
     }
 
-    if (userData.getInitialSyncResumeInfo().isPresent()) {
+    if (userData.initialSyncResumeInfo().isPresent()) {
       index.setStatus(IndexStatus.initialSync());
       return;
     }
 
-    if (userData.getResumeInfo().isPresent()) {
-      ChangeStreamResumeInfo resumeInfo = userData.getResumeInfo().get();
+    if (userData.resumeInfo().isPresent()) {
+      ChangeStreamResumeInfo resumeInfo = userData.resumeInfo().get();
       // A resume token optime will have an inc that is one greater than the "actual" optime of the
       // last event in the change stream. (see: https://tinyurl.com/ydbjkv8k)
       // We subtract one from the inc value of the resume token to get the operation time of the

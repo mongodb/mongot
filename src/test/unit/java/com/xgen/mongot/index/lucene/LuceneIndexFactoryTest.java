@@ -756,7 +756,7 @@ public class LuceneIndexFactoryTest {
         .map(
             encoded ->
                 IndexCommitUserData.fromEncodedData(encoded, Optional.of(gen.getGenerationId())))
-        .flatMap(IndexCommitUserData::getAutoEmbeddingMetadata);
+        .flatMap(IndexCommitUserData::autoEmbeddingMetadata);
   }
 
   private static void overwriteSegmentsFilesWithGarbage(Path root) throws IOException {

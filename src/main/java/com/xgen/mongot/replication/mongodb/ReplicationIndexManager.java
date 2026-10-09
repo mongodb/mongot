@@ -450,12 +450,12 @@ public class ReplicationIndexManager implements IndexManager {
         "index format version is not supported for replication");
 
     IndexCommitUserData userData = getIndexCommitUserData();
-    Optional<String> exceededReason = userData.getExceededLimitsReason();
+    Optional<String> exceededReason = userData.exceededLimitsReason();
     if (exceededReason.isPresent()) {
       exceededIndex(exceededReason.get());
       return;
     }
-    Optional<StaleStateInfo> staleStateInfo = userData.getStaleStateInfo();
+    Optional<StaleStateInfo> staleStateInfo = userData.staleStateInfo();
     if (staleStateInfo.isPresent()) {
       // Do not start replication for indexes that were marked as stale on previous runs
       shutDownReplicationOnStaleIndex(staleStateInfo.get());
@@ -463,7 +463,7 @@ public class ReplicationIndexManager implements IndexManager {
     }
 
     if (this.featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
-      Optional<IndexStateInfo> indexStateInfo = userData.getIndexStateInfo();
+      Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
         // Do not start replication for indexes that cannot resolve collections on mongod.
         // This typically occurs when a collection is missing on a shard.
@@ -478,7 +478,7 @@ public class ReplicationIndexManager implements IndexManager {
       case RESUME_INITIAL_SYNC ->
           enqueueInitialSyncResume(
               userData
-                  .getInitialSyncResumeInfo()
+                  .initialSyncResumeInfo()
                   .orElseThrow(
                       () ->
                           new IllegalStateException(
@@ -487,7 +487,7 @@ public class ReplicationIndexManager implements IndexManager {
       case RESUME_STEADY_STATE ->
           resumeSteadyState(
               userData
-                  .getResumeInfo()
+                  .resumeInfo()
                   .orElseThrow(
                       () ->
                           new IllegalStateException(
@@ -503,12 +503,12 @@ public class ReplicationIndexManager implements IndexManager {
     }
 
     // This shouldn't happen.
-    if (userData.getBackendIndexVersion().isEmpty()) {
+    if (userData.backendIndexVersion().isEmpty()) {
       this.logger.error("No index version found, resyncing.");
       return InitAction.RUN_INITIAL_SYNC;
     }
 
-    int committedFormatVersion = userData.getBackendIndexVersion().get();
+    int committedFormatVersion = userData.backendIndexVersion().get();
     int formatVersion =
         this.indexGeneration.getDefinitionGeneration().generation().formatVersion.versionNumber();
     if (committedFormatVersion != formatVersion) {
@@ -520,7 +520,7 @@ public class ReplicationIndexManager implements IndexManager {
           .now();
     }
 
-    if (userData.getInitialSyncResumeInfo().isPresent()) {
+    if (userData.initialSyncResumeInfo().isPresent()) {
       this.logger.info("Found initial sync resume data, resuming.");
       return InitAction.RESUME_INITIAL_SYNC;
     }
@@ -528,7 +528,7 @@ public class ReplicationIndexManager implements IndexManager {
     // This shouldn't happen since we commit resume info while an initial sync is in progress; it's
     // only omitted after an initial sync has completed, at which point we should have this
     // information.
-    Optional<ChangeStreamResumeInfo> resumeInfo = userData.getResumeInfo();
+    Optional<ChangeStreamResumeInfo> resumeInfo = userData.resumeInfo();
     if (resumeInfo.isEmpty()) {
       this.logger.error(
           "No resumeToken or initial sync minValidOpTime found for index, resyncing.");
@@ -1285,8 +1285,8 @@ public class ReplicationIndexManager implements IndexManager {
 
     // Parse the last commit user data to determine whether we should enqueue a resume.
     IndexCommitUserData userData = getIndexCommitUserData();
-    if (userData.getInitialSyncResumeInfo().isPresent()) {
-      enqueueInitialSyncResume(userData.getInitialSyncResumeInfo().get());
+    if (userData.initialSyncResumeInfo().isPresent()) {
+      enqueueInitialSyncResume(userData.initialSyncResumeInfo().get());
     } else {
       enqueueInitialSync(IndexStatus.initialSync());
     }
@@ -1394,7 +1394,7 @@ public class ReplicationIndexManager implements IndexManager {
   private BsonTimestamp getLastOptimeFromUserData(IndexCommitUserData userData) {
     var resumeInfo =
         userData
-            .getResumeInfo()
+            .resumeInfo()
             .orElseGet(
                 () -> {
                   Crash.because("Failed to get change stream resume info from user data").now();

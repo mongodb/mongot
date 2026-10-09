@@ -77,7 +77,7 @@ public class ParallelCollectionScanSessionTest {
       resumeState.advanceHighWaterMark(LATER_HIGH_WATER_MARK);
       BufferlessParallelNaturalOrderInitialSyncResumeInfo persisted =
           (BufferlessParallelNaturalOrderInitialSyncResumeInfo)
-              installed.getValue().get().getInitialSyncResumeInfo().orElseThrow();
+              installed.getValue().get().initialSyncResumeInfo().orElseThrow();
 
       assertThat(persisted.getResumeOperationTime()).isEqualTo(LATER_HIGH_WATER_MARK);
       assertThat(persisted.getPartitions().getFirst().getResumeRecordId()).hasValue(42L);

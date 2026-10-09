@@ -306,10 +306,10 @@ public class LeaseTest {
       var encodedUserData = EncodedUserData.fromString(v2Lease.commitInfo());
       var userData = IndexCommitUserData.fromEncodedData(encodedUserData, Optional.empty());
 
-      assertTrue(userData.getInitialSyncResumeInfo().isPresent());
-      assertEquals(opTime, userData.getInitialSyncResumeInfo().get().getResumeOperationTime());
+      assertTrue(userData.initialSyncResumeInfo().isPresent());
+      assertEquals(opTime, userData.initialSyncResumeInfo().get().getResumeOperationTime());
       // Verify scan position is reset to MIN_KEY
-      assertEquals(BsonUtils.MIN_KEY, userData.getInitialSyncResumeInfo().get().getResumeToken());
+      assertEquals(BsonUtils.MIN_KEY, userData.initialSyncResumeInfo().get().getResumeToken());
     }
 
     @Test

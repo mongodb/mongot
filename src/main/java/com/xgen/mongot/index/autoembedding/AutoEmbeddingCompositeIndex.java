@@ -231,7 +231,7 @@ public class AutoEmbeddingCompositeIndex implements Index {
     IndexCommitUserData userData =
         IndexCommitUserData.fromEncodedData(commitData, Optional.empty());
     return userData
-        .getResumeInfo()
+        .resumeInfo()
         .map(
             info -> {
               try {
