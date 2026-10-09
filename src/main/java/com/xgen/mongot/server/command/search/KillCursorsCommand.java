@@ -9,6 +9,7 @@ import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.serialization.CodecRegistry;
 import com.xgen.mongot.util.mongodb.serialization.KillCursorsResponseProxy;
 import java.util.Collections;
+import java.util.List;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,11 @@ public class KillCursorsCommand implements Command {
   @Override
   public boolean dependOnCursors() {
     return true;
+  }
+
+  @Override
+  public List<Long> getAddressedCursorIds() {
+    return this.definition.cursorIds;
   }
 
   @Override

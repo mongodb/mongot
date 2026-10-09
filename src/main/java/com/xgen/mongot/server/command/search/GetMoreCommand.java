@@ -20,6 +20,7 @@ import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.context.Scope;
+import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
@@ -99,6 +100,11 @@ public class GetMoreCommand implements Command {
   @Override
   public boolean dependOnCursors() {
     return true;
+  }
+
+  @Override
+  public List<Long> getAddressedCursorIds() {
+    return List.of(this.definition.cursorId());
   }
 
   @Override

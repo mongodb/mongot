@@ -49,6 +49,18 @@ public interface Command {
   }
 
   /**
+   * Get IDs of the cursors this command addresses, e.g. the cursor a getMore advances or the
+   * cursors a killCursors destroys.
+   *
+   * <p>This is used by the gRPC server to verify that a cursor-addressed command only names cursors
+   * created by the same gRPC stream, so that one stream cannot read or destroy another stream's
+   * cursors by id.
+   */
+  default List<Long> getAddressedCursorIds() {
+    return Collections.emptyList();
+  }
+
+  /**
    * Handle {@code SearchEnvoyMetadata} from the gRPC header.
    *
    * <p>This method is called before {@code Command::run}.

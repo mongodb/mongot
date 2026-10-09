@@ -182,6 +182,16 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       if (command.dependOnCursors() && this.createdCursorIds.isEmpty()) {
         throw new IllegalStateException("gRPC stream is broken");
       }
+      // Cursor-dependent commands may only address cursors created by this same gRPC stream.
+      // Cursor ids are bare sequential numbers in a process-wide registry, so without this check
+      // a stream that ran its own single $search could read or destroy any other stream's cursor
+      // by id. The message must not echo cursor ids: it is surfaced to the customer's driver.
+      if (command.dependOnCursors()
+          && !this.createdCursorIds.containsAll(command.getAddressedCursorIds())) {
+        throw new IllegalStateException(
+            String.format(
+                "%s addresses a cursor that was not created by this gRPC stream", command.name()));
+      }
       command.handleSearchEnvoyMetadata(this.searchEnvoyMetadata);
 
       return this.commandExecutor
