@@ -100,7 +100,7 @@ public class SyncChangeStreamManagerTest {
     DecodingWorkScheduler decodingScheduler = DecodingWorkScheduler.create(4, simpleMeterRegistry);
 
     when(changeStreamIndexManagerFactory.create(
-            any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
               DecodingExecutorChangeStreamIndexManager manager =
@@ -212,7 +212,7 @@ public class SyncChangeStreamManagerTest {
     var capturedDecodingExecutorChangeStreamIndexManagerRef =
         new AtomicReference<DecodingExecutorChangeStreamIndexManager>();
     when(changeStreamIndexManagerFactory.create(
-            any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
               DecodingExecutorChangeStreamIndexManager manager =
@@ -281,7 +281,7 @@ public class SyncChangeStreamManagerTest {
     var changeStreamIndexManagerFactory = mock(ChangeStreamIndexManagerFactory.class);
 
     when(changeStreamIndexManagerFactory.create(
-            any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation ->
                 spy(
@@ -376,7 +376,7 @@ public class SyncChangeStreamManagerTest {
     DecodingWorkScheduler decodingScheduler =
         DecodingWorkScheduler.create(4, new SimpleMeterRegistry());
     when(changeStreamIndexManagerFactory.create(
-            any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation ->
                 spy(
@@ -597,7 +597,7 @@ public class SyncChangeStreamManagerTest {
     DecodingWorkScheduler decodingScheduler =
         DecodingWorkScheduler.create(4, new SimpleMeterRegistry());
     when(changeStreamIndexManagerFactory.create(
-            any(), any(), any(), any(), any(), any(), any(), any()))
+            any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation ->
                 spy(

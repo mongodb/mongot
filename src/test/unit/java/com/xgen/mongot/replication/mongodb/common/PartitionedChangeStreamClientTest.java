@@ -64,36 +64,20 @@ public class PartitionedChangeStreamClientTest {
         var first = initial.get(10, TimeUnit.SECONDS);
 
         assertThat(first.getRawEvents()).containsExactly(event(9));
-        assertThat(first.getPostBatchResumeToken()).isEqualTo(token(0));
+        assertThat(first.getPostBatchResumeToken()).isEqualTo(token(10));
 
         var subsequent = this.caller.submit(client::getNext);
         nextFetch().run();
         var second = subsequent.get(10, TimeUnit.SECONDS);
 
         assertThat(second.getRawEvents()).containsExactly(event(19));
-        assertThat(second.getPostBatchResumeToken()).isEqualTo(token(0));
+        assertThat(second.getPostBatchResumeToken()).isEqualTo(token(20));
         verify(fast, times(2)).getNext();
         verify(slow, times(0)).getNext();
       } finally {
         // Complete the queued fetch before leaving the test.
         slowFetch.run();
       }
-    }
-  }
-
-  @Test
-  public void getNext_completedBatches_retainStartingCheckpointUntilCommitSupportExists()
-      throws Exception {
-    var first = reader(batch(20, event(19)));
-    var second = reader(batch(10, event(9)));
-    try (var client = client(first, second)) {
-      var initial = client.getNext();
-      var next = client.getNext();
-
-      assertThat(initial.getRawEvents()).containsExactly(event(19));
-      assertThat(initial.getPostBatchResumeToken()).isEqualTo(token(0));
-      assertThat(next.getRawEvents()).containsExactly(event(9));
-      assertThat(next.getPostBatchResumeToken()).isEqualTo(token(0));
     }
   }
 
@@ -111,15 +95,43 @@ public class PartitionedChangeStreamClientTest {
   }
 
   @Test
-  public void getNext_emptyBatch_retainsStartingCheckpoint() throws Exception {
+  public void getNext_completedBatches_carriesReadersRealPostBatchToken() throws Exception {
+    // Distinct reader positions: batches must carry real reader tokens for the checkpoint to move.
+    try (var client = client(reader(batch(20, event(19))), reader(batch(10, event(9))))) {
+      var initial = client.getNext();
+      var next = client.getNext();
+
+      assertThat(initial.getPostBatchResumeToken()).isEqualTo(token(20));
+      assertThat(next.getPostBatchResumeToken()).isEqualTo(token(10));
+    }
+  }
+
+  @Test
+  public void getNext_emptyBatch_carriesReadersPostBatchToken() throws Exception {
     try (var client = client(reader(batch(20)), reader(batch(10)))) {
       var first = client.getNext();
       var second = client.getNext();
 
+      // Empty batches still carry the reader's real token — progress must never move backward.
       assertThat(first.getRawEvents()).isEmpty();
-      assertThat(first.getPostBatchResumeToken()).isEqualTo(token(0));
+      assertThat(first.getPostBatchResumeToken()).isEqualTo(token(20));
       assertThat(second.getRawEvents()).isEmpty();
-      assertThat(second.getPostBatchResumeToken()).isEqualTo(token(0));
+      assertThat(second.getPostBatchResumeToken()).isEqualTo(token(10));
+    }
+  }
+
+  @Test
+  public void getNext_realThenEmptyBatch_emptyBatchCarriesItsOwnToken() throws Exception {
+    // The empty batch must not fall back to an earlier token — confirmed positions would move
+    // backward.
+    try (var client =
+        client(reader(batch(20, event(19)), batch(10)), reader(batch(30, event(29))))) {
+      var batches = List.of(client.getNext(), client.getNext(), client.getNext());
+
+      // The empty batch must carry its own token, not the starting token.
+      var emptyBatch =
+          batches.stream().filter(b -> b.getRawEvents().isEmpty()).findFirst().orElseThrow();
+      assertThat(emptyBatch.getPostBatchResumeToken()).isEqualTo(token(10));
     }
   }
 
@@ -154,9 +166,9 @@ public class PartitionedChangeStreamClientTest {
       var retried = client.getNext();
 
       assertThat(otherReaderBatch.getRawEvents()).containsExactly(event(19));
-      assertThat(otherReaderBatch.getPostBatchResumeToken()).isEqualTo(token(0));
+      assertThat(otherReaderBatch.getPostBatchResumeToken()).isEqualTo(token(20));
       assertThat(retried.getRawEvents()).containsExactly(event(1));
-      assertThat(retried.getPostBatchResumeToken()).isEqualTo(token(0));
+      assertThat(retried.getPostBatchResumeToken()).isEqualTo(token(10));
       verify(first, times(2)).getNext();
     }
   }
@@ -184,7 +196,7 @@ public class PartitionedChangeStreamClientTest {
 
       assertThat(accepted.getRawEvents()).containsExactly(event(1));
       assertThat(retried.getRawEvents()).containsExactly(event(19));
-      assertThat(retried.getPostBatchResumeToken()).isEqualTo(token(0));
+      assertThat(retried.getPostBatchResumeToken()).isEqualTo(token(20));
       verify(second).getNext();
     }
   }
@@ -452,7 +464,8 @@ public class PartitionedChangeStreamClientTest {
       var result = next.get(10, TimeUnit.SECONDS);
 
       assertThat(result.getRawEvents()).containsExactly(event(127));
-      assertThat(result.getPostBatchResumeToken()).isEqualTo(token(128));
+      // the reader's real token, not the starting token(128)
+      assertThat(result.getPostBatchResumeToken()).isEqualTo(token(130));
       assertThat(unblocked.getCount()).isEqualTo(2);
     } finally {
       client.close();
@@ -561,7 +574,7 @@ public class PartitionedChangeStreamClientTest {
         .when(this.fetchExecutor)
         .execute(any(Runnable.class));
     return new PartitionedChangeStreamClient<>(
-        readers, token(0), this.fetchExecutor, SteadyStateException::wrapIfThrows);
+        readers, this.fetchExecutor, SteadyStateException::wrapIfThrows);
   }
 
   private Runnable nextFetch() throws Exception {

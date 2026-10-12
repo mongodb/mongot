@@ -7,6 +7,8 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -20,5 +22,6 @@ interface ChangeStreamIndexManagerFactory {
       Consumer<ChangeStreamResumeInfo> resumeInfoUpdater,
       IndexMetricsUpdater indexMetricsUpdater,
       CompletableFuture<Void> externalFuture,
-      GenerationId generationId);
+      GenerationId generationId,
+      Optional<PartitionedChangeStreamProgressTracker> partitionTracker);
 }

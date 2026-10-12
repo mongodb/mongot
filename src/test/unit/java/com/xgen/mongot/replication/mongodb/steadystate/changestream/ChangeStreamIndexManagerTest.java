@@ -41,11 +41,14 @@ import com.xgen.mongot.index.definition.ViewDefinition;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.ChangeStreamEventCheckException;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
+import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException.Type;
@@ -65,6 +68,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -157,7 +161,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -186,6 +191,246 @@ public class ChangeStreamIndexManagerTest {
               .gauge()
               .value(),
           0);
+    }
+
+    private static final ChangeStreamPartition PARTITION_0 = new ChangeStreamPartition(0, 2);
+    private static final ChangeStreamPartition PARTITION_1 = new ChangeStreamPartition(1, 2);
+    private static final BsonDocument SEED_TOKEN = ChangeStreamUtils.POST_BATCH_RESUME_TOKEN;
+
+    private static PartitionedChangeStreamProgressTracker twoPartitionTracker() {
+      return new PartitionedChangeStreamProgressTracker(
+          Map.of(PARTITION_0, SEED_TOKEN, PARTITION_1, SEED_TOKEN));
+    }
+
+    private static ChangeStreamBatch emptyBatch(
+        ChangeStreamPartition partition, BsonDocument postBatchResumeToken) {
+      return new ChangeStreamBatch(
+          Collections.emptyList(),
+          postBatchResumeToken,
+          Optional.of(new BsonTimestamp()),
+          Optional.of(partition));
+    }
+
+    /** Captures each scheduled batch's commit data; readable from the test thread. */
+    private static IndexingWorkScheduler capturingScheduler(
+        List<Optional<IndexCommitUserData>> committed, CompletableFuture<Void> schedulerFuture) {
+      IndexingWorkScheduler scheduler = mock(IndexingWorkScheduler.class);
+      when(scheduler.schedule(any(), any(), any(), any(), any(), any(), any()))
+          .thenAnswer(
+              invocation -> {
+                // Batches with no safe position schedule with empty commit data.
+                committed.add(invocation.<Optional<IndexCommitUserData>>getArgument(5));
+                return schedulerFuture;
+              });
+      return scheduler;
+    }
+
+    private ChangeStreamIndexManager partitionedManager(
+        IndexingWorkScheduler scheduler,
+        AtomicReference<ChangeStreamResumeInfo> resumeInfoReference,
+        Optional<PartitionedChangeStreamProgressTracker> tracker) {
+      return getChangeStreamIndexManagerFactory()
+          .create(
+              MOCK_INDEX_DEFINITION,
+              scheduler,
+              indexer(),
+              ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+              resumeInfoReference::set,
+              IGNORE_METRICS,
+              new CompletableFuture<>(),
+              GenerationIdBuilder.create(),
+              tracker);
+    }
+
+    @Test
+    public void indexBatch_partitionedBatch_acksOnlyAfterIndexingCompletes() throws Exception {
+      List<Optional<IndexCommitUserData>> committed =
+          Collections.synchronizedList(new ArrayList<>());
+      CompletableFuture<Void> schedulerFuture = new CompletableFuture<>();
+      IndexingWorkScheduler scheduler = capturingScheduler(committed, schedulerFuture);
+      var tracker = twoPartitionTracker();
+      ChangeStreamIndexManager manager =
+          partitionedManager(scheduler, new AtomicReference<>(), Optional.of(tracker));
+      var partitionToken = ChangeStreamUtils.resumeToken(new BsonTimestamp(2, 0));
+
+      CompletableFuture<Void> indexFuture =
+          manager.indexBatch(
+                  emptyBatch(PARTITION_1, partitionToken),
+                  NOOP_DOCUMENT_METRICS_UPDATER,
+                  NOOP_TIMER)
+              .indexingFuture;
+      verify(scheduler, timeout(1000)).schedule(any(), any(), any(), any(), any(), any(), any());
+
+      // Scheduled but not yet indexed: nothing is confirmed past the seed positions.
+      Assert.assertEquals(
+          Map.of(PARTITION_0, SEED_TOKEN, PARTITION_1, SEED_TOKEN), tracker.snapshot());
+      IndexCommitUserData commitData = committed.get(0).orElseThrow();
+      Assert.assertEquals(SEED_TOKEN, commitData.resumeInfo().orElseThrow().getResumeToken());
+
+      schedulerFuture.complete(null);
+      indexFuture.get(300, TimeUnit.MILLISECONDS);
+
+      Assert.assertEquals(partitionToken, tracker.snapshot().get(PARTITION_1));
+      Assert.assertEquals(SEED_TOKEN, tracker.snapshot().get(PARTITION_0));
+    }
+
+    @Test
+    public void indexBatch_partitionsAtDifferentPositions_commitsMinimumPosition()
+        throws Exception {
+      List<Optional<IndexCommitUserData>> committed =
+          Collections.synchronizedList(new ArrayList<>());
+      IndexingWorkScheduler scheduler =
+          capturingScheduler(committed, CompletableFuture.completedFuture(null));
+      var tracker = twoPartitionTracker();
+      ChangeStreamIndexManager manager =
+          partitionedManager(scheduler, new AtomicReference<>(), Optional.of(tracker));
+      var aheadToken = ChangeStreamUtils.resumeToken(new BsonTimestamp(5, 0));
+      var behindToken = ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0));
+
+      // Partition 1 indexes and advances first; partition 0 then commits.
+      manager
+          .indexBatch(
+              emptyBatch(PARTITION_1, aheadToken), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+      manager
+          .indexBatch(
+              emptyBatch(PARTITION_0, behindToken), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+
+      // The checkpoint is the minimum: partition 0 had not confirmed past the seed when the
+      // second batch was scheduled, even though partition 1 is ahead.
+      IndexCommitUserData secondCommit = committed.get(1).orElseThrow();
+      Assert.assertEquals(SEED_TOKEN, secondCommit.resumeInfo().orElseThrow().getResumeToken());
+
+      // Both acked: each partition at its own position, not the seed.
+      Assert.assertEquals(
+          Map.of(PARTITION_0, behindToken, PARTITION_1, aheadToken), tracker.snapshot());
+
+      // A third batch commits the minimum of the two advanced positions (3, not the seed and not
+      // 5) — which a "commit the seed" or "commit one partition's token" implementation can't.
+      manager
+          .indexBatch(
+              emptyBatch(PARTITION_1, ChangeStreamUtils.resumeToken(new BsonTimestamp(7, 0))),
+              NOOP_DOCUMENT_METRICS_UPDATER,
+              NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+      IndexCommitUserData thirdCommit = committed.get(2).orElseThrow();
+      Assert.assertEquals(behindToken, thirdCommit.resumeInfo().orElseThrow().getResumeToken());
+    }
+
+    @Test
+    public void indexBatch_partitionedBatchIndexed_reportsLowWaterMarkNotPartitionToken()
+        throws Exception {
+      IndexingWorkScheduler scheduler =
+          capturingScheduler(
+              Collections.synchronizedList(new ArrayList<>()),
+              CompletableFuture.completedFuture(null));
+      AtomicReference<ChangeStreamResumeInfo> resumeInfoReference = new AtomicReference<>();
+      ChangeStreamIndexManager manager =
+          partitionedManager(scheduler, resumeInfoReference, Optional.of(twoPartitionTracker()));
+      var aheadToken = ChangeStreamUtils.resumeToken(new BsonTimestamp(5, 0));
+
+      manager
+          .indexBatch(
+              emptyBatch(PARTITION_1, aheadToken), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+
+      // Partition 0 is still at the seed, so reporting partition 1's token would skip its
+      // events on a transient restart.
+      Assert.assertEquals(SEED_TOKEN, resumeInfoReference.get().getResumeToken());
+
+      // Once partition 0 advances, the retry position moves to the new minimum (3, not 5) —
+      // proving it tracks the low-water mark rather than staying at the seed.
+      var behindToken = ChangeStreamUtils.resumeToken(new BsonTimestamp(3, 0));
+      manager
+          .indexBatch(
+              emptyBatch(PARTITION_0, behindToken), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+      Assert.assertEquals(behindToken, resumeInfoReference.get().getResumeToken());
+    }
+
+    @Test
+    public void indexBatch_partitionedIndexingFails_doesNotAdvanceConfirmedPosition()
+        throws Exception {
+      CompletableFuture<Void> schedulerFuture = new CompletableFuture<>();
+      IndexingWorkScheduler scheduler =
+          capturingScheduler(Collections.synchronizedList(new ArrayList<>()), schedulerFuture);
+      var tracker = twoPartitionTracker();
+      ChangeStreamIndexManager manager =
+          partitionedManager(scheduler, new AtomicReference<>(), Optional.of(tracker));
+
+      CompletableFuture<Void> indexFuture =
+          manager.indexBatch(
+                  emptyBatch(PARTITION_1, ChangeStreamUtils.resumeToken(new BsonTimestamp(2, 0))),
+                  NOOP_DOCUMENT_METRICS_UPDATER,
+                  NOOP_TIMER)
+              .indexingFuture;
+      RuntimeException indexingFailure = new RuntimeException("indexing failed");
+      schedulerFuture.completeExceptionally(indexingFailure);
+
+      ExecutionException failure =
+          Assert.assertThrows(
+              ExecutionException.class, () -> indexFuture.get(300, TimeUnit.MILLISECONDS));
+      Assert.assertEquals("indexing failed", failure.getCause().getMessage());
+      Assert.assertEquals(
+          Map.of(PARTITION_0, SEED_TOKEN, PARTITION_1, SEED_TOKEN), tracker.snapshot());
+    }
+
+    @Test
+    public void indexBatch_partitionedBatchWithoutTracker_commitsSingleReaderResumeInfo()
+        throws Exception {
+      List<Optional<IndexCommitUserData>> committed =
+          Collections.synchronizedList(new ArrayList<>());
+      IndexingWorkScheduler scheduler =
+          capturingScheduler(committed, CompletableFuture.completedFuture(null));
+      ChangeStreamIndexManager manager =
+          partitionedManager(scheduler, new AtomicReference<>(), Optional.empty());
+      var token = ChangeStreamUtils.resumeToken(new BsonTimestamp(2, 0));
+
+      manager
+          .indexBatch(emptyBatch(PARTITION_1, token), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+
+      IndexCommitUserData commitData = committed.get(0).orElseThrow();
+      Assert.assertEquals(token, commitData.resumeInfo().orElseThrow().getResumeToken());
+    }
+
+    @Test
+    public void indexBatch_partitionedAllInvalidatingBatch_doesNotRegisterWithTracker()
+        throws Exception {
+      List<Optional<IndexCommitUserData>> committed =
+          Collections.synchronizedList(new ArrayList<>());
+      IndexingWorkScheduler scheduler =
+          capturingScheduler(committed, CompletableFuture.completedFuture(null));
+      var tracker = twoPartitionTracker();
+      AtomicReference<ChangeStreamResumeInfo> resumeInfoReference = new AtomicReference<>();
+      ChangeStreamIndexManager manager =
+          partitionedManager(scheduler, resumeInfoReference, Optional.of(tracker));
+      ChangeStreamBatch batch =
+          new ChangeStreamBatch(
+              toRawBsonDocuments(List.of(ChangeStreamUtils.dropEvent(0))),
+              ChangeStreamUtils.resumeToken(new BsonTimestamp(2, 0)),
+              Optional.of(new BsonTimestamp()),
+              Optional.of(PARTITION_1));
+
+      manager
+          .indexBatch(batch, NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER)
+          .indexingFuture
+          .get(1, TimeUnit.SECONDS);
+
+      // No safe position, so nothing to confirm and no commit data: the drop ends this attempt,
+      // and the in-memory resume info must not move to this batch's (unsafe) token.
+      Assert.assertEquals(1, committed.size());
+      Assert.assertTrue(committed.get(0).isEmpty());
+      Assert.assertNull(resumeInfoReference.get());
+      Assert.assertEquals(
+          Map.of(PARTITION_0, SEED_TOKEN, PARTITION_1, SEED_TOKEN), tracker.snapshot());
     }
 
     @Test
@@ -218,7 +463,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -306,7 +552,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfo -> {},
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       List<ChangeStreamDocument<RawBsonDocument>> events =
           Arrays.asList(
@@ -365,7 +612,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   IGNORE_METRICS,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -446,7 +694,8 @@ public class ChangeStreamIndexManagerTest {
                   ignoredResumeInfo -> {},
                   IGNORE_METRICS,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> shutdownFuture = manager.shutdown();
 
@@ -493,7 +742,8 @@ public class ChangeStreamIndexManagerTest {
                   ignoreResumeInfo -> {},
                   IGNORE_METRICS,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> shutdownFuture = manager.shutdown();
 
@@ -537,7 +787,8 @@ public class ChangeStreamIndexManagerTest {
                   ignoreResumeInfo -> {},
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -614,7 +865,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -729,7 +981,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -783,7 +1036,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   metricsUpdater,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -847,7 +1101,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   IGNORE_METRICS,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -911,7 +1166,8 @@ public class ChangeStreamIndexManagerTest {
                   ignoreResumeInfo -> {},
                   IGNORE_METRICS,
                   lifecycleFuture,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(
@@ -1383,7 +1639,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   IGNORE_METRICS,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       manager.indexBatch(
           new ChangeStreamBatch(
@@ -1424,7 +1681,8 @@ public class ChangeStreamIndexManagerTest {
                   resumeInfoReference::set,
                   IGNORE_METRICS,
                   future,
-                  GenerationIdBuilder.create());
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
 
       CompletableFuture<Void> indexFuture =
           manager.indexBatch(

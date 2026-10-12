@@ -42,12 +42,14 @@ import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException.Type;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
@@ -109,6 +111,46 @@ public class ChangeStreamManagerTest {
   public static List<ContextTest> params() {
     return List.of(
         new ContextTest("sync-client", ChangeStreamManagerTestSyncHelpers::getSyncParameters));
+  }
+
+  @Test
+  public void createPartitionTracker_parallelReadersEnabled_seedsEveryPartitionAtInitialToken() {
+    SteadyStateReplicationConfig config =
+        SteadyStateReplicationConfig.builder()
+            .setNumConcurrentChangeStreams(1)
+            .setMaxInFlightEmbeddingGetMores(1)
+            .setChangeStreamQueryMaxTimeMs(1000)
+            .setChangeStreamCursorMaxTimeSec(1000)
+            .setEnableParallelChangeStreamReaders(true)
+            .setNumParallelChangeStreamReaders(3)
+            .build();
+
+    Optional<PartitionedChangeStreamProgressTracker> tracker =
+        ChangeStreamManager.createPartitionTracker(config, ChangeStreamUtils.PRE_BATCH_RESUME_INFO);
+
+    BsonDocument seed = ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getResumeToken();
+    Assert.assertEquals(
+        Map.of(
+            new ChangeStreamPartition(0, 3), seed,
+            new ChangeStreamPartition(1, 3), seed,
+            new ChangeStreamPartition(2, 3), seed),
+        tracker.orElseThrow().snapshot());
+  }
+
+  @Test
+  public void createPartitionTracker_parallelReadersDisabled_returnsEmpty() {
+    SteadyStateReplicationConfig config =
+        SteadyStateReplicationConfig.builder()
+            .setNumConcurrentChangeStreams(1)
+            .setMaxInFlightEmbeddingGetMores(1)
+            .setChangeStreamQueryMaxTimeMs(1000)
+            .setChangeStreamCursorMaxTimeSec(1000)
+            .setEnableParallelChangeStreamReaders(false)
+            .build();
+
+    Assert.assertTrue(
+        ChangeStreamManager.createPartitionTracker(config, ChangeStreamUtils.PRE_BATCH_RESUME_INFO)
+            .isEmpty());
   }
 
   @Test
@@ -217,7 +259,7 @@ public class ChangeStreamManagerTest {
     ChangeStreamIndexManagerFactory indexManagerFactory =
         mock(ChangeStreamIndexManagerFactory.class);
 
-    when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
               ChangeStreamIndexManager manager =
@@ -272,7 +314,7 @@ public class ChangeStreamManagerTest {
     ChangeStreamIndexManagerFactory indexManagerFactory =
         mock(ChangeStreamIndexManagerFactory.class);
 
-    when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation -> {
               ChangeStreamIndexManager manager =
@@ -1163,7 +1205,8 @@ public class ChangeStreamManagerTest {
             resumeInfoConsumer,
             indexMetricsUpdater,
             externalFuture,
-            generationId) -> {
+            generationId,
+            partitionTracker) -> {
           var manager =
               this.context
                   .getIndexManagerFactory()
@@ -1175,7 +1218,8 @@ public class ChangeStreamManagerTest {
                       resumeInfoConsumer,
                       indexMetricsUpdater,
                       externalFuture,
-                      generationId);
+                      generationId,
+                      partitionTracker);
 
           if (generationId.equals(secondDefinition.getGenerationId())) {
             // shutdown manager for the second index, so we can
@@ -1424,7 +1468,7 @@ public class ChangeStreamManagerTest {
 
     ChangeStreamIndexManagerFactory indexManagerFactory =
         mock(ChangeStreamIndexManagerFactory.class);
-    when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(indexManagerFactory.create(any(), any(), any(), any(), any(), any(), any(), any(), any()))
         .thenAnswer(
             invocation ->
                 this.context
@@ -1437,7 +1481,8 @@ public class ChangeStreamManagerTest {
                         invocation.getArgument(4),
                         invocation.getArgument(5),
                         invocation.getArgument(6),
-                        invocation.getArgument(7)));
+                        invocation.getArgument(7),
+                        invocation.getArgument(8)));
 
     // Create a manager with numConcurrentChangeStreams of 2.
     var instance =

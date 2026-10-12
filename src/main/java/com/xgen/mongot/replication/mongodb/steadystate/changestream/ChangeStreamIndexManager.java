@@ -19,6 +19,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.Docu
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.util.Crash;
@@ -33,6 +34,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.apache.commons.codec.DecoderException;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
@@ -117,6 +119,12 @@ abstract class ChangeStreamIndexManager {
   protected final IndexMetricsUpdater indexMetricsUpdater;
   private final Consumer<ChangeStreamResumeInfo> resumeInfoUpdater;
 
+  /**
+   * Present when parallel change stream readers are enabled: tracks each partition's confirmed
+   * indexing progress so the commit path can persist the low-water mark across partitions.
+   */
+  protected final Optional<PartitionedChangeStreamProgressTracker> partitionTracker;
+
   // use these to limit how often we write the optime to the log
   private volatile Instant optimeLastUpdate;
   private static final Duration OPTIME_LOG_PERIOD = Duration.ofMinutes(1);
@@ -155,7 +163,8 @@ abstract class ChangeStreamIndexManager {
       Consumer<ChangeStreamResumeInfo> resumeInfoUpdater,
       IndexMetricsUpdater indexMetricsUpdater,
       CompletableFuture<Void> lifecycleFuture,
-      GenerationId generationId) {
+      GenerationId generationId,
+      Optional<PartitionedChangeStreamProgressTracker> partitionTracker) {
 
     this.logger = logger;
     this.indexDefinition = indexDefinition;
@@ -166,6 +175,7 @@ abstract class ChangeStreamIndexManager {
     this.indexMetricsUpdater = indexMetricsUpdater;
     this.lifecycleFuture = lifecycleFuture;
     this.generationId = generationId;
+    this.partitionTracker = partitionTracker;
 
     this.latestIndexingFuture = FutureUtils.COMPLETED_FUTURE;
     this.shutdown = false;
@@ -211,15 +221,20 @@ abstract class ChangeStreamIndexManager {
       DocumentMetricsUpdater metricsUpdater,
       Timer preprocessingBatchTimer);
 
+  /**
+   * Runs after a batch's indexing completes; {@code resumeInfoSupplier} is read then, so a
+   * partitioned batch reports the low-water mark including its own acknowledgment.
+   */
   protected CompletableFuture<Void> postIndexingPipeline(
       CompletableFuture<Void> schedulingFuture,
       CompletableFuture<Void> indexingFuture,
-      Optional<ChangeStreamResumeInfo> resumeInfo,
+      Supplier<Optional<ChangeStreamResumeInfo>> resumeInfoSupplier,
       Optional<SteadyStateException> lifecycleEvent,
       Optional<BsonTimestamp> commandOperationTime) {
     return schedulingFuture
         .thenRun(
             () -> {
+              Optional<ChangeStreamResumeInfo> resumeInfo = resumeInfoSupplier.get();
               resumeInfo.ifPresent(this.resumeInfoUpdater);
               if (resumeInfo.isPresent()) {
                 try {

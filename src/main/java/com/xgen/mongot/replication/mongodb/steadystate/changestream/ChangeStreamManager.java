@@ -14,6 +14,7 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CollectionSamplingMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
@@ -22,6 +23,7 @@ import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.HeuristicChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
@@ -41,6 +43,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import org.bson.BsonDocument;
 import org.jetbrains.annotations.TestOnly;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +63,7 @@ public class ChangeStreamManager {
   private final ChangeStreamDispatcher dispatcher;
   private final ChangeStreamModeSelector modeSelector;
   private final Optional<ActivityObserverFactory> activityObserverFactory;
+  private final PartitionTrackerFactory partitionTrackerFactory;
 
   @GuardedBy("this")
   private final Map<GenerationId, ChangeStreamIndexManager> indexManagers;
@@ -81,17 +85,26 @@ public class ChangeStreamManager {
     ChangeStreamActivityObserver create(String databaseName);
   }
 
+  /** Creates the generation's tracker when parallel readers are enabled; empty otherwise. */
+  @FunctionalInterface
+  interface PartitionTrackerFactory {
+    Optional<PartitionedChangeStreamProgressTracker> create(
+        ChangeStreamResumeInfo initialResumeInfo);
+  }
+
   private ChangeStreamManager(
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       ChangeStreamIndexManagerFactory indexManagerFactory,
       ChangeStreamDispatcher dispatcher,
       ChangeStreamModeSelector modeSelector,
-      Optional<ActivityObserverFactory> activityObserverFactory) {
+      Optional<ActivityObserverFactory> activityObserverFactory,
+      PartitionTrackerFactory partitionTrackerFactory) {
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.indexManagerFactory = indexManagerFactory;
     this.dispatcher = dispatcher;
     this.modeSelector = modeSelector;
     this.activityObserverFactory = activityObserverFactory;
+    this.partitionTrackerFactory = partitionTrackerFactory;
     this.indexManagers = new HashMap<>();
     this.observersByDatabase = new HashMap<>();
     this.observerDatabaseByIndex = new HashMap<>();
@@ -295,12 +308,36 @@ public class ChangeStreamManager {
             replicationConfig.getReplicationType(),
             replicationConfig.getRetryThrottledGetMoreOnSameCursor());
 
+    PartitionTrackerFactory partitionTrackerFactory =
+        resumeInfo -> createPartitionTracker(replicationConfig, resumeInfo);
+
     return new ChangeStreamManager(
         indexingWorkSchedulerFactory,
         indexManagerFactory,
         syncDispatcher,
         modeSelector,
-        activityObserverFactory);
+        activityObserverFactory,
+        partitionTrackerFactory);
+  }
+
+  /**
+   * Creates a generation's partition progress tracker when parallel readers are enabled, seeding
+   * every partition at the index's initial resume position. Must use the same partition count as
+   * {@link ChangeStreamMongoClientFactory} does.
+   */
+  @VisibleForTesting
+  static Optional<PartitionedChangeStreamProgressTracker> createPartitionTracker(
+      SteadyStateReplicationConfig config, ChangeStreamResumeInfo initialResumeInfo) {
+    if (!config.getEnableParallelChangeStreamReaders()) {
+      return Optional.empty();
+    }
+    int numReaders = config.getNumParallelChangeStreamReaders();
+    Map<ChangeStreamPartition, BsonDocument> seedPositions = new HashMap<>();
+    for (int id = 0; id < numReaders; id++) {
+      seedPositions.put(
+          new ChangeStreamPartition(id, numReaders), initialResumeInfo.getResumeToken());
+    }
+    return Optional.of(new PartitionedChangeStreamProgressTracker(seedPositions));
   }
 
   /**
@@ -527,7 +564,8 @@ public class ChangeStreamManager {
             resumeInfoUpdater,
             indexMetricsUpdater,
             lifecycleFuture,
-            generationId);
+            generationId,
+            this.partitionTrackerFactory.create(resumeInfo));
 
     this.indexManagers.put(generationId, indexManager);
     this.modeSelector.register(generationId, indexDefinition, namespace);
@@ -628,7 +666,8 @@ public class ChangeStreamManager {
         resumeInfoUpdater,
         indexMetricsUpdater,
         externalFuture,
-        generationId) ->
+        generationId,
+        partitionTracker) ->
         DecodingExecutorChangeStreamIndexManager.createWithDecodingScheduler(
             indexDefinition,
             indexingWorkScheduler,
@@ -639,6 +678,7 @@ public class ChangeStreamManager {
             externalFuture,
             generationId,
             decodingScheduler,
-            autoEmbeddingMaterializedViewConfig);
+            autoEmbeddingMaterializedViewConfig,
+            partitionTracker);
   }
 }

@@ -32,9 +32,9 @@ import org.slf4j.LoggerFactory;
  * advance independently. Reader creation must apply the partition filter and reassemble split
  * events before delivery.
  *
- * <p>Every returned batch contains the starting checkpoint. This client does not track confirmed
- * indexing progress or advance the checkpoint. Collection lifecycle events are unsupported and
- * cause {@link #getNext()} to fail.
+ * <p>Every returned batch carries its reader's real post-batch resume token, so confirmed indexing
+ * progress can advance the checkpoint. This client itself does not track confirmed indexing
+ * progress. Collection lifecycle events are unsupported and cause {@link #getNext()} to fail.
  */
 public class PartitionedChangeStreamClient<E extends Exception>
     implements ChangeStreamMongoClient<E> {
@@ -64,12 +64,6 @@ public class PartitionedChangeStreamClient<E extends Exception>
   private final ExecutorService executor;
 
   private final WrapIfThrows<E> exceptionWrapper;
-
-  /**
-   * Saved resume token currently returned with every batch. A future change will advance the
-   * checkpoint based on confirmed indexing progress across all readers of the same index.
-   */
-  private final BsonDocument initialResumeToken;
 
   /**
    * Whether close() has started. Atomic so shutdown does not need the monitor held by getNext().
@@ -111,7 +105,6 @@ public class PartitionedChangeStreamClient<E extends Exception>
             }
             return new PartitionedChangeStreamClient<>(
                 clients,
-                resumeToken,
                 Executors.newFixedThreadPool(
                     partitionCount,
                     new ThreadFactoryBuilder()
@@ -140,7 +133,6 @@ public class PartitionedChangeStreamClient<E extends Exception>
   @VisibleForTesting
   PartitionedChangeStreamClient(
       List<ChangeStreamMongoClient<E>> clients,
-      BsonDocument initialResumeToken,
       ExecutorService executor,
       WrapIfThrows<E> exceptionWrapper) {
     var readers = new ArrayList<Reader<E>>();
@@ -149,7 +141,6 @@ public class PartitionedChangeStreamClient<E extends Exception>
     }
     this.readers = readers;
     this.completedReaders = new LinkedBlockingQueue<>();
-    this.initialResumeToken = initialResumeToken;
     this.executor = executor;
     this.exceptionWrapper = exceptionWrapper;
     this.closed = new AtomicBoolean(false);
@@ -182,7 +173,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
               "Partitioned change stream lifecycle coordination is not implemented");
           return new ChangeStreamBatch(
               batch.getRawEvents(),
-              this.initialResumeToken,
+              batch.getPostBatchResumeToken(),
               batch.getCommandOperationTime(),
               Optional.of(reader.partition));
         });

@@ -27,6 +27,8 @@ import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
+import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
@@ -40,6 +42,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import org.bson.BsonDocument;
 import org.bson.RawBsonDocument;
 
 class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager {
@@ -69,7 +72,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       CompletableFuture<Void> lifecycleFuture,
       GenerationId generationId,
       DecodingWorkScheduler decodingScheduler,
-      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
+      Optional<PartitionedChangeStreamProgressTracker> partitionTracker) {
     super(
         indexDefinition,
         logger,
@@ -79,7 +83,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         resumeInfoUpdater,
         indexMetricsUpdater,
         lifecycleFuture,
-        generationId);
+        generationId,
+        partitionTracker);
     this.decodingScheduler = decodingScheduler;
     this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
     this.lifecycleException = Optional.empty();
@@ -88,6 +93,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
             () -> ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
   }
 
+  @VisibleForTesting
   static DecodingExecutorChangeStreamIndexManager createWithDecodingScheduler(
       IndexDefinition indexDefinition,
       IndexingWorkScheduler indexingWorkScheduler,
@@ -108,6 +114,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         lifecycleFuture,
         generationId,
         decodingScheduler,
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -121,7 +128,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       CompletableFuture<Void> lifecycleFuture,
       GenerationId generationId,
       DecodingWorkScheduler decodingScheduler,
-      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig) {
+      Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
+      Optional<PartitionedChangeStreamProgressTracker> partitionTracker) {
 
     HashMap<String, Object> defaultKeyValues = new HashMap<>();
     defaultKeyValues.put("indexId", generationId.indexId);
@@ -143,7 +151,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         lifecycleFuture,
         generationId,
         decodingScheduler,
-        autoEmbeddingMaterializedViewConfig);
+        autoEmbeddingMaterializedViewConfig,
+        partitionTracker);
   }
 
   @Override
@@ -168,6 +177,10 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       // Schedule the batch to be indexed, and update the resumeInfo only after the batch has been
       // indexed.
       Optional<ChangeStreamResumeInfo> resumeInfo = getResumeInfo(batch);
+
+      // Partitioned batches register in reader order; the snapshot only covers batches
+      // acknowledged before this one.
+      Optional<PartitionedBatch> partitionedBatch = registerPartitionedBatch(batch, resumeInfo);
 
       // Look at the last two events in batch for a lifecycle event (DROP, RENAME, INVALIDATE). If
       // found, no new batches will be submitted by upper logic and `lifecycleFuture` will get
@@ -237,12 +250,18 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                 // not completed. this.scheduleIndexing, ChangeStreamIndexManager#failLifecycle,
                 // ChangeStreamIndexManager#indexBatch and ChangeStreamIndexManager#shutdown
                 // calls are serialized (synchronized) to ensure threads see the latest state.
-                scheduleIndexingAsync(documentEventBatch.finalChangeEvents, resumeInfo)
+                scheduleIndexingAsync(
+                        documentEventBatch.finalChangeEvents,
+                        resumeInfo,
+                        partitionedBatch.map(PartitionedBatch::commitData))
                     .whenComplete(
                         (unused, indexingFailure) -> {
                           if (indexingFailure != null) {
                             schedulingFuture.completeExceptionally(indexingFailure);
                           } else {
+                            // Acknowledge only after indexing succeeded, so the tracker's
+                            // confirmed position never runs ahead of indexed data.
+                            partitionedBatch.ifPresent(p -> p.ack().run());
                             schedulingFuture.complete(null);
                             recordPerBatchMetrics(documentEventBatch);
                           }
@@ -263,7 +282,11 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
           postIndexingPipeline(
               schedulingFuture,
               indexingFuture,
-              resumeInfo,
+              // A partitioned batch reports the low-water mark, not its own partition's token: a
+              // transient restart resumes every partition from this in-memory value.
+              partitionedBatch.isPresent()
+                  ? () -> Optional.of(lowWaterMarkResumeInfo())
+                  : () -> resumeInfo,
               lifecycleEvent,
               batch.getCommandOperationTime());
 
@@ -330,7 +353,9 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
    * be rejected.
    */
   private CompletableFuture<Void> scheduleIndexingAsync(
-      List<DocumentEvent> finalChangeEvents, Optional<ChangeStreamResumeInfo> resumeInfo) {
+      List<DocumentEvent> finalChangeEvents,
+      Optional<ChangeStreamResumeInfo> resumeInfo,
+      Optional<IndexCommitUserData> partitionedCommitData) {
     synchronized (this) { // https://github.com/mockito/mockito/issues/2970
 
       // Nothing to do if lifecycle event was detected.
@@ -338,19 +363,66 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
         return CompletableFuture.failedFuture(this.lifecycleException.get());
       }
 
+      // Partitioned batches commit the tracker's low-water mark; single-reader batches commit their
+      // own post-batch resume info.
+      Optional<IndexCommitUserData> commitUserData =
+          partitionedCommitData.or(
+              () ->
+                  resumeInfo.map(
+                      info ->
+                          IndexCommitUserData.createChangeStreamResume(
+                              info, this.generationId.generation.formatVersion.versionNumber())));
+
       return this.indexingWorkScheduler.schedule(
           finalChangeEvents,
           SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
           this.documentIndexer,
           this.generationId,
           Optional.of(this.attemptId),
-          resumeInfo.map(
-              info ->
-                  IndexCommitUserData.createChangeStreamResume(
-                      info, this.generationId.generation.formatVersion.versionNumber())),
+          commitUserData,
           this.indexMetricsUpdater.getIndexingMetricsUpdater());
     }
   }
+
+  /**
+   * Registers a partitioned batch with the progress tracker and captures its commit data. Returns
+   * empty for single-reader batches, and for batches with no safe position (every event is
+   * invalidating): the lifecycle event ends this attempt, so there is nothing to confirm.
+   *
+   * <p>Commit data is captured before this batch is acknowledged, so a crash replays it; the
+   * in-memory resume info is read after, so a transient restart does not. A registered batch that
+   * is never acknowledged means the generation failed — a new attempt starts with a fresh tracker.
+   */
+  private Optional<PartitionedBatch> registerPartitionedBatch(
+      ChangeStreamBatch batch, Optional<ChangeStreamResumeInfo> resumeInfo) {
+    if (this.partitionTracker.isEmpty() || batch.getPartition().isEmpty() || resumeInfo.isEmpty()) {
+      return Optional.empty();
+    }
+    Runnable ack =
+        this.partitionTracker
+            .get()
+            .registerBatch(batch.getPartition().get(), resumeInfo.get().getResumeToken());
+    return Optional.of(new PartitionedBatch(ack, confirmedCommitData()));
+  }
+
+  /** Commit data for the low-water mark across the partitions' confirmed positions. */
+  private IndexCommitUserData confirmedCommitData() {
+    BsonDocument lowWaterMark =
+        ResumeTokenUtils.lowWaterMark(this.partitionTracker.orElseThrow().snapshot().values());
+    return IndexCommitUserData.createChangeStreamResume(
+        ChangeStreamResumeInfo.create(this.namespace, lowWaterMark),
+        this.generationId.generation.formatVersion.versionNumber());
+  }
+
+  /**
+   * The low-water mark across partitions; what a transient restart resumes every partition from.
+   */
+  private ChangeStreamResumeInfo lowWaterMarkResumeInfo() {
+    return confirmedCommitData().resumeInfo().orElseThrow();
+  }
+
+  /** Acknowledgment callback and commit data for a registered partitioned batch. */
+  private record PartitionedBatch(Runnable ack, IndexCommitUserData commitData) {}
 
   /** Returns a list which lazily decodes raw bson events as the list is traversed. */
   @VisibleForTesting
