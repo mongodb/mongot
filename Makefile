@@ -150,6 +150,8 @@ deps.update:
 deps.outdated:
 	@$(call BAZEL) run @maven//:outdated
 
+# --build_tests_only is required alongside //...: without it Bazel also analyzes non-test targets,
+# including the OCI images, which need registry credentials to fetch.
 .PHONY: test.unit
 test.unit:
 	@echo 'Running unit tests for files affected by this PR'
@@ -165,8 +167,9 @@ test.unit:
 		echo 'Running all unit tests'; \
 		$(BAZEL) test \
 			--test_tag_filters='unit' \
+			--build_tests_only \
 			--test_output=errors \
-			//src/...; \
+			//...; \
 	fi
 
 .PHONY: test.unit.coverage
