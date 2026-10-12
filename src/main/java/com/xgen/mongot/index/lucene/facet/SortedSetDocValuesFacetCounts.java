@@ -53,6 +53,12 @@ import org.jetbrains.annotations.Nullable;
  * it does not for token fields.
  */
 public class SortedSetDocValuesFacetCounts extends AbstractSortedSetDocValuesFacetCounts {
+  /**
+   * Count densely below this many unique values. {@link TokenFacetSparseRouting} uses the same
+   * cutoff when deciding whether a global ordinal map is cheap enough to build.
+   */
+  public static final int DENSE_CARDINALITY_LIMIT = 1024;
+
   @Nullable int[] denseCounts;
   @Nullable private IntIntHashMap sparseCounts;
   private final int cardinality;
@@ -66,7 +72,7 @@ public class SortedSetDocValuesFacetCounts extends AbstractSortedSetDocValuesFac
   }
 
   private void initializeCounts(List<FacetsCollector.MatchingDocs> hits) throws IOException {
-    if (this.cardinality < 1024) { // count densely for low cardinality
+    if (this.cardinality < DENSE_CARDINALITY_LIMIT) { // count densely for low cardinality
       this.sparseCounts = null;
       this.denseCounts = null;
       count(hits);

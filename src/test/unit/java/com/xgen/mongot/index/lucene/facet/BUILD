@@ -5,7 +5,9 @@ java_test_suite(
     srcs = [
         "ParentDedupedLongRangeFacetCountsTest.java",
         "ParentDedupedSortedSetDocValuesFacetCountsTest.java",
+        "QueryTimeStringFacetCountsTest.java",
         "TokenFacetOrdinalMapMismatchTest.java",
+        "TokenFacetSparseRoutingTest.java",
         "TokenSsdvFacetStateTest.java",
         "TokensFacetStateCacheTest.java",
     ],

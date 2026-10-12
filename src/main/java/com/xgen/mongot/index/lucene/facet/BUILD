@@ -4,10 +4,13 @@ java_library(
     name = "facet",
     srcs = [
         "AbstractSortedSetDocValuesFacetCounts.java",
+        "ConcurrentQueryTimeStringFacetCounts.java",
         "ConcurrentSortedSetDocValuesFacetCounts.java",
         "ParentDedupedLongRangeFacetCounts.java",
         "ParentDedupedSortedSetDocValuesFacetCounts.java",
+        "QueryTimeStringFacetCounts.java",
         "SortedSetDocValuesFacetCounts.java",
+        "TokenFacetSparseRouting.java",
         "TokenFacetsCardinalityLimitExceededException.java",
         "TokenFacetsStateCache.java",
         "TokenSsdvFacetState.java",

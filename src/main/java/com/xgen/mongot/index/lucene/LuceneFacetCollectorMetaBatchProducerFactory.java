@@ -8,6 +8,7 @@ import com.xgen.mongot.index.lucene.explain.explainers.FacetFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimings;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.facet.ParentDedupedLongRangeFacetCounts;
+import com.xgen.mongot.index.lucene.facet.TokenFacetSparseRouting;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.LuceneSearchQueryFactoryDistributor;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
@@ -105,6 +106,7 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
                 facetContext,
                 searcherReference,
                 facetsCollector,
+                topDocs.totalHits.value(),
                 returnScopePath,
                 concurrentSearchExecutor));
 
@@ -258,6 +260,7 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
       LuceneFacetContext facetContext,
       LuceneIndexSearcherReference searcherReference,
       FacetsCollector collector,
+      long totalHits,
       Optional<FieldPath> returnScope,
       Optional<NamedExecutorService> concurrentSearchExecutor)
       throws IOException, InterruptedException, InvalidQueryException {
@@ -292,6 +295,7 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
             facetableStringTypeToNameToDefinition.get(FieldTypeDefinition.Type.TOKEN),
             searcher,
             collector,
+            totalHits,
             returnScope,
             concurrentSearchExecutor);
 
@@ -350,6 +354,7 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
       Map<String, FacetDefinition.StringFacetDefinition> facetDefinitions,
       LuceneIndexSearcher searcher,
       FacetsCollector collector,
+      long totalHits,
       Optional<FieldPath> returnScope,
       Optional<NamedExecutorService> concurrentSearchExecutor)
       throws IOException, InterruptedException, InvalidQueryException {
@@ -360,7 +365,8 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
     if (facetDefinitions.isEmpty()) {
       return result;
     }
-    // If cache optional is empty, then FF enabling token facets is not enabled
+    // The cache optional is empty when token faceting is disabled. That gate applies even when
+    // the query-time path will not read the cache.
     if (searcher.getTokenFacetsStateCache().isEmpty()) {
       throw new InvalidQueryException(
           String.format(
@@ -369,12 +375,31 @@ public class LuceneFacetCollectorMetaBatchProducerFactory {
               facetDefinitions.keySet()));
     }
 
+    var indexReader = searcher.getIndexReader();
     var tokenFacetsStateCache = searcher.getTokenFacetsStateCache().get();
 
     for (var entry : facetDefinitions.entrySet()) {
       var lucenePath =
           FieldName.TypeField.TOKEN.getLuceneFieldName(
               FieldPath.parse(entry.getValue().path()), returnScope);
+      // Explain stays on the dense path: query-time counting cannot report whole-index
+      // cardinality, and CLOUDP-430031 still needs a durable explain field for which route ran.
+      if (facetFeatureExplainer.isEmpty()
+          && TokenFacetSparseRouting.isSparse(
+              totalHits, indexReader.maxDoc(), indexReader, lucenePath)) {
+        Facets counts;
+        try (var unused =
+            new InvocationCountingTimer.AutocloseableOptional<>(
+                facetTimings.map(t -> t.split(ExplainTimings.Type.GENERATE_FACET_COUNTS)))) {
+          counts = TokenFacetSparseRouting.count(lucenePath, collector, concurrentSearchExecutor);
+        }
+        Optional<FacetResult> facetResult = Optional.ofNullable(counts.getAllChildren(lucenePath));
+        if (facetResult.isPresent()) {
+          result.add(LuceneStringFacetMetaBucketProducer.create(facetResult.get(), entry.getKey()));
+        }
+        continue;
+      }
+
       var fieldState = tokenFacetsStateCache.get(lucenePath);
       facetFeatureExplainer.ifPresent(
           explainer ->
