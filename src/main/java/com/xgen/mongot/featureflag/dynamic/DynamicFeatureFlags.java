@@ -47,6 +47,12 @@ public enum DynamicFeatureFlags {
    * deduplicated to the root document (each root at most once per bucket).
    */
   ENABLE_EMBEDDED_SCOPED_FACET("mongot.featureFlag.enableEmbeddedScopedFacet", false),
+  /**
+   * Gates embeddedDocument-scoped sort (CLOUDP-413034): a sort key carrying an inline {@code
+   * embeddedDocument: {path, operator}} block orders each root by a value reduced (MIN ascending /
+   * MAX descending) over only the matching children of that operator.
+   */
+  ENABLE_EMBEDDED_SCOPED_SORT("mongot.featureFlag.enableEmbeddedScopedSort", false),
   ENABLE_TOTAL_FACET_BUCKETS("mongot.featureFlag.enableTotalFacetBuckets", false),
   /**
    * When enabled, a search aggregation query is rejected at plan time if the requested bucket space

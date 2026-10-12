@@ -157,8 +157,13 @@ public class SearchCommand implements Command {
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
       boolean searchAggregationEnabled =
           this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION);
+      boolean embeddedScopedSortEnabled =
+          this.metadata
+              .dynamicFeatureFlagRegistry()
+              .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_SORT);
       SearchQueryParseOptions parseOptions =
-          new SearchQueryParseOptions(allow10k, searchAggregationEnabled);
+          new SearchQueryParseOptions(
+              allow10k, searchAggregationEnabled, embeddedScopedSortEnabled);
       @Var
       SearchQuery queryDefinition =
           SearchQuery.fromBson(

@@ -48,7 +48,7 @@ public class SearchQueryTest {
         .isEqualTo(
             "\""
                 + this.sortField
-                + ".variants.price.embeddedDocument\" is not yet supported for sorting");
+                + ".variants.price.embeddedDocument\" is not currently supported on this cluster");
   }
 
   @Test
@@ -70,7 +70,48 @@ public class SearchQueryTest {
         .isEqualTo(
             "\""
                 + this.sortField
-                + ".variants.price.embeddedDocument\" is not yet supported for sorting");
+                + ".variants.price.embeddedDocument\" is not currently supported on this cluster");
+  }
+
+  @Test
+  public void fromBson_scopedSortWithFlagOn_preservesScope() throws BsonParseException {
+    BsonDocument document =
+        BsonDocument.parse("{\"exists\": {\"path\": \"variants.price\"}}")
+            .append(this.sortField, scopedSort());
+
+    SearchQuery query =
+        SearchQuery.fromBson(
+            document, this.queryOptimizationFlags, new SearchQueryParseOptions(false, false, true));
+
+    assertThat(
+            query
+                .toBson()
+                .getDocument(this.sortField)
+                .getDocument("variants.price")
+                .getDocument("embeddedDocument"))
+        .isEqualTo(scopedSort().getDocument("variants.price").getDocument("embeddedDocument"));
+  }
+
+  @Test
+  public void fromBson_scopedSortWithReturnScope_rejected() {
+    BsonDocument document =
+        BsonDocument.parse(
+                """
+                {"exists": {"path": "variants.price"}, "returnScope": {"path": "variants"},
+                 "returnStoredSource": true}
+                """)
+            .append(this.sortField, scopedSort());
+
+    BsonParseException exception =
+        assertThrows(
+            BsonParseException.class,
+            () ->
+                SearchQuery.fromBson(
+                    document,
+                    this.queryOptimizationFlags,
+                    new SearchQueryParseOptions(false, false, true)));
+
+    assertThat(exception).hasMessageThat().contains("cannot be used with returnScope");
   }
 
   private static BsonDocument scopedSort() {

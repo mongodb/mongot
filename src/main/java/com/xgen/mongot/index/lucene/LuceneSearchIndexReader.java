@@ -63,6 +63,7 @@ import com.xgen.mongot.index.query.counts.Count;
 import com.xgen.mongot.index.query.operators.Operator;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.SortSpec;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.Check;
@@ -376,7 +377,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 searchQuery.returnScope(),
                 queryOptimizationFlags,
                 indexSort,
-                searchQuery.sortDrivesAggregation());
+                searchQuery.sortDrivesAggregation(),
+                indexSearcher.getIndexReader(),
+                embeddedScopedSortEnabled(searchQuery));
         trackIndexSortMetrics(luceneSort, indexSort);
 
         luceneQuery =
@@ -495,7 +498,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
             query.returnScope(),
             queryOptimizationFlags,
             indexSort,
-            query.sortDrivesAggregation());
+            query.sortDrivesAggregation(),
+            indexSearcher.getIndexReader(),
+            embeddedScopedSortEnabled(query));
     trackIndexSortMetrics(luceneSort, indexSort);
 
     luceneQuery =
@@ -673,6 +678,18 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
   private boolean enforceRequestedBucketLimit() {
     return this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
         DynamicFeatureFlags.ENABLE_SEARCH_AGGREGATION_REQUESTED_BUCKET_LIMIT);
+  }
+
+  /** Evaluated per query so a runtime toggle takes effect, mirroring scoped facets. */
+  private boolean embeddedScopedSortEnabled(SearchQuery query) {
+    return query.rawSortSpec().stream()
+            .flatMap(sort -> sort.getSortFields().stream())
+            .anyMatch(
+                field ->
+                    field.options() instanceof UserFieldSortOptions options
+                        && options.embeddedScope().isPresent())
+        && this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+            DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_SORT);
   }
 
   /**
@@ -1049,7 +1066,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 query.returnScope(),
                 queryOptimizationFlags,
                 Optional.empty(),
-                query.sortDrivesAggregation()),
+                query.sortDrivesAggregation(),
+                searcherReference.getIndexSearcher().getIndexReader(),
+                embeddedScopedSortEnabled(query)),
             searchAfter,
             aggregationPlan,
             this.indexPartitionId,
@@ -1113,7 +1132,9 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
                 query.returnScope(),
                 queryOptimizationFlags,
                 Optional.empty(),
-                query.sortDrivesAggregation()),
+                query.sortDrivesAggregation(),
+                searcherReference.getIndexSearcher().getIndexReader(),
+                embeddedScopedSortEnabled(query)),
             searchAfter,
             aggregationPlan,
             this.indexPartitionId,

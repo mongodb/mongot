@@ -111,18 +111,24 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
             .getGroup()
             .atMostOneOf(parser.getField(Fields.SORT_BETA_V1), parser.getField(Fields.SORT));
 
-    // The sort model preserves scopes, but execution does not support them yet. Reject them here
-    // so neither query planning nor execution can silently treat a scoped sort as unscoped.
+    var returnScope = parser.getField(Fields.RETURN_SCOPE);
+    // Gate at the query boundary as well as execution, including planShardedSearch and searchMeta.
     if (sortSpec.isPresent()) {
       for (var sortField : sortSpec.get().getSortFields()) {
         if (sortField.options() instanceof UserFieldSortOptions options
             && options.embeddedScope().isPresent()) {
-          parser
-              .getContext()
-              .child(getSortBsonField(sortSpec.get()).getName())
-              .child(sortField.field().toString())
-              .child("embeddedDocument")
-              .handleSemanticError("is not yet supported for sorting");
+          var scopeContext =
+              parser
+                  .getContext()
+                  .child(getSortBsonField(sortSpec.get()).getName())
+                  .child(sortField.field().toString())
+                  .child("embeddedDocument");
+          if (!parseOptions.embeddedScopedSortEnabled()) {
+            scopeContext.handleSemanticError("is not currently supported on this cluster");
+          }
+          if (returnScope.unwrap().isPresent()) {
+            scopeContext.handleSemanticError("cannot be used with returnScope");
+          }
         }
       }
     }
@@ -130,7 +136,6 @@ public sealed interface SearchQuery extends Query permits CollectorQuery, Operat
     var searchBefore = parser.getField(Fields.SEARCH_BEFORE);
     var searchAfter = parser.getField(Fields.SEARCH_AFTER);
     var sequenceToken = parser.getGroup().atMostOneOf(searchAfter, searchBefore);
-    var returnScope = parser.getField(Fields.RETURN_SCOPE);
     var returnStoredSource = parser.getField(Fields.STORED_SOURCE);
     // Don't care about the value, just want to validate deserialization
     parser.getField(Query.Fields.SEARCH_NODE_PREFERENCE).unwrap();

@@ -58,6 +58,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/query",
         "//src/main/java/com/xgen/mongot/index/lucene/query/context",
         "//src/main/java/com/xgen/mongot/index/lucene/query/custom",
+        "//src/main/java/com/xgen/mongot/index/lucene/query/sort",
         "//src/main/java/com/xgen/mongot/index/lucene/query/util",
         "//src/main/java/com/xgen/mongot/index/lucene/searcher",
         "//src/main/java/com/xgen/mongot/index/lucene/synonym",

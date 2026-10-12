@@ -3,10 +3,11 @@ package com.xgen.mongot.index.lucene.query.sort.comparator;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import org.bson.BsonDouble;
 import org.bson.BsonValue;
+import org.jetbrains.annotations.Nullable;
 
 public class DoubleFieldConverter extends BsonConverter<Long> {
 
-  public DoubleFieldConverter(Long missingValue) {
+  public DoubleFieldConverter(@Nullable Long missingValue) {
     super(missingValue);
   }
 

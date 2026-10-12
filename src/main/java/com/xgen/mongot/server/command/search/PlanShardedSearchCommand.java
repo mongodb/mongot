@@ -48,6 +48,10 @@ public class PlanShardedSearchCommand implements Command {
               .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT);
       boolean searchAggregationEnabled =
           this.metadata.featureFlags().isEnabled(Feature.SEARCH_AGGREGATION);
+      boolean embeddedScopedSortEnabled =
+          this.metadata
+              .dynamicFeatureFlagRegistry()
+              .evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_SORT);
       boolean enforceRequestedBucketLimit =
           this.metadata
               .dynamicFeatureFlagRegistry()
@@ -57,7 +61,8 @@ public class PlanShardedSearchCommand implements Command {
           SearchQuery.fromBson(
               this.definition.queryDocument(),
               QueryOptimizationFlags.DEFAULT_OPTIONS,
-              new SearchQueryParseOptions(allow10k, searchAggregationEnabled));
+              new SearchQueryParseOptions(
+                  allow10k, searchAggregationEnabled, embeddedScopedSortEnabled));
       PlanShardedSearchCommandResponseDefinition.ShardedSearchPlan shardedSearchPlan =
           ShardedSearchPlanner.planSearch(
               queryDefinition,

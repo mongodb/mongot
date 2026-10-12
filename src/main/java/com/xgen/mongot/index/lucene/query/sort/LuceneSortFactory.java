@@ -22,6 +22,7 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.SortField;
@@ -57,6 +58,13 @@ public class LuceneSortFactory {
 
   private void validate(MongotSortField sortField, Optional<FieldPath> embeddedRoot)
       throws InvalidQueryException {
+    // An embeddedDoc-scoped sort key is validated at the query layer against its own scope path
+    // (see LuceneSearchQueryFactoryDistributor#buildScopedSortOverrides), not the query-level
+    // embeddedRoot, so skip it here.
+    if (sortField.options() instanceof UserFieldSortOptions userOptions
+        && userOptions.embeddedScope().isPresent()) {
+      return;
+    }
     if (sortField.options() instanceof MetaSortOptions
         || this.context.getTokenFieldDefinition(sortField.field(), embeddedRoot).isPresent()) {
       return;
@@ -127,13 +135,26 @@ public class LuceneSortFactory {
   private record ExpandedSortFields(
       List<MongotSortField> fields, ImmutableSet<Long> nullnessFieldIndexes) {}
 
-  @SuppressWarnings("checkstyle:MissingJavadocMethod")
+  /** Overload for callers with no embeddedDoc-scoped sort keys (no block-join overrides). */
   public org.apache.lucene.search.Sort createLuceneSort(
       SortSpec sortSpec,
       Optional<SequenceToken> sequenceToken,
       FieldToSortableTypesMapping fieldsToSortableTypesMapping,
       Optional<FieldPath> embeddedRoot,
       Optional<org.apache.lucene.search.Sort> indexSort)
+      throws InvalidQueryException {
+    return createLuceneSort(
+        sortSpec, sequenceToken, fieldsToSortableTypesMapping, embeddedRoot, indexSort, Map.of());
+  }
+
+  @SuppressWarnings("checkstyle:MissingJavadocMethod")
+  public org.apache.lucene.search.Sort createLuceneSort(
+      SortSpec sortSpec,
+      Optional<SequenceToken> sequenceToken,
+      FieldToSortableTypesMapping fieldsToSortableTypesMapping,
+      Optional<FieldPath> embeddedRoot,
+      Optional<org.apache.lucene.search.Sort> indexSort,
+      Map<FieldPath, SortField> scopedOverrides)
       throws InvalidQueryException {
 
     ExpandedSortFields expandedSortFields = expandWithNullnessFields(sortSpec, indexSort);
@@ -171,17 +192,19 @@ public class LuceneSortFactory {
         Streams.mapWithIndex(
                 expandedFields.stream(),
                 (field, idx) ->
-                    expandedSortFields.nullnessFieldIndexes().contains(idx)
-                        ? createNullnessSortField(field)
-                        : createLuceneSortField(
-                            field,
-                            Optional.of(
-                                fieldsToSortableTypesMapping
-                                    .getFieldToSortableTypes(embeddedRoot)
-                                    .get(field.field())),
-                            after.map(fieldDoc -> fieldDoc.fields[(int) idx]),
-                            embeddedRoot,
-                            hasIndexSort))
+                    scopedOverrides.containsKey(field.field())
+                        ? scopedOverrides.get(field.field())
+                        : expandedSortFields.nullnessFieldIndexes().contains(idx)
+                            ? createNullnessSortField(field)
+                            : createLuceneSortField(
+                                field,
+                                Optional.of(
+                                    fieldsToSortableTypesMapping
+                                        .getFieldToSortableTypes(embeddedRoot)
+                                        .get(field.field())),
+                                after.map(fieldDoc -> fieldDoc.fields[(int) idx]),
+                                embeddedRoot,
+                                hasIndexSort))
             .map(
                 sortField ->
                     Explain.isEnabled()
@@ -220,7 +243,12 @@ public class LuceneSortFactory {
     ImmutableSet.Builder<Long> nullnessFieldIndexes = ImmutableSet.builder();
 
     for (MongotSortField field : mongotFields) {
-      if (needsNullnessField(indexSort, field)) {
+      // Scoped sort keys derive their value from matching children, not the root's own stored
+      // value, so the $nullness companion field (read from the root's value) does not apply.
+      boolean isScoped =
+          field.options() instanceof UserFieldSortOptions userOptions
+              && userOptions.embeddedScope().isPresent();
+      if (!isScoped && needsNullnessField(indexSort, field)) {
         FieldPath nullnessPath = FieldPath.newRoot(FieldName.getNullnessFieldName(field.field()));
         nullnessFieldIndexes.add((long) expanded.size());
         expanded.add(new MongotSortField(nullnessPath, field.options()));

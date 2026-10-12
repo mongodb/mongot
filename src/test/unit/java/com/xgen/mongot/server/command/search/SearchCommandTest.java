@@ -1648,6 +1648,75 @@ public class SearchCommandTest {
   }
 
   @Test
+  public void run_scopedSortFlagOff_rejectedBeforeCursorCreation() throws Exception {
+    AtomicReference<SearchQuery> capturedQuery = new AtomicReference<>();
+    SearchCommand command = scopedSortCommand(DynamicFeatureFlagRegistry.empty(), capturedQuery);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(result.getString("errmsg").getValue().contains("not currently supported"));
+    Assert.assertNull(capturedQuery.get());
+  }
+
+  @Test
+  public void run_scopedSortFlagOn_reachesCursorCreation() throws Exception {
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    when(registry.evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_SORT))
+        .thenReturn(true);
+    AtomicReference<SearchQuery> capturedQuery = new AtomicReference<>();
+    SearchCommand command = scopedSortCommand(registry, capturedQuery);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(1, result.getInt32("ok").getValue());
+    Assert.assertNotNull(capturedQuery.get());
+    Assert.assertTrue(
+        capturedQuery
+            .get()
+            .toBson()
+            .getDocument("sort")
+            .getDocument("variants.price")
+            .containsKey("embeddedDocument"));
+  }
+
+  private SearchCommand scopedSortCommand(
+      DynamicFeatureFlagRegistry registry, AtomicReference<SearchQuery> capturedQuery)
+      throws Exception {
+    BsonDocument query =
+        BsonDocument.parse(
+            """
+            {"exists": {"path": "variants"}, "sort": {"variants.price": {
+              "order": 1, "embeddedDocument": {"path": "variants", "operator": {
+                "exists": {"path": "variants.price"}
+              }}
+            }}}
+            """);
+    var metadata =
+        new SearchCommandsRegister.BootstrapperMetadata(
+            "testVersion",
+            "localhost",
+            () -> MongoDbServerInfo.EMPTY,
+            FeatureFlags.getDefault(),
+            registry);
+    return new SearchCommand(
+        new SearchCommand.Metrics(mockMetricsFactory()),
+        getCursorManagerCapturingQuery(capturedQuery),
+        new DefaultIndexCatalog(),
+        new InitializedIndexCatalog(),
+        new IncompatibleIndexes(TestMeterRegistry.get()),
+        SearchCommandDefinitionBuilder.builder()
+            .db(DATABASE_NAME)
+            .collectionName(COLLECTION_NAME)
+            .collectionUuid(COLLECTION_UUID)
+            .query(query)
+            .build(),
+        metadata,
+        CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+        () -> null);
+  }
+
+  @Test
   public void testStringFacetNumBucketsUnchangedWhenDffOn() throws Exception {
     DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
     when(registry.evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_10K_BUCKET_LIMIT))

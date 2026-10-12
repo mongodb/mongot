@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "sort",
     srcs = [
+        "EmbeddedScopedDoubleSortTest.java",
         "EmbeddedScopedLongSortTest.java",
         "IndexSortUtilsTest.java",
         "LuceneSortFactoryTest.java",

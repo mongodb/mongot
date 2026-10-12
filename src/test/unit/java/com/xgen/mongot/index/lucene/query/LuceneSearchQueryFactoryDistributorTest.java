@@ -9,6 +9,7 @@ import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
@@ -21,11 +22,14 @@ import com.xgen.mongot.index.analyzer.definition.StockAnalyzerNames;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.NumericFieldOptions.Representation;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SynonymMappingDefinition;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.WrappedQuery;
+import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDoubleSort;
+import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedLongSort;
 import com.xgen.mongot.index.lucene.query.util.BooleanComposer;
 import com.xgen.mongot.index.lucene.query.util.DisableBulkScorerQuery;
 import com.xgen.mongot.index.lucene.query.util.SafeTermAutomatonQueryWrapper;
@@ -33,6 +37,7 @@ import com.xgen.mongot.index.lucene.query.util.WrappedToParentBlockJoinQuery;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.lucene.synonym.LuceneSynonymRegistry;
 import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.index.query.ReturnScope;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
 import com.xgen.mongot.index.query.operators.InOperator;
 import com.xgen.mongot.index.query.operators.Operator;
@@ -40,6 +45,10 @@ import com.xgen.mongot.index.query.operators.QueryStringOperator;
 import com.xgen.mongot.index.query.operators.SearchOperator;
 import com.xgen.mongot.index.query.operators.TermOperator;
 import com.xgen.mongot.index.query.operators.TextOperator;
+import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
+import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
+import com.xgen.mongot.index.query.sort.SortOrder;
+import com.xgen.mongot.index.query.sort.SortSelector;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.index.synonym.SynonymMapping;
@@ -52,6 +61,7 @@ import com.xgen.testing.mongot.index.analyzer.definition.OverriddenBaseAnalyzerD
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SynonymMappingDefinitionBuilder;
@@ -85,6 +95,7 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.MultiReader;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.sandbox.search.TokenStreamToTermAutomatonQuery;
 import org.apache.lucene.search.BooleanClause;
@@ -102,6 +113,7 @@ import org.apache.lucene.search.PhraseQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
+import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SynonymQuery;
 import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
@@ -112,6 +124,8 @@ import org.apache.lucene.search.join.ScoreMode;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.BytesRef;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.types.ObjectId;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -1451,7 +1465,9 @@ public class LuceneSearchQueryFactoryDistributorTest {
                 Optional.empty(),
                 QueryOptimizationFlagsBuilder.builder().omitSearchDocumentResults(true).build(),
                 Optional.empty(),
-                /* sortDrivesAggregation= */ false))
+                /* sortDrivesAggregation= */ false,
+                /* reader= */ null,
+                /* scopedSortEnabled= */ false))
         .isEmpty();
 
     // first/last read the sort to pick each bucket's winner, which is meta output, so $searchMeta
@@ -1464,7 +1480,318 @@ public class LuceneSearchQueryFactoryDistributorTest {
                 Optional.empty(),
                 QueryOptimizationFlagsBuilder.builder().omitSearchDocumentResults(true).build(),
                 Optional.empty(),
-                /* sortDrivesAggregation= */ true))
+                /* sortDrivesAggregation= */ true,
+                /* reader= */ null,
+                /* scopedSortEnabled= */ false))
         .isPresent();
+  }
+
+  @Test
+  public void createSort_scopedSortWithFlagOff_rejected() {
+    var exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () -> createScopedSort(scopedMapping(FieldName.TypeField.NUMBER_INT64_V2), false));
+    assertThat(exception).hasMessageThat().contains("not currently supported");
+  }
+
+  @Test
+  public void createSort_scopedSortNonNumeric_rejected() {
+    var exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () -> createScopedSort(scopedMapping(FieldName.TypeField.TOKEN), true));
+    assertThat(exception).hasMessageThat().contains("mixed or non-numeric sortable types");
+  }
+
+  @Test
+  public void createSort_emptyPartition_usesInt64Schema() throws Exception {
+    Sort sort = createScopedSort(scopedMapping(), true);
+
+    assertThat(sort.getSort()[0]).isInstanceOf(EmbeddedScopedLongSort.class);
+  }
+
+  @Test
+  public void createSort_emptyPartition_usesDoubleSchema() throws Exception {
+    Sort sort =
+        createScopedSort(scopedMapping(), true, Representation.DOUBLE, Optional.empty(), false);
+
+    assertThat(sort.getSort()[0]).isInstanceOf(EmbeddedScopedDoubleSort.class);
+  }
+
+  @Test
+  public void createSort_nullOnlyPartition_usesNumericSchema() throws Exception {
+    Sort sort = createScopedSort(scopedMapping(FieldName.TypeField.NULL), true);
+
+    assertThat(sort.getSort()[0]).isInstanceOf(EmbeddedScopedLongSort.class);
+  }
+
+  @Test
+  public void createSort_doubleAndToken_rejected() {
+    var exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                createScopedSort(
+                    scopedMapping(FieldName.TypeField.NUMBER_DOUBLE_V2, FieldName.TypeField.TOKEN),
+                    true,
+                    Representation.DOUBLE,
+                    Optional.empty(),
+                    false));
+
+    assertThat(exception).hasMessageThat().contains("mixed or non-numeric sortable types");
+  }
+
+  @Test
+  public void createSort_multipleNumericRepresentations_rejected() {
+    var exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                createScopedSort(
+                    scopedMapping(
+                        FieldName.TypeField.NUMBER_INT64_V2, FieldName.TypeField.NUMBER_DOUBLE_V2),
+                    true));
+
+    assertThat(exception).hasMessageThat().contains("mixed or non-numeric sortable types");
+  }
+
+  @Test
+  public void createSort_returnScope_rejected() {
+    var exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                createScopedSort(
+                    scopedMapping(),
+                    true,
+                    Representation.INT64,
+                    Optional.of(new ReturnScope(FieldPath.parse("variants"))),
+                    false));
+
+    assertThat(exception).hasMessageThat().contains("cannot be used with returnScope");
+  }
+
+  @Test
+  public void createSort_searchMetaWithFlagOff_rejected() {
+    var exception =
+        Assert.assertThrows(
+            InvalidQueryException.class,
+            () ->
+                createScopedSort(
+                    scopedMapping(), false, Representation.INT64, Optional.empty(), true));
+
+    assertThat(exception).hasMessageThat().contains("not currently supported");
+  }
+
+  @Test
+  public void createSort_hasAncestorAtScopePath_rejected() {
+    EmbeddedSortScope scope =
+        new EmbeddedSortScope(
+            FieldPath.parse("variants"),
+            BsonDocument.parse(
+                """
+                {"hasAncestor": {"ancestorPath": "variants", "operator": {
+                  "exists": {"path": "variants.inStock"}
+                }}}
+                """));
+
+    var exception = Assert.assertThrows(InvalidQueryException.class, () -> createScopedSort(scope));
+
+    assertThat(exception).hasMessageThat().contains("sort field 'variants.price'");
+    assertThat(exception)
+        .hasMessageThat()
+        .contains(
+            "hasAncestor.ancestorPath 'variants' must be a parent of embeddedDocument.path"
+                + " 'variants'");
+  }
+
+  @Test
+  public void createSort_invalidHasAncestorInsideCompound_rejected() {
+    EmbeddedSortScope scope =
+        new EmbeddedSortScope(
+            FieldPath.parse("variants"),
+            BsonDocument.parse(
+                """
+                {"compound": {"filter": [{"hasAncestor": {
+                  "ancestorPath": "variants", "operator": {"exists": {"path": "variants.inStock"}}
+                }}]}}
+                """));
+
+    var exception = Assert.assertThrows(InvalidQueryException.class, () -> createScopedSort(scope));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .contains("hasAncestor.ancestorPath 'variants' must be a parent");
+  }
+
+  @Test
+  public void createSort_hasAncestorAboveScopePath_accepted() throws Exception {
+    EmbeddedSortScope scope =
+        new EmbeddedSortScope(
+            FieldPath.parse("variants.children"),
+            BsonDocument.parse(
+                """
+                {"hasAncestor": {"ancestorPath": "variants", "operator": {
+                  "exists": {"path": "variants.inStock"}
+                }}}
+                """));
+
+    Sort sort = createScopedSort(scope);
+
+    assertThat(sort.getSort()[0]).isInstanceOf(EmbeddedScopedDoubleSort.class);
+  }
+
+  @Test
+  public void createSort_hasRootInScope_accepted() throws Exception {
+    EmbeddedSortScope scope =
+        new EmbeddedSortScope(
+            FieldPath.parse("variants"),
+            BsonDocument.parse(
+                """
+                {"hasRoot": {"operator": {"exists": {"path": "variants"}}}}
+                """));
+
+    Sort sort = createScopedSort(scope);
+
+    assertThat(sort.getSort()[0]).isInstanceOf(EmbeddedScopedLongSort.class);
+  }
+
+  private static Sort createScopedSort(FieldToSortableTypesMapping mapping, boolean scopedEnabled)
+      throws Exception {
+    return createScopedSort(mapping, scopedEnabled, Representation.INT64, Optional.empty(), false);
+  }
+
+  private static Sort createScopedSort(EmbeddedSortScope scope) throws Exception {
+    return createScopedSort(
+        scopedMapping(), true, Representation.INT64, Optional.empty(), false, scope);
+  }
+
+  private static Sort createScopedSort(
+      FieldToSortableTypesMapping mapping,
+      boolean scopedEnabled,
+      Representation representation,
+      Optional<ReturnScope> returnScope,
+      boolean omitDocuments)
+      throws Exception {
+    return createScopedSort(
+        mapping,
+        scopedEnabled,
+        representation,
+        returnScope,
+        omitDocuments,
+        new EmbeddedSortScope(
+            FieldPath.parse("variants"),
+            new BsonDocument(
+                "exists", new BsonDocument("path", new BsonString("variants.inStock")))));
+  }
+
+  private static Sort createScopedSort(
+      FieldToSortableTypesMapping mapping,
+      boolean scopedEnabled,
+      Representation representation,
+      Optional<ReturnScope> returnScope,
+      boolean omitDocuments,
+      EmbeddedSortScope scope)
+      throws Exception {
+    LuceneSearchQueryFactoryDistributor factory = scopedSortTestFactory(representation);
+    SortSpec sortSpec =
+        SortSpecBuilder.builder()
+            .sortField(
+                SortFieldBuilder.builder()
+                    .path(scope.path().newChild("price").toString())
+                    .sortOption(
+                        new UserFieldSortOptions(
+                            SortOrder.ASC,
+                            SortSelector.MIN,
+                            NullEmptySortPosition.LOWEST,
+                            Optional.of(scope)))
+                    .build())
+            .buildSort();
+
+    try (IndexReader reader = new MultiReader()) {
+      return factory
+          .createSort(
+              Optional.of(sortSpec),
+              Optional.empty(),
+              mapping,
+              returnScope,
+              QueryOptimizationFlagsBuilder.builder()
+                  .omitSearchDocumentResults(omitDocuments)
+                  .build(),
+              Optional.empty(),
+              /* sortDrivesAggregation= */ false,
+              reader,
+              scopedEnabled)
+          .orElseThrow();
+    }
+  }
+
+  private static LuceneSearchQueryFactoryDistributor scopedSortTestFactory(
+      Representation representation) {
+    SearchIndexDefinition indexDefinition =
+        SearchIndexDefinitionBuilder.builder()
+            .indexFeatureVersion(4)
+            .indexId(new ObjectId())
+            .name("default")
+            .database("mock_database")
+            .lastObservedCollectionName("mock_collection")
+            .collectionUuid(UUID.randomUUID())
+            .mappings(
+                DocumentFieldDefinitionBuilder.builder()
+                    .field(
+                        "variants",
+                        FieldDefinitionBuilder.builder()
+                            .embeddedDocuments(
+                                EmbeddedDocumentsFieldDefinitionBuilder.builder()
+                                    .dynamic(true)
+                                    .field(
+                                        "children",
+                                        FieldDefinitionBuilder.builder()
+                                            .embeddedDocuments(
+                                                EmbeddedDocumentsFieldDefinitionBuilder.builder()
+                                                    .dynamic(true)
+                                                    .field(
+                                                        "price",
+                                                        FieldDefinitionBuilder.builder()
+                                                            .number(
+                                                                NumericFieldDefinitionBuilder
+                                                                    .builder()
+                                                                    .buildNumberField())
+                                                            .build())
+                                                    .build())
+                                            .build())
+                                    .field(
+                                        "price",
+                                        FieldDefinitionBuilder.builder()
+                                            .number(
+                                                NumericFieldDefinitionBuilder.builder()
+                                                    .representation(representation)
+                                                    .buildNumberField())
+                                            .build())
+                                    .build())
+                            .build())
+                    .build())
+            .analyzerName("lucene.english")
+            .build();
+    return LuceneSearchQueryFactoryDistributor.create(
+        indexDefinition,
+        IndexFormatVersion.CURRENT,
+        AnalyzerRegistryBuilder.empty(),
+        SynonymRegistryBuilder.empty(),
+        queryMetrics(),
+        false,
+        FeatureFlags.withDefaults().enable(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES).build());
+  }
+
+  private static FieldToSortableTypesMapping scopedMapping(FieldName.TypeField... types) {
+    return new FieldToSortableTypesMapping(
+        ImmutableSetMultimap.of(),
+        ImmutableMap.of(
+            FieldPath.parse("variants"),
+            Arrays.stream(types)
+                .collect(
+                    ImmutableSetMultimap.toImmutableSetMultimap(
+                        type -> FieldPath.parse("variants.price"), type -> type))));
   }
 }

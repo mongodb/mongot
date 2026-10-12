@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "sort",
     srcs = [
+        "EmbeddedScopedDoubleSort.java",
         "EmbeddedScopedLongSort.java",
         "IndexSortUtils.java",
         "LuceneSortFactory.java",

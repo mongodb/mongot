@@ -306,6 +306,57 @@ public class PlanShardedSearchCommandTest {
     Assert.assertEquals(1, result.getInt32("ok").getValue());
   }
 
+  @Test
+  public void run_scopedSortFlagOff_rejected() {
+    var command =
+        createCommand(
+            getPlanShardedSearchCommandDefinition(scopedSortQuery()), BOOTSTRAPPER_METADATA);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertTrue(result.getString("errmsg").getValue().contains("not currently supported"));
+  }
+
+  @Test
+  public void run_scopedSortFlagOn_plans() {
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    when(registry.evaluateClusterInvariant(DynamicFeatureFlags.ENABLE_EMBEDDED_SCOPED_SORT))
+        .thenReturn(true);
+    var metadata =
+        new SearchCommandsRegister.BootstrapperMetadata(
+            "testVersion",
+            "localhost",
+            () -> MongoDbServerInfo.EMPTY,
+            FeatureFlags.getDefault(),
+            registry);
+    var command =
+        createCommand(
+            PlanShardedSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(scopedSortQuery())
+                .searchFeatures(new PlanShardedSearchCommandDefinition.SearchFeatures(1))
+                .build(),
+            metadata);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(1, result.getInt32("ok").getValue());
+  }
+
+  private static BsonDocument scopedSortQuery() {
+    return BsonDocument.parse(
+        """
+        {"exists": {"path": "variants"}, "sort": {"variants.price": {
+          "order": 1, "embeddedDocument": {"path": "variants", "operator": {
+            "exists": {"path": "variants.price"}
+          }}
+        }}}
+        """);
+  }
+
   private static BsonDocument nestedTermsQuery(int outerBuckets, int innerBuckets) {
     BsonDocument inner =
         new BsonDocument()

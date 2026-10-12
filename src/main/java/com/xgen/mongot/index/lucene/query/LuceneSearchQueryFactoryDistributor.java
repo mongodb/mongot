@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.query;
 import static com.xgen.mongot.index.query.InvalidQueryException.Type;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
@@ -12,9 +13,12 @@ import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.analyzer.wrapper.QueryAnalyzerWrapper;
 import com.xgen.mongot.index.definition.EmbeddedDocumentsFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.lucene.query.custom.WrappedQuery;
+import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDoubleSort;
+import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedLongSort;
 import com.xgen.mongot.index.lucene.query.sort.LuceneSortFactory;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -25,6 +29,7 @@ import com.xgen.mongot.index.query.operators.AllDocumentsOperator;
 import com.xgen.mongot.index.query.operators.AutocompleteOperator;
 import com.xgen.mongot.index.query.operators.CompoundOperator;
 import com.xgen.mongot.index.query.operators.EmbeddedDocumentOperator;
+import com.xgen.mongot.index.query.operators.EmbeddedDocumentScope;
 import com.xgen.mongot.index.query.operators.EqualsOperator;
 import com.xgen.mongot.index.query.operators.ExistsOperator;
 import com.xgen.mongot.index.query.operators.GeoShapeOperator;
@@ -36,6 +41,7 @@ import com.xgen.mongot.index.query.operators.KnnBetaOperator;
 import com.xgen.mongot.index.query.operators.MoreLikeThisOperator;
 import com.xgen.mongot.index.query.operators.NearOperator;
 import com.xgen.mongot.index.query.operators.Operator;
+import com.xgen.mongot.index.query.operators.OperatorEmbeddedRootValidator;
 import com.xgen.mongot.index.query.operators.PhraseOperator;
 import com.xgen.mongot.index.query.operators.QueryStringOperator;
 import com.xgen.mongot.index.query.operators.RangeOperator;
@@ -51,12 +57,19 @@ import com.xgen.mongot.index.query.operators.WildcardOperator;
 import com.xgen.mongot.index.query.operators.type.NonNullValueType;
 import com.xgen.mongot.index.query.optimizer.QueryOptimizer;
 import com.xgen.mongot.index.query.optimizer.rules.DefaultRuleRegistry;
+import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
+import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.SortSpec;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.ConstantScoreQuery;
@@ -64,9 +77,11 @@ import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.util.automaton.TooComplexToDeterminizeException;
+import org.bson.BsonDocument;
 
 /**
  * This class is used for $search queries running against search index type. It can also handle
@@ -421,21 +436,128 @@ public class LuceneSearchQueryFactoryDistributor {
       Optional<ReturnScope> returnScope,
       QueryOptimizationFlags queryOptimizationFlags,
       Optional<org.apache.lucene.search.Sort> indexSort,
-      boolean sortDrivesAggregation)
-      throws InvalidQueryException {
+      boolean sortDrivesAggregation,
+      IndexReader reader,
+      boolean scopedSortEnabled)
+      throws InvalidQueryException, IOException {
     // A sort exists to order the returned documents, so $searchMeta normally has no use for one.
     // first/last are the exception: there the sort picks each bucket's winner, which is meta
     // output and has to be built either way (CLOUDP-425978).
-    if (sortSpec.isEmpty()
-        || (queryOptimizationFlags.omitSearchDocumentResults() && !sortDrivesAggregation)) {
+    if (sortSpec.isEmpty()) {
       return Optional.empty();
     }
 
     Optional<FieldPath> embeddedRoot = returnScope.map(ReturnScope::path);
+    Map<FieldPath, SortField> scopedOverrides =
+        buildScopedSortOverrides(
+            sortSpec.get(), reader, fieldsToSortableTypesMapping, scopedSortEnabled, embeddedRoot);
+    if (queryOptimizationFlags.omitSearchDocumentResults() && !sortDrivesAggregation) {
+      return Optional.empty();
+    }
     this.luceneSortFactory.validateSortSpec(sortSpec.get(), embeddedRoot);
     return Optional.of(
         this.luceneSortFactory.createLuceneSort(
-            sortSpec.get(), sequenceToken, fieldsToSortableTypesMapping, embeddedRoot, indexSort));
+            sortSpec.get(),
+            sequenceToken,
+            fieldsToSortableTypesMapping,
+            embeddedRoot,
+            indexSort,
+            scopedOverrides));
+  }
+
+  /**
+   * Builds the block-join sort field for each embeddedDoc-scoped sort key, keyed by field path. The
+   * scope operator is recovered from the raw {@code embeddedDocument} carried on the sort option
+   * (kept unparsed so it survives serialization; see CLOUDP-441316), compiled to a child query, and
+   * combined with the root parent bitset. Scoped sort is gated behind {@code
+   * ENABLE_EMBEDDED_SCOPED_SORT} and currently supports numeric (int64/double) fields.
+   */
+  private Map<FieldPath, SortField> buildScopedSortOverrides(
+      SortSpec sortSpec,
+      IndexReader reader,
+      FieldToSortableTypesMapping fieldsToSortableTypesMapping,
+      boolean scopedSortEnabled,
+      Optional<FieldPath> returnScope)
+      throws InvalidQueryException, IOException {
+    Map<FieldPath, SortField> overrides = new HashMap<>();
+    for (MongotSortField field : sortSpec.getSortFields()) {
+      if (!(field.options() instanceof UserFieldSortOptions userOptions)
+          || userOptions.embeddedScope().isEmpty()) {
+        continue;
+      }
+      if (!scopedSortEnabled) {
+        throw new InvalidQueryException(
+            "embeddedDocument-scoped sort is not currently supported on this cluster");
+      }
+      InvalidQueryException.validate(
+          returnScope.isEmpty(), "embeddedDocument-scoped sort cannot be used with returnScope");
+      FieldPath scopePath = userOptions.embeddedScope().orElseThrow().path();
+      InvalidQueryException.validate(
+          this.queryFactoryContext.getEmbeddedDocumentsFieldDefinition(scopePath).isPresent(),
+          "Sort scope '%s' must be indexed as embeddedDocuments",
+          scopePath);
+      InvalidQueryException.validate(
+          this.queryFactoryContext.getIndexCapabilities().supportsEmbeddedNumericAndDateV2(),
+          "embeddedDocument-scoped numeric sort requires index feature version 4 or later");
+      var numericDefinition =
+          this.queryFactoryContext.getNumericFieldDefinition(field.field(), Optional.of(scopePath));
+      InvalidQueryException.validate(
+          numericDefinition.isPresent(),
+          "embeddedDocument-scoped sort currently supports only numeric (int64/double) fields;"
+              + " field '%s' is not indexed as numeric under scope '%s'",
+          field.field(),
+          scopePath);
+      FieldName.TypeField numericType =
+          switch (numericDefinition.orElseThrow().options().representation()) {
+            case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
+            case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
+          };
+      ImmutableSet<FieldName.TypeField> types =
+          fieldsToSortableTypesMapping
+              .getFieldToSortableTypes(Optional.of(scopePath))
+              .get(field.field());
+      // FieldInfos may be empty on a shard with no values. The schema still determines its
+      // comparator. Nulls are missing numeric values; every other representation is unsupported.
+      InvalidQueryException.validate(
+          types.stream().allMatch(type -> type == numericType || type == FieldName.TypeField.NULL),
+          "embeddedDocument-scoped sort does not support mixed or non-numeric sortable types"
+              + " for field '%s' under scope '%s': %s",
+          field.field(),
+          scopePath,
+          types);
+      // Recover the scope operator from the raw operator BSON carried on the sort option (it
+      // survives query serialization, unlike a query-level side channel) and compile it against
+      // child docs (needs the reader) only after the cheap validations above pass. The sort option
+      // keeps the operator unparsed to avoid a sort -> operators dependency cycle; reassemble the
+      // {path, operator} block the operators-layer scope parser expects.
+      EmbeddedSortScope sortScope = userOptions.embeddedScope().orElseThrow();
+      EmbeddedDocumentScope scope = parseSortScope(field.field(), sortScope.toBson());
+      Query childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
+      BitSetProducer childFilter = new QueryBitSetProducer(childQuery);
+      SortField scopedSort =
+          numericType == FieldName.TypeField.NUMBER_INT64_V2
+              ? new EmbeddedScopedLongSort(
+                  field, scopePath, rootParentBitSetProducer(), childFilter)
+              : new EmbeddedScopedDoubleSort(
+                  field, scopePath, rootParentBitSetProducer(), childFilter);
+      overrides.put(field.field(), scopedSort);
+    }
+    return overrides;
+  }
+
+  /** Parses a scoped sort key and validates its operator against the scope's embedded root. */
+  private static EmbeddedDocumentScope parseSortScope(
+      FieldPath field, BsonDocument embeddedDocument) throws InvalidQueryException {
+    try (var parser = BsonDocumentParser.fromRoot(embeddedDocument).build()) {
+      EmbeddedDocumentScope scope = EmbeddedDocumentScope.fromBson(parser);
+      new OperatorEmbeddedRootValidator(parser.getContext()).validate(scope);
+      return scope;
+    } catch (BsonParseException e) {
+      throw new InvalidQueryException(
+          String.format(
+              "Could not parse embeddedDocument scope for sort field '%s': %s",
+              field, e.getMessage()));
+    }
   }
 
   private Query createUnscoredQueryFromOperator(
