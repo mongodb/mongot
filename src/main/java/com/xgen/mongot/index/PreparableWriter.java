@@ -4,7 +4,7 @@ import java.io.IOException;
 
 /**
  * A writer whose native write path can be (re)prepared for a leadership session before it publishes
- * commits (leadership-transition correctness, CLOUDP-446295).
+ * commits (leadership-transition correctness)
  *
  * <p>On promotion the replication layer calls {@link #prepareWriter()} before it starts
  * replicating: the native side joins the stale writer, refreshes its recovery baseline to the

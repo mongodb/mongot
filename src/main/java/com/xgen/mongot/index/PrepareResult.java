@@ -2,7 +2,7 @@ package com.xgen.mongot.index;
 
 /**
  * Outcome of {@link PreparableWriter#prepareWriter()}: rebuilding a native writer for the current
- * leadership session on promotion (leadership-transition correctness, CLOUDP-446295).
+ * leadership session on promotion (leadership-transition correctness).
  *
  * <p>A native error (writer prepare failed for a storage/timeout reason) is surfaced as an {@link
  * java.io.IOException} from {@code prepareWriter()}, not as a variant here.

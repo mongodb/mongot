@@ -7,8 +7,8 @@ import java.io.IOException;
  * wrapped writer's {@link CommitDataStagingWriter} and {@link PreparableWriter} contracts visible
  * through the wrapper, so replication's {@code instanceof} check still routes commit user data to
  * {@link #stageUserData} rather than silently dropping the resume position, and so leadership
- * promotion can still prepare the native writer (CLOUDP-446295) through the metered handle that
- * {@code getWriter()} returns.
+ * promotion can still prepare the native writer through the metered handle that {@code getWriter()}
+ * returns.
  */
 public class MeteredStagingIndexWriter extends MeteredIndexWriter
     implements CommitDataStagingWriter, PreparableWriter {

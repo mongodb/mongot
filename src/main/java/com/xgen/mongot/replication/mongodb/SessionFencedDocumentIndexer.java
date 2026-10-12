@@ -183,7 +183,7 @@ final class SessionFencedDocumentIndexer implements DocumentIndexer {
 
   /**
    * Returns true (counting and logging the drop) when this session's tenure has ended, so the
-   * caller drops the stale call. CLOUDP-446295 PR 3 adds typed native rejections.
+   * caller drops the stale call.
    */
   @GuardedBy("this")
   private boolean dropIfEnded(String operation) {

@@ -57,10 +57,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.bson.BsonDocument;
@@ -109,7 +112,7 @@ public class RecyclableReplicationIndexManagerTest {
   public void duplicateLeaderSignal_recyclesSession() {
     // A duplicate LEADER bumps the leadership epoch, so the session created under
     // the older epoch is stopped and re-prepared rather than coalesced away
-    // (CLOUDP-446295: leadership edges are not trusted to be deduplicated).
+    // Leadership edges are not trusted to be deduplicated.
     var factory = mockWrappedFactory();
     var innerRim1 = stubShutdown(mock(ReplicationIndexManager.class));
     var innerRim2 = mock(ReplicationIndexManager.class);
@@ -124,7 +127,7 @@ public class RecyclableReplicationIndexManagerTest {
     assertTrue(rrim.isLeader());
   }
 
-  // ── prepare-before-create (CLOUDP-446295) ───────────────────────────────────
+  // ── prepare-before-create ──────────────────────────────────────────────────
 
   @Test
   public void prepare_ready_createsWrapped() {
@@ -193,7 +196,7 @@ public class RecyclableReplicationIndexManagerTest {
     assertThat(rrim.leadershipTransitionFailureCount()).isEqualTo(1.0);
   }
 
-  // ── prepare currency & executor (CLOUDP-446295) ──────────────────────────────
+  // ── prepare currency & executor ─────────────────────────────────────────────
 
   @Test
   public void prepare_runsOnPrepareExecutor() throws Exception {
@@ -550,19 +553,73 @@ public class RecyclableReplicationIndexManagerTest {
   }
 
   @Test
-  public void shutdown_whenFollower_withPendingShutdownFuture_returnsPendingFuture() {
+  public void shutdown_whileInnerDraining_completesOnlyAfterTheDrain() throws Exception {
+    // N9 regression: a shutdown() racing a reconcile-owned drain must return a future completed
+    // by that drain, never a stale completed future that lies about the inner manager still
+    // draining.
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      var factory = mockWrappedFactory();
+      var innerRim = mock(ReplicationIndexManager.class);
+      var drainEntered = new CountDownLatch(1);
+      var releaseDrain = new CountDownLatch(1);
+      var innerShutdown = new CompletableFuture<Void>();
+      when(innerRim.shutdown())
+          .thenAnswer(
+              invocation -> {
+                drainEntered.countDown();
+                releaseDrain.await(5, TimeUnit.SECONDS);
+                return innerShutdown;
+              });
+      when(factory.get()).thenReturn(innerRim);
+      var rrim = RecyclableReplicationIndexManager.createForTesting(factory, executor);
+      rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+      verify(factory, timeout(5000)).get();
+
+      // Demote: the reconcile parks the executor thread inside the inner shutdown().
+      rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER);
+      assertTrue(drainEntered.await(5, TimeUnit.SECONDS));
+
+      CompletableFuture<Void> terminal = rrim.shutdown(); // during the drain
+      assertFalse(terminal.isDone());
+
+      releaseDrain.countDown();
+      innerShutdown.complete(null);
+
+      // The settle runs on the drain's thread, so await it rather than assert synchronously.
+      terminal.get(5, TimeUnit.SECONDS);
+      assertFalse(terminal.isCompletedExceptionally());
+      verify(innerRim, times(1)).shutdown(); // exactly one stop
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void shutdown_whileATerminateOwnedDrainIsInFlight_completesOnlyAfterTheDrain() {
+    // The first shutdown() owns the stop; a second shutdown() during that drain must see the
+    // session's future still pending (it used to complete it immediately, letting callers tear
+    // down executors mid-drain). The inner mock returns a pending future immediately -- the real
+    // RIM shape: the drain runs on the inner manager's executors and its future completes later.
     var factory = mockWrappedFactory();
-    var pendingFuture = new CompletableFuture<Void>();
     var innerRim = mock(ReplicationIndexManager.class);
-    when(innerRim.shutdown()).thenReturn(pendingFuture);
+    var innerShutdown = new CompletableFuture<Void>();
+    when(innerRim.shutdown()).thenReturn(innerShutdown);
     when(factory.get()).thenReturn(innerRim);
-    var rrim = createManager(factory);
+    var rrim = RecyclableReplicationIndexManager.createForTesting(factory, Runnable::run);
     rrim.onLeaderStatusChange(LeaderStatus.LEADER);
-    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // stores pendingFuture as shutdownFuture
+    verify(factory, timeout(5000)).get();
 
-    var result = rrim.shutdown();
+    var first = rrim.shutdown(); // owns the stop
+    CompletableFuture<Void> second = rrim.shutdown(); // during the terminate-owned drain
+    assertThat(second).isSameInstanceAs(first);
+    assertFalse(second.isDone());
 
-    assertThat(result).isSameInstanceAs(pendingFuture);
+    innerShutdown.complete(null);
+
+    assertTrue(second.isDone());
+    assertFalse(second.isCompletedExceptionally());
+    verify(innerRim, times(1)).shutdown(); // the second terminal owned no stop
   }
 
   @Test
@@ -601,28 +658,32 @@ public class RecyclableReplicationIndexManagerTest {
   }
 
   @Test
-  public void drop_whenFollower_withPendingShutdownFuture_returnsPendingFuture() {
-    var factory = mockWrappedFactory();
-    var pendingFuture = new CompletableFuture<Void>();
-    var innerRim = mock(ReplicationIndexManager.class);
-    when(innerRim.shutdown()).thenReturn(pendingFuture);
-    when(factory.get()).thenReturn(innerRim);
-    var rrim = createManager(factory);
-    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
-    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // stores pendingFuture as shutdownFuture
-
-    var result = rrim.drop();
-
-    assertThat(result).isSameInstanceAs(pendingFuture);
-  }
-
-  @Test
   public void drop_whenFollower_setsStateToShutDown() {
     var rrim = createManager(mockWrappedFactory());
 
     rrim.drop();
 
     assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+  }
+
+  @Test
+  public void drop_afterSettledShutdown_returnsSettledFutureAndDoesNotDropInner() {
+    // A drop() after a settled shutdown has nothing left to stop: it returns the settled terminal
+    // future and does not touch the inner manager again. The physical close and drop of the index
+    // is performed by the caller above this manager (IndexActions.dropIndex, after this future
+    // settles), so a chained inner drop would be redundant and race that cleanup.
+    var factory = mockWrappedFactory();
+    var innerRim = stubShutdown(mock(ReplicationIndexManager.class));
+    when(factory.get()).thenReturn(innerRim);
+    var rrim = createManager(factory);
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    rrim.shutdown();
+    var terminal = rrim.drop();
+
+    assertTrue(terminal.isDone());
+    assertFalse(terminal.isCompletedExceptionally());
+    verify(innerRim, never()).drop();
   }
 
   // ── async transitions & coalescing ──────────────────────────────────────────
@@ -760,6 +821,81 @@ public class RecyclableReplicationIndexManagerTest {
     }
   }
 
+  // ── status reads never hold the monitor across inner calls ─────────────────
+
+  @Test
+  public void getState_blockedInInnerState_doesNotBlockTheUpcallThread() throws Exception {
+    // A metrics scrape calls getState() on every manager; the inner manager's monitor is held
+    // across native commits and drains. getState() must therefore read the inner state OFF the
+    // RRIM monitor: a scrape parked in the inner accessor must not stall a concurrent leadership
+    // upcall (and the Rust leadership task behind it).
+    var factory = mockWrappedFactory();
+    var innerRim = mock(ReplicationIndexManager.class);
+    var stateEntered = new CountDownLatch(1);
+    var releaseState = new CountDownLatch(1);
+    when(innerRim.getState())
+        .thenAnswer(
+            invocation -> {
+              stateEntered.countDown();
+              releaseState.await(
+                  5, TimeUnit.SECONDS); // simulate the scrape parked in the inner read
+              return IndexManager.State.STEADY_STATE;
+            });
+    when(innerRim.shutdown()).thenReturn(CompletableFuture.completedFuture(null));
+    when(factory.get()).thenReturn(innerRim);
+    var rrim = RecyclableReplicationIndexManager.createForTesting(factory, Runnable::run);
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER); // a session is running, so getState() delegates
+
+    CompletableFuture<IndexManager.State> scrape =
+        CompletableFuture.supplyAsync(rrim::getState); // parks in the inner getState()
+    assertTrue(stateEntered.await(5, TimeUnit.SECONDS));
+
+    // The upcall must complete while the scrape is STILL parked in the inner read (it stays
+    // parked until released below, or up to its own 5s self-release). A short deadline is what
+    // makes this discriminating: with the old monitor-holding accessors the upcall waits behind
+    // the scrape's inner read and times out here.
+    CompletableFuture<Void> upcall =
+        CompletableFuture.runAsync(() -> rrim.onLeaderStatusChange(LeaderStatus.LEADER));
+    upcall.get(1, TimeUnit.SECONDS);
+
+    releaseState.countDown();
+    assertThat(scrape.get(5, TimeUnit.SECONDS)).isEqualTo(IndexManager.State.STEADY_STATE);
+  }
+
+  @Test
+  public void getInitFuture_blockedInInnerInit_doesNotBlockTheUpcallThread() throws Exception {
+    // Same lock rule as getState(), for the init future.
+    var factory = mockWrappedFactory();
+    var innerRim = mock(ReplicationIndexManager.class);
+    var innerFuture = new CompletableFuture<Void>();
+    var readEntered = new CountDownLatch(1);
+    var releaseRead = new CountDownLatch(1);
+    when(innerRim.getInitFuture())
+        .thenAnswer(
+            invocation -> {
+              readEntered.countDown();
+              releaseRead.await(5, TimeUnit.SECONDS);
+              return innerFuture;
+            });
+    when(factory.get()).thenReturn(innerRim);
+    var rrim = RecyclableReplicationIndexManager.createForTesting(factory, Runnable::run);
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    CompletableFuture<CompletableFuture<Void>> scrape =
+        CompletableFuture.supplyAsync(rrim::getInitFuture);
+    assertTrue(readEntered.await(5, TimeUnit.SECONDS));
+
+    // Same discrimination as the getState variant: the upcall must complete while the read is
+    // still parked (until released below, or up to its own 5s self-release); the old
+    // monitor-holding accessor times out here.
+    CompletableFuture<Void> upcall =
+        CompletableFuture.runAsync(() -> rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER));
+    upcall.get(1, TimeUnit.SECONDS);
+
+    releaseRead.countDown();
+    assertThat(scrape.get(5, TimeUnit.SECONDS)).isSameInstanceAs(innerFuture);
+  }
+
   // ── failed-transition handling & periodic reconcile ─────────────────────────
 
   @Test
@@ -802,6 +938,78 @@ public class RecyclableReplicationIndexManagerTest {
 
     verify(factory, times(1)).get();
     assertTrue(rrim.isLeader());
+  }
+
+  // ── promotion deferred on a queued initial-sync entry ───────────────────────
+
+  @Test
+  public void promote_whileInitialSyncEntryQueued_defersUntilTheEntryIsCleared() throws Exception {
+    // The previous session's queued initial sync (cancelled but not yet dequeued) must gate the
+    // promotion: the next manager's enqueue would trip the queue's already-cancelled check and
+    // fail the index. The promotion is deferred and re-checked, not dropped.
+    var entryPresent = new AtomicBoolean(true);
+    AtomicReference<Runnable> recheck = new AtomicReference<>();
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    when(scheduler.schedule(any(Runnable.class), anyLong(), any()))
+        .thenAnswer(
+            invocation -> {
+              recheck.set(invocation.getArgument(0));
+              return null;
+            });
+
+    var fixture = new SessionFencingFixture();
+    AtomicInteger prepares = new AtomicInteger();
+    PreparableWriter countingWriter =
+        () -> {
+          prepares.incrementAndGet();
+          return new PrepareResult.Ready(EncodedUserData.EMPTY);
+        };
+    @SuppressWarnings("unchecked")
+    Function<DocumentIndexer, ReplicationIndexManager> factory = mock(Function.class);
+    when(factory.apply(any())).thenReturn(mock(ReplicationIndexManager.class));
+    var rrim = fixture.rrim(factory, countingWriter, entryPresent::get, scheduler);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+
+    // Deferred: no prepare, no manager, one counted wait, and a re-check scheduled 1s out.
+    verify(factory, never()).apply(any());
+    assertThat(prepares.get()).isEqualTo(0);
+    assertThat(rrim.initialSyncEntryWaitCount()).isEqualTo(1.0);
+    assertThat(recheck.get()).isNotNull();
+
+    entryPresent.set(false);
+    recheck.get().run(); // the re-check fires and re-drives the promotion
+
+    verify(factory, timeout(5000)).apply(any());
+    assertThat(prepares.get()).isEqualTo(1);
+    assertTrue(rrim.isLeader());
+  }
+
+  @Test
+  public void promote_whileInitialSyncEntryStaysQueued_defersAgain() {
+    // Each reconcile taken while the entry is queued defers again and counts the wait; nothing
+    // is prepared.
+    var entryPresent = new AtomicBoolean(true);
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    when(scheduler.schedule(any(Runnable.class), anyLong(), any()))
+        .thenAnswer(invocation -> invocation.<Runnable>getArgument(0));
+
+    var fixture = new SessionFencingFixture();
+    @SuppressWarnings("unchecked")
+    Function<DocumentIndexer, ReplicationIndexManager> factory = mock(Function.class);
+    when(factory.apply(any())).thenReturn(mock(ReplicationIndexManager.class));
+    var rrim =
+        fixture.rrim(
+            factory,
+            () -> new PrepareResult.Ready(EncodedUserData.EMPTY),
+            entryPresent::get,
+            scheduler);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.triggerReconcileTick();
+
+    verify(factory, never()).apply(any());
+    assertThat(rrim.initialSyncEntryWaitCount()).isEqualTo(2.0);
   }
 
   // ── follower status recovery (init) ─────────────────────────────────────────
@@ -1528,7 +1736,7 @@ public class RecyclableReplicationIndexManagerTest {
   /**
    * Builds an {@link RecyclableReplicationIndexManager} whose promotions create real {@link
    * SessionFencedDocumentIndexer}s against a mock VectorLite index, so tests can assert the
-   * per-session tenure wiring (CLOUDP-446295). Transitions and prepares run synchronously.
+   * per-session tenure wiring. Transitions and prepares run synchronously.
    */
   private static final class SessionFencingFixture {
     final InitializedVectorIndex index = mock(InitializedVectorIndex.class);
@@ -1557,6 +1765,14 @@ public class RecyclableReplicationIndexManagerTest {
     RecyclableReplicationIndexManager rrim(
         Function<DocumentIndexer, ReplicationIndexManager> factory,
         PreparableWriter preparableWriter) {
+      return rrim(factory, preparableWriter, () -> false, /* reconcileScheduler= */ null);
+    }
+
+    RecyclableReplicationIndexManager rrim(
+        Function<DocumentIndexer, ReplicationIndexManager> factory,
+        PreparableWriter preparableWriter,
+        BooleanSupplier initialSyncEntryPresent,
+        ScheduledExecutorService reconcileScheduler) {
       Function<EncodedUserData, SessionFencedDocumentIndexer> sessionIndexerFactory =
           token -> {
             var indexer =
@@ -1574,7 +1790,9 @@ public class RecyclableReplicationIndexManagerTest {
           Runnable::run,
           preparableWriter,
           Runnable::run,
-          this.meterRegistry);
+          this.meterRegistry,
+          initialSyncEntryPresent,
+          reconcileScheduler);
     }
 
     double staleWrites() {

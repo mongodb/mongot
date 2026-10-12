@@ -39,9 +39,11 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.bson.BsonTimestamp;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,12 +59,24 @@ import org.slf4j.LoggerFactory;
  * #transitionExecutor} and drives the actual state toward {@link #desiredStatus}. A {@code
  * FOLLOWER} step returns the inner manager's shutdown future so a subsequent {@code LEADER} step
  * only starts once the prior shutdown has fully completed -- awaiting completion without blocking
- * any thread.
+ * any thread. Every stop (terminal request, demotion, session recycle) settles {@code lastStop}
+ * only when the drain completes, so every {@code shutdown()}/{@code drop()} caller gets a future
+ * that reflects the drain actually in flight; the physical index drop stays above this manager
+ * (IndexActions.dropIndex).
  *
  * <p>Because SLS leadership is edge-triggered, a failed transition would otherwise leave the node
  * permanently diverged from its assigned role. Failures are therefore never fatal: they increment
  * {@link #LEADERSHIP_TRANSITION_FAILURE_COUNTER_NAME} and are retried by a low-frequency periodic
  * reconcile tick (mirroring the auto-embedding {@code MaterializedViewManager} self-heal).
+ *
+ * <p>Lock rule: never block while holding this manager's monitor. No inner-manager calls, no native
+ * calls, and no indexer calls except {@code beginTenure} on an unpublished indexer. The inner
+ * manager's monitor is held across native commits, index clears, force merges, and the
+ * change-stream drain, and metrics scrapes call {@link #getState()} on every manager, so a call
+ * that can block on the inner manager would stall a concurrent {@link #onLeaderStatusChange} on the
+ * FFM upcall thread (and the Rust leadership task behind it). Status accessors therefore snapshot
+ * this manager's fields under its monitor, release it, and only then read the inner manager; a
+ * status read is eventually consistent, so a snapshot one recycle stale is fine.
  *
  * <p>While a follower, the index status is recovered once at creation (this one-time init gates
  * readiness via {@link #getInitFuture()}) and then kept fresh by the same periodic tick: each pass
@@ -102,6 +116,17 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    */
   @VisibleForTesting
   static final String PREPARE_SUPERSEDED_COUNTER_NAME = "recyclablePrepareSuperseded";
+
+  /**
+   * Counts promotions deferred because the previous session's initial-sync queue entry (queued or
+   * in progress) has not been dequeued yet. Each deferral schedules a re-check; the count tracks
+   * how long the wait lasted.
+   */
+  @VisibleForTesting
+  static final String INITIAL_SYNC_ENTRY_WAIT_COUNTER_NAME = "recyclableInitialSyncEntryWait";
+
+  /** How long to wait between re-checks of a still-queued initial-sync entry. */
+  private static final Duration INITIAL_SYNC_ENTRY_RECHECK_DELAY = Duration.ofSeconds(1);
 
   /**
    * Default fake writer for the wrapped-factory-only test factories, which have no real index:
@@ -153,9 +178,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   private final Executor transitionExecutor;
 
   /**
-   * The index's native writer, prepared before each leadership session (CLOUDP-446295). Present
-   * only for production and index-taking test factories; the wrapped-factory-only test factories
-   * inject a fake.
+   * The index's native writer, prepared before each leadership session. Present only for production
+   * and index-taking test factories; the wrapped-factory-only test factories inject a fake.
    */
   private final PreparableWriter preparableWriter;
 
@@ -164,6 +188,21 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * must not occupy the shared lifecycle threads. See {@link VectorlitePrepareExecutor}.
    */
   private final Executor prepareExecutor;
+
+  /**
+   * Whether the initial-sync queue still holds this index generation's entry (queued or in
+   * progress) from the previous session. Promotion is deferred while it does: enqueuing the next
+   * session's initial sync behind a cancelled-but-still-queued entry trips the queue's
+   * already-cancelled check and fails the index.
+   */
+  private final BooleanSupplier initialSyncEntryPresent;
+
+  /**
+   * Scheduler for the one-second initial-sync-entry re-check; the same executor the periodic
+   * reconcile tick runs on. Absent in the wrapped-factory-only test seams, which re-drive the wait
+   * through {@link #triggerReconcileTick()} instead.
+   */
+  private final Optional<ScheduledExecutorService> reconcileScheduler;
 
   private final MeterRegistry meterRegistry;
 
@@ -207,8 +246,15 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @GuardedBy("this")
   private CompletableFuture<Void> transitionChain;
 
+  /**
+   * The current session's stop future: created pending whenever a stop takes the inner manager (a
+   * terminal request, a demotion, a session recycle) and completed only when that stop settles, so
+   * a {@code shutdown()}/{@code drop()} that finds no session returns a future that reflects the
+   * drain actually in flight rather than one that lies about it. Completed (never pending) when no
+   * session was ever stopped.
+   */
   @GuardedBy("this")
-  private Optional<CompletableFuture<Void>> shutdownFuture;
+  private CompletableFuture<Void> lastStop;
 
   /**
    * Future for the one-time follower status recovery. Surfaced by {@link #getInitFuture()} while
@@ -247,13 +293,17 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       Executor transitionExecutor,
       PreparableWriter preparableWriter,
       Executor prepareExecutor,
-      MeterRegistry meterRegistry) {
+      MeterRegistry meterRegistry,
+      BooleanSupplier initialSyncEntryPresent,
+      @Nullable ScheduledExecutorService reconcileScheduler) {
     this.wrappedFactory = wrappedFactory;
     this.sessionIndexerFactory = sessionIndexerFactory;
     this.transitionExecutor = transitionExecutor;
     this.preparableWriter = preparableWriter;
     this.prepareExecutor = prepareExecutor;
     this.meterRegistry = meterRegistry;
+    this.initialSyncEntryPresent = initialSyncEntryPresent;
+    this.reconcileScheduler = Optional.ofNullable(reconcileScheduler);
     this.wrapped = Optional.empty();
     this.currentSessionIndexer = Optional.empty();
     this.leadershipEpoch = 0;
@@ -261,7 +311,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     this.preparing = false;
     this.desiredStatus = LeaderStatus.FOLLOWER;
     this.transitionChain = CompletableFuture.completedFuture(null);
-    this.shutdownFuture = Optional.empty();
+    // Completed: no session has ever been stopped.
+    this.lastStop = CompletableFuture.completedFuture(null);
     this.followerInitFuture = CompletableFuture.completedFuture(null);
     this.followerContext = Optional.empty();
     this.lastPublishedUserData = Optional.empty();
@@ -275,16 +326,34 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     return this.wrapped.isPresent();
   }
 
+  /**
+   * Snapshot-then-read, per the lock rule in the class comment: the inner {@code getInitFuture()}
+   * takes the inner manager's monitor, which can be held across a native commit or a change-stream
+   * drain, so it must never be called while holding this manager's monitor.
+   */
   @Override
-  public synchronized CompletableFuture<Void> getInitFuture() {
+  public CompletableFuture<Void> getInitFuture() {
     // While a follower, readiness reflects the status-recovery init; once leader, the inner
     // manager's init (which starts replication) is authoritative.
-    return this.wrapped.map(ReplicationIndexManager::getInitFuture).orElse(this.followerInitFuture);
+    Optional<ReplicationIndexManager> wrapped;
+    CompletableFuture<Void> followerInit;
+    synchronized (this) {
+      wrapped = this.wrapped;
+      followerInit = this.followerInitFuture;
+    }
+    return wrapped.map(ReplicationIndexManager::getInitFuture).orElse(followerInit);
   }
 
+  /** Snapshot-then-read, per the lock rule in the class comment. */
   @Override
-  public synchronized IndexManager.State getState() {
-    return this.wrapped.map(ReplicationIndexManager::getState).orElse(this.state);
+  public IndexManager.State getState() {
+    Optional<ReplicationIndexManager> wrapped;
+    IndexManager.State state;
+    synchronized (this) {
+      wrapped = this.wrapped;
+      state = this.state;
+    }
+    return wrapped.map(ReplicationIndexManager::getState).orElse(state);
   }
 
   @Override
@@ -297,62 +366,75 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   @Override
   public CompletableFuture<Void> shutdown() {
-    ReplicationIndexManager toShutdown;
+    return terminate(false);
+  }
+
+  @Override
+  public CompletableFuture<Void> drop() {
+    return terminate(true);
+  }
+
+  /**
+   * Runs the terminal request and returns the stable {@link #lastStop}. Whoever finds the manager
+   * present owns its stop; a caller that races a reconcile-owned drain gets a future completed by
+   * that drain, never a completed future that lies about it. A drop on a running session stops it
+   * with {@code RIM.drop()} so the inner index drop runs; a drop after a settled stop just returns
+   * the settled future -- the physical close and drop of the index is performed by the caller above
+   * this manager (IndexActions.dropIndex) after this future settles.
+   */
+  private CompletableFuture<Void> terminate(boolean drop) {
+    ReplicationIndexManager toStop;
     Optional<SessionFencedDocumentIndexer> endedSession;
+    CompletableFuture<Void> lastStop;
     synchronized (this) {
       this.desiredStatus = LeaderStatus.FOLLOWER;
       cancelReconcileTick();
       // Mark SHUT_DOWN even while leader so a late upcall or in-flight reconcile cannot re-promote.
       this.state = State.SHUT_DOWN;
       if (this.wrapped.isEmpty()) {
-        return this.shutdownFuture.orElse(CompletableFuture.completedFuture(null));
+        // Nothing to stop: no manager ever, already stopped, or a reconcile-owned drain in flight
+        // (which settles {@code lastStop} when it completes). The physical close and drop of the
+        // index is performed by the caller above this manager (IndexActions.dropIndex, after this
+        // future settles).
+        return this.lastStop;
       }
-      toShutdown = this.wrapped.get();
+      // This call owns the stop, so it replaces {@code lastStop}: every terminal call that lands
+      // while this drain runs (the manager is now absent) returns this same future, completed only
+      // when the drain settles.
+      toStop = this.wrapped.get();
       this.wrapped = Optional.empty();
       endedSession = this.currentSessionIndexer;
       this.currentSessionIndexer = Optional.empty();
+      lastStop = new CompletableFuture<>();
+      this.lastStop = lastStop;
     }
     // Off monitor: shutdown() can block while the change-stream read loop drains, and holding this
     // monitor across it would stall a concurrent onLeaderStatusChange() on the FFM upcall thread.
     CompletableFuture<Void> future;
     try {
-      future = toShutdown.shutdown();
+      future = drop ? toStop.drop() : toStop.shutdown();
     } catch (Throwable t) {
       // End the tenure even on a synchronous throw, before it escapes, so every stop path is
-      // uniform.
+      // uniform; and settle the future so a concurrent waiter is not left pending.
       endedSession.ifPresent(SessionFencedDocumentIndexer::endTenure);
+      lastStop.completeExceptionally(t);
       throw t;
     }
-    return recordShutdownFuture(endTenureWhenComplete(endedSession, future));
+    // The stop this call owned settles the terminal future.
+    settleFrom(lastStop, endTenureWhenComplete(endedSession, future));
+    return lastStop;
   }
 
-  @Override
-  public CompletableFuture<Void> drop() {
-    ReplicationIndexManager toDrop;
-    Optional<SessionFencedDocumentIndexer> endedSession;
-    synchronized (this) {
-      this.desiredStatus = LeaderStatus.FOLLOWER;
-      cancelReconcileTick();
-      this.state = State.SHUT_DOWN;
-      if (this.wrapped.isEmpty()) {
-        return this.shutdownFuture.orElse(CompletableFuture.completedFuture(null));
-      }
-      toDrop = this.wrapped.get();
-      this.wrapped = Optional.empty();
-      endedSession = this.currentSessionIndexer;
-      this.currentSessionIndexer = Optional.empty();
-    }
-    // Off monitor: drop() -> shutdown() can block while the change-stream read loop drains.
-    CompletableFuture<Void> future;
-    try {
-      future = toDrop.drop();
-    } catch (Throwable t) {
-      // End the tenure even on a synchronous throw, before it escapes, so every stop path is
-      // uniform.
-      endedSession.ifPresent(SessionFencedDocumentIndexer::endTenure);
-      throw t;
-    }
-    return recordShutdownFuture(endTenureWhenComplete(endedSession, future));
+  /** Completes {@code stop} with {@code source}'s outcome, exceptional or not. */
+  private static void settleFrom(CompletableFuture<Void> stop, CompletableFuture<Void> source) {
+    source.whenComplete(
+        (ignored, throwable) -> {
+          if (throwable != null) {
+            stop.completeExceptionally(throwable);
+          } else {
+            stop.complete(null);
+          }
+        });
   }
 
   /**
@@ -369,7 +451,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     }
     // Treat every upcall as a session boundary: bump the epoch so a running
     // session created under an older epoch is recycled even when the desired role
-    // is LEADER again (a leadership flap faster than a reconcile). CLOUDP-446295.
+    // is LEADER again (a leadership flap faster than a reconcile).
     this.leadershipEpoch++;
     this.desiredStatus = newStatus;
     enqueueReconcile();
@@ -403,9 +485,16 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * unexpected failures are recorded and retried by the periodic tick.
    */
   private CompletableFuture<Void> reconcile() {
+    // The initial-sync-queue read runs OFF this monitor (the lock rule):
+    // hasEntry takes the queue's lock. The value is monotone here -- the
+    // previous session's entry can only leave the queue, and a new one cannot
+    // be enqueued before the next manager exists -- so a stale read at worst
+    // defers one re-check.
+    boolean initialSyncEntryPresent = this.initialSyncEntryPresent.getAsBoolean();
     ReplicationIndexManager toShutdown;
     Optional<SessionFencedDocumentIndexer> endedSession;
     @Var boolean rePrepareAfterShutdown = false;
+    @Var CompletableFuture<Void> lastStop = null;
     synchronized (this) {
       if (this.state == State.SHUT_DOWN) {
         return CompletableFuture.completedFuture(null);
@@ -423,6 +512,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
           endedSession = this.currentSessionIndexer;
           this.currentSessionIndexer = Optional.empty();
           this.lastPublishedUserData = Optional.empty();
+          lastStop = new CompletableFuture<>();
+          this.lastStop = lastStop;
           rePrepareAfterShutdown = true;
         } else {
           // Finish follower status recovery before promoting, so the leader init does not race the
@@ -432,13 +523,22 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             return this.followerInitFuture.thenComposeAsync(
                 ignored -> reconcile(), this.transitionExecutor);
           }
+          // The previous session's queued (or in-progress) initial sync must be dequeued before
+          // the next manager enqueues its own: enqueuing behind a cancelled-but-still-queued
+          // entry trips the queue's already-cancelled check and fails the index. Defer the
+          // promotion and re-check shortly (the periodic tick re-drives too).
+          if (initialSyncEntryPresent) {
+            this.meterRegistry.counter(INITIAL_SYNC_ENTRY_WAIT_COUNTER_NAME).increment();
+            scheduleInitialSyncEntryRecheck();
+            return CompletableFuture.completedFuture(null);
+          }
           if (this.preparing) {
             // A prepare is already in flight for this index; its completion re-drives.
             return CompletableFuture.completedFuture(null);
           }
           // Prepare the native write path BEFORE creating the RIM, so a promoted
           // follower rebuilds its write base from the latest durable checkpoint
-          // and RIM.init resumes from the prepared token (CLOUDP-446295). Prepare
+          // and RIM.init resumes from the prepared token. Prepare
           // runs OFF this chain on the dedicated prepare executor, so a FOLLOWER/
           // terminal signal arriving mid-prepare is seen immediately by the next
           // chain step.
@@ -468,6 +568,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         this.wrapped = Optional.empty();
         endedSession = this.currentSessionIndexer;
         this.currentSessionIndexer = Optional.empty();
+        lastStop = new CompletableFuture<>();
+        this.lastStop = lastStop;
         // Force the first post-demotion poll to republish even if the committed data equals what
         // this node last published as a follower: the inner manager owned (and may have
         // overwritten)
@@ -476,11 +578,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       }
     }
     // The transition chain awaits this future, so a subsequent LEADER only starts once the prior
-    // shutdown has fully completed. Record the tenure-end dependent future (not the raw shutdown),
-    // so
-    // the re-prepare below and the next chained reconcile run only after the old tenure has ended.
+    // shutdown has fully completed. The tenure-end dependent future (not the raw shutdown) is
+    // what the re-prepare below and the next chained reconcile wait on, so both run only after
+    // the old tenure has ended. When the stop settles, the session's terminal future settles from
+    // it: a terminal request that landed while this drain was running returns that future, and
+    // only now learns the drain is done. The drained manager is retained for a late drop.
     CompletableFuture<Void> shutdown =
-        recordShutdownFuture(endTenureWhenComplete(endedSession, safeShutdown(toShutdown)));
+        endTenureWhenComplete(endedSession, safeShutdown(toShutdown));
+    settleFrom(lastStop, shutdown);
     if (rePrepareAfterShutdown) {
       // Once the stale session has fully drained, re-drive to prepare the new term.
       return shutdown.thenComposeAsync(ignored -> reconcile(), this.transitionExecutor);
@@ -489,11 +594,36 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   }
 
   /**
+   * Schedules the one-second re-check that re-drives a promotion deferred on a still-queued
+   * initial-sync entry ({@link #initialSyncEntryPresent}). A no-op without a scheduler (the
+   * wrapped-factory-only test seams re-drive through {@link #triggerReconcileTick()}); a rejected
+   * schedule (executor shutting down) falls back to the periodic tick the same way.
+   */
+  @GuardedBy("this")
+  private void scheduleInitialSyncEntryRecheck() {
+    try {
+      this.reconcileScheduler.ifPresent(
+          scheduler ->
+              scheduler.schedule(
+                  () -> {
+                    synchronized (this) {
+                      if (this.state != State.SHUT_DOWN) {
+                        enqueueReconcile();
+                      }
+                    }
+                  },
+                  INITIAL_SYNC_ENTRY_RECHECK_DELAY.toMillis(),
+                  TimeUnit.MILLISECONDS));
+    } catch (RuntimeException e) {
+      // Executor rejected (e.g. shutting down): the periodic tick retries.
+    }
+  }
+
+  /**
    * Prepare the native write path for leadership {@code epoch}, then create the inner manager on a
    * Ready result. Runs on {@link #prepareExecutor} (never the reconcile chain or an FFM upcall
    * thread): native prepare is I/O-bound and the RRIM monitor is not held across it. On completion
    * it re-checks currency under the monitor, so a newer signal that arrived during prepare wins.
-   * CLOUDP-446295.
    */
   private void prepareAndPromote(long epoch) {
     PrepareResult result;
@@ -506,7 +636,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       return;
     }
 
-    // Build the per-session document indexer OUTSIDE the monitor (CLOUDP-446295): its delegate
+    // Build the per-session document indexer OUTSIDE the monitor: its delegate
     // constructor does a native commit-user-data read, and holding the RRIM monitor across it would
     // block a concurrent FFM leadership upcall (and the Rust leadership task behind it). If the
     // session turns out not to be current below, this indexer is discarded unused -- its tenure is
@@ -564,7 +694,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         // Leadership moved away during prepare; wait for the next signal.
         this.meterRegistry.counter(PREPARE_SUPERSEDED_COUNTER_NAME).increment();
       } else if (result instanceof PrepareResult.Failed failed) {
-        // Not produced; PR 3 in CLOUDP-446295 publishes FAILED and halts. Defensive until then.
+        // Not produced by any writer today; reported as a transition failure so an unexpected
+        // terminal verdict cannot pass silently.
         handleTransitionFailure(
             new IllegalStateException("native writer terminal: " + failed.message()));
       }
@@ -588,18 +719,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   /** Invokes {@code inner.shutdown()} off the monitor, recording a failure instead of throwing. */
   private CompletableFuture<Void> safeShutdown(ReplicationIndexManager inner) {
     try {
-      return inner.shutdown();
+      CompletableFuture<Void> future = inner.shutdown();
+      // A null (never a real ReplicationIndexManager) is tolerated so callers can compose on the
+      // result unconditionally.
+      return future != null ? future : CompletableFuture.completedFuture(null);
     } catch (Throwable t) {
       handleTransitionFailure(t);
       return CompletableFuture.completedFuture(null);
     }
-  }
-
-  private CompletableFuture<Void> recordShutdownFuture(CompletableFuture<Void> future) {
-    synchronized (this) {
-      this.shutdownFuture = Optional.of(future);
-    }
-    return future;
   }
 
   /**
@@ -657,12 +784,18 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * Body of the periodic tick. Runs on the scheduled executor and must never throw, or {@code
    * scheduleWithFixedDelay} would cancel the repeating task. Dispatch-only: the leadership
    * reconcile body and the follower status refresh both run elsewhere ({@link
-   * #transitionExecutor}), never on the scheduler thread.
+   * #transitionExecutor}), never on the scheduler thread. NOT synchronized: this tick runs on the
+   * shared periodic scheduler, so it takes this manager's monitor only briefly (the snapshot in
+   * {@link #needsReconcile()}, the enqueue in {@link #enqueueReconcile()}) rather than across both
+   * calls -- holding it here would stall a concurrent {@link #onLeaderStatusChange} on the FFM
+   * upcall thread.
    */
-  private synchronized void runReconcileTick() {
+  private void runReconcileTick() {
     try {
       if (needsReconcile()) {
-        enqueueReconcile();
+        synchronized (this) {
+          enqueueReconcile();
+        }
       }
       maybeScheduleFollowerRefresh();
     } catch (Throwable t) {
@@ -686,9 +819,11 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * promotion is pending (the {@code desiredStatus == LEADER} guard below). Races with a concurrent
    * promotion are otherwise benign -- {@link #setFollowerStatus} re-checks under the monitor and
    * lets the leader win.
+   *
+   * <p>Synchronized itself (not called under a caller's monitor): reads several fields and flips
+   * {@link #followerRefreshInFlight} atomically without holding any caller's lock.
    */
-  @GuardedBy("this")
-  private void maybeScheduleFollowerRefresh() {
+  private synchronized void maybeScheduleFollowerRefresh() {
     if (this.state == State.SHUT_DOWN
         || this.wrapped.isPresent()
         || this.desiredStatus == LeaderStatus.LEADER
@@ -719,16 +854,36 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     }
   }
 
-  @GuardedBy("this")
+  /**
+   * Whether actual state diverges from {@link #desiredStatus} and a reconcile is needed. Snapshots
+   * this manager's fields under its monitor and reads nothing else, so it never blocks (the lock
+   * rule in the class comment). A dead inner manager is not detected here: it is exported by the
+   * per-state manager gauge and the native fail-stop gauge, and recovery is master's halt + restart
+   * + replay -- recycling a terminal inner manager would just re-terminate it.
+   */
   private boolean needsReconcile() {
-    if (this.state == State.SHUT_DOWN) {
+    Optional<ReplicationIndexManager> wrapped;
+    State state;
+    LeaderStatus desiredStatus;
+    boolean preparing;
+    long sessionEpoch;
+    long leadershipEpoch;
+    synchronized (this) {
+      wrapped = this.wrapped;
+      state = this.state;
+      desiredStatus = this.desiredStatus;
+      preparing = this.preparing;
+      sessionEpoch = this.sessionEpoch;
+      leadershipEpoch = this.leadershipEpoch;
+    }
+    if (state == State.SHUT_DOWN) {
       return false;
     }
-    boolean leaderNow = this.wrapped.isPresent();
-    if (this.desiredStatus == LeaderStatus.LEADER) {
+    boolean leaderNow = wrapped.isPresent();
+    if (desiredStatus == LeaderStatus.LEADER) {
       // Re-drive when not leader yet, or the running session is from an older
       // epoch; skip while a prepare is already in flight (it will re-drive).
-      return !this.preparing && (!leaderNow || this.sessionEpoch != this.leadershipEpoch);
+      return !preparing && (!leaderNow || sessionEpoch != leadershipEpoch);
     }
     return leaderNow; // desired FOLLOWER but still leader
   }
@@ -982,7 +1137,12 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             lifecycleExecutor,
             preparableWriter,
             prepareExecutor,
-            meterRegistry);
+            meterRegistry,
+            // Defer promotion while the previous session's initial-sync queue entry (queued or
+            // in progress) has not been dequeued yet.
+            () -> initialSyncQueue.hasEntry(indexGeneration.getGenerationId()),
+            // The 1s re-check runs on the same executor as the periodic tick.
+            commitExecutor);
     synchronized (manager) {
       // Recover and publish this follower's index status from the committed checkpoint (for
       // VectorLite, read from SLS) so queries see the correct status without replicating. Runs on
@@ -1018,7 +1178,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         Runnable::run,
         TEST_ALWAYS_READY_WRITER,
         Runnable::run,
-        new SimpleMeterRegistry());
+        new SimpleMeterRegistry(),
+        () -> false,
+        null);
   }
 
   /**
@@ -1034,7 +1196,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         transitionExecutor,
         TEST_ALWAYS_READY_WRITER,
         Runnable::run,
-        new SimpleMeterRegistry());
+        new SimpleMeterRegistry(),
+        () -> false,
+        null);
   }
 
   /**
@@ -1054,7 +1218,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         transitionExecutor,
         preparableWriter,
         prepareExecutor,
-        new SimpleMeterRegistry());
+        new SimpleMeterRegistry(),
+        () -> false,
+        null);
   }
 
   /**
@@ -1072,13 +1238,41 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       PreparableWriter preparableWriter,
       Executor prepareExecutor,
       MeterRegistry meterRegistry) {
+    return createForTesting(
+        wrappedFactory,
+        sessionIndexerFactory,
+        transitionExecutor,
+        preparableWriter,
+        prepareExecutor,
+        meterRegistry,
+        () -> false,
+        null);
+  }
+
+  /**
+   * Like {@link #createForTesting(Function, Function, Executor, PreparableWriter, Executor,
+   * MeterRegistry)} but with an injectable initial-sync-entry gate and re-check scheduler, so tests
+   * can defer a promotion on a still-queued initial-sync entry and drive the re-check.
+   */
+  @VisibleForTesting
+  static RecyclableReplicationIndexManager createForTesting(
+      Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory,
+      Function<EncodedUserData, SessionFencedDocumentIndexer> sessionIndexerFactory,
+      Executor transitionExecutor,
+      PreparableWriter preparableWriter,
+      Executor prepareExecutor,
+      MeterRegistry meterRegistry,
+      BooleanSupplier initialSyncEntryPresent,
+      @Nullable ScheduledExecutorService reconcileScheduler) {
     return new RecyclableReplicationIndexManager(
         wrappedFactory,
         Optional.of(sessionIndexerFactory),
         transitionExecutor,
         preparableWriter,
         prepareExecutor,
-        meterRegistry);
+        meterRegistry,
+        initialSyncEntryPresent,
+        reconcileScheduler);
   }
 
   /**
@@ -1115,7 +1309,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             transitionExecutor,
             TEST_ALWAYS_READY_WRITER,
             Runnable::run,
-            new SimpleMeterRegistry());
+            new SimpleMeterRegistry(),
+            () -> false,
+            null);
     synchronized (manager) {
       manager.scheduleFollowerInit(index, featureFlags, indexGeneration);
     }
@@ -1124,7 +1320,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
   /** Runs one reconcile tick synchronously, as the periodic scheduler would. */
   @VisibleForTesting
-  synchronized void triggerReconcileTick() {
+  void triggerReconcileTick() {
     runReconcileTick();
   }
 
@@ -1156,6 +1352,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @VisibleForTesting
   double prepareSupersededCount() {
     return this.meterRegistry.find(PREPARE_SUPERSEDED_COUNTER_NAME).counters().stream()
+        .mapToDouble(Counter::count)
+        .sum();
+  }
+
+  /** Total count recorded on {@link #INITIAL_SYNC_ENTRY_WAIT_COUNTER_NAME}. */
+  @VisibleForTesting
+  double initialSyncEntryWaitCount() {
+    return this.meterRegistry.find(INITIAL_SYNC_ENTRY_WAIT_COUNTER_NAME).counters().stream()
         .mapToDouble(Counter::count)
         .sum();
   }

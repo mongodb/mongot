@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Process-wide, bounded executor for native writer prepares on promotion (leadership-transition
- * correctness, CLOUDP-446295).
+ * correctness).
  *
  * <p>Prepare is I/O-bound (SLS reads plus a materialization wait) and may take up to its native
  * deadline, so it must not occupy the shared {@code indexing-lifecycle} threads that every index's
