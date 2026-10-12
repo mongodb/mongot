@@ -17,6 +17,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.TimeableChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamMongoClientFactory.TimedChangeStreamClientFactory;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.types.ObjectId;
@@ -197,6 +198,34 @@ public class TimedChangeStreamClientTest {
       restartClient.close();
       verify(timeableClient).close();
     }
+  }
+
+  @Test
+  public void testClientCreatedWhileCloseIsRunningIsClosed() throws Exception {
+    var clientFactory = mock(TimedChangeStreamClientFactory.class);
+    var first = mock(TimeableChangeStreamMongoClient.class);
+    var second = mock(TimeableChangeStreamMongoClient.class);
+    var clientRef = new AtomicReference<TimedChangeStreamClient>();
+
+    // close() lands while the restart is creating its new client.
+    when(clientFactory.resumeChangeStream(any(), any()))
+        .thenReturn(first)
+        .thenAnswer(
+            invocation -> {
+              clientRef.get().close();
+              return second;
+            });
+    when(first.getNext()).thenReturn(mock(ChangeStreamBatch.class));
+
+    var client =
+        new TimedChangeStreamClient(
+            clientFactory, getResumeInfo(), GENERATION_ID, Duration.ofSeconds(60));
+    clientRef.set(client);
+    when(first.getUptime()).thenReturn(Duration.ofSeconds(80));
+
+    client.getNext();
+
+    verify(second).close();
   }
 
   private ChangeStreamResumeInfo getResumeInfo() {

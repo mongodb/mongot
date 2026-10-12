@@ -143,7 +143,11 @@ public class PartitionedChangeStreamClient<E extends Exception>
       BsonDocument initialResumeToken,
       ExecutorService executor,
       WrapIfThrows<E> exceptionWrapper) {
-    this.readers = clients.stream().map(Reader::new).toList();
+    var readers = new ArrayList<Reader<E>>();
+    for (int id = 0; id < clients.size(); id++) {
+      readers.add(new Reader<>(clients.get(id), new ChangeStreamPartition(id, clients.size())));
+    }
+    this.readers = readers;
     this.completedReaders = new LinkedBlockingQueue<>();
     this.initialResumeToken = initialResumeToken;
     this.executor = executor;
@@ -177,7 +181,10 @@ public class PartitionedChangeStreamClient<E extends Exception>
               hasSupportedFinalOperation(batch),
               "Partitioned change stream lifecycle coordination is not implemented");
           return new ChangeStreamBatch(
-              batch.getRawEvents(), this.initialResumeToken, batch.getCommandOperationTime());
+              batch.getRawEvents(),
+              this.initialResumeToken,
+              batch.getCommandOperationTime(),
+              Optional.of(reader.partition));
         });
   }
 
@@ -229,6 +236,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
   /** Owns one change stream client's fetch state and buffered result. */
   private static class Reader<E extends Exception> {
     private final ChangeStreamMongoClient<E> client;
+    private final ChangeStreamPartition partition;
 
     private boolean closeRequested;
 
@@ -239,8 +247,9 @@ public class PartitionedChangeStreamClient<E extends Exception>
     private Optional<FutureTask<ChangeStreamBatch>> pendingFetch;
 
     /** Creates a reader with no outstanding fetch. */
-    Reader(ChangeStreamMongoClient<E> client) {
+    Reader(ChangeStreamMongoClient<E> client, ChangeStreamPartition partition) {
       this.client = client;
+      this.partition = partition;
       this.closeRequested = false;
       this.pendingFetch = Optional.empty();
     }

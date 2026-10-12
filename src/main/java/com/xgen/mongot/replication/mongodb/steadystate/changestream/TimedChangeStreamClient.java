@@ -24,7 +24,8 @@ public class TimedChangeStreamClient
   private final GenerationId generationId;
   private final MongoNamespace namespace;
   private final Duration timeToLive;
-  private TimeableChangeStreamMongoClient<SteadyStateException> wrapped;
+  private volatile TimeableChangeStreamMongoClient<SteadyStateException> wrapped;
+  private boolean closed = false;
 
   public TimedChangeStreamClient(
       TimedChangeStreamClientFactory clientFactory,
@@ -58,7 +59,12 @@ public class TimedChangeStreamClient
 
   @Override
   public void close() {
-    this.wrapped.close();
+    TimeableChangeStreamMongoClient<SteadyStateException> current;
+    synchronized (this) {
+      this.closed = true;
+      current = this.wrapped;
+    }
+    current.close();
   }
 
   @Override
@@ -73,7 +79,16 @@ public class TimedChangeStreamClient
   private void restartChangeStreamClient(BsonDocument resumeToken) {
     this.logger.info("Restarting change-stream client!");
     this.wrapped.close();
-    this.wrapped = createChangeStreamClient(resumeToken);
+    TimeableChangeStreamMongoClient<SteadyStateException> restarted =
+        createChangeStreamClient(resumeToken);
+    synchronized (this) {
+      if (!this.closed) {
+        this.wrapped = restarted;
+        return;
+      }
+    }
+    // close() ran while the new client was being created and closed only the old one.
+    restarted.close();
   }
 
   private TimeableChangeStreamMongoClient<SteadyStateException> createChangeStreamClient(

@@ -701,6 +701,9 @@ public class MongoDbReplicationManager implements ReplicationManager {
     return SteadyStateReplicationConfig.builder()
         .setRetryThrottledGetMoreOnSameCursor(
             featureFlags.isEnabled(Feature.RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR))
+        .setEnableParallelChangeStreamReaders(
+            featureFlags.isEnabled(Feature.PARALLEL_CHANGE_STREAM_READERS))
+        .setNumParallelChangeStreamReaders(replicationConfig.getNumParallelChangeStreamReaders())
         .setNumConcurrentChangeStreams(replicationConfig.numConcurrentChangeStreams)
         .setChangeStreamQueryMaxTimeMs(replicationConfig.changeStreamMaxTimeMs)
         .setChangeStreamCursorMaxTimeSec(replicationConfig.changeStreamCursorMaxTimeSec)

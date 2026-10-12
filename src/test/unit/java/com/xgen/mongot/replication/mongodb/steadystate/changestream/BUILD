@@ -9,6 +9,7 @@ java_test_suite(
         "ChangeStreamDualQueueExecutorTest.java",
         "ChangeStreamIndexManagerTest.java",
         "ChangeStreamManagerTest.java",
+        "ChangeStreamMongoClientFactoryTest.java",
         "ChangeStreamMongoCursorClientExceptionHandlingTest.java",
         "ChangeStreamPriorityStrategyTest.java",
         "CollectionRosterTest.java",

@@ -16,14 +16,24 @@ public class ChangeStreamBatch {
   private final List<RawBsonDocument> events;
   private final BsonDocument postBatchResumeToken;
   private final Optional<BsonTimestamp> commandOperationTime;
+  private final Optional<ChangeStreamPartition> partition;
 
   public ChangeStreamBatch(
       List<RawBsonDocument> events,
       BsonDocument postBatchResumeToken,
       Optional<BsonTimestamp> commandOperationTime) {
+    this(events, postBatchResumeToken, commandOperationTime, Optional.empty());
+  }
+
+  public ChangeStreamBatch(
+      List<RawBsonDocument> events,
+      BsonDocument postBatchResumeToken,
+      Optional<BsonTimestamp> commandOperationTime,
+      Optional<ChangeStreamPartition> partition) {
     this.events = events;
     this.postBatchResumeToken = postBatchResumeToken;
     this.commandOperationTime = commandOperationTime;
+    this.partition = partition;
   }
 
   public static ChangeStreamBatch fromResponse(ChangeStreamResponse response) {
@@ -53,5 +63,10 @@ public class ChangeStreamBatch {
    */
   public Optional<BsonTimestamp> getCommandOperationTime() {
     return this.commandOperationTime;
+  }
+
+  /** The partition this batch was read from, if the change stream is partitioned. */
+  public Optional<ChangeStreamPartition> getPartition() {
+    return this.partition;
   }
 }

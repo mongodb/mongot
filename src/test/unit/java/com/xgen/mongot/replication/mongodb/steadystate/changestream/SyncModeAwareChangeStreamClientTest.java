@@ -16,10 +16,12 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamMongoClientFactory.ChangeStreamClientFactory;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
@@ -203,6 +205,136 @@ public class SyncModeAwareChangeStreamClientTest {
 
     modeAwareClient.close();
     verify(syncClient).close();
+  }
+
+  @Test
+  public void partitionAwareConstructor_initialConstruction_buildsFromOperationTime()
+      throws Exception {
+    var generationId = new GenerationId(new ObjectId(), Generation.CURRENT);
+    var modeSelector = mock(ChangeStreamModeSelector.class);
+    var clientFactory = mock(ChangeStreamClientFactory.class);
+    var syncClient = mock(ChangeStreamMongoClient.class);
+    var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
+    var operationTemplate = mock(AggregateOperationTemplate.class);
+    var partition = new ChangeStreamPartition(1, 3);
+    var startAtOperationTime = new BsonTimestamp(100, 0);
+    var namespace = new MongoNamespace("test", "test");
+
+    when(modeSelector.getMode(generationId)).thenReturn(ChangeStreamMode.ALL_FIELDS);
+    when(operationFactory.fromOperationTime(
+            namespace, startAtOperationTime, ChangeStreamMode.ALL_FIELDS, partition))
+        .thenReturn(operationTemplate);
+    when(clientFactory.resumeChangeStream(generationId, operationTemplate)).thenReturn(syncClient);
+
+    new ModeAwareChangeStreamClient(
+        modeSelector,
+        operationFactory,
+        clientFactory,
+        namespace,
+        startAtOperationTime,
+        partition,
+        generationId);
+
+    verify(clientFactory).resumeChangeStream(generationId, operationTemplate);
+  }
+
+  @Test
+  public void partitionAwareConstructor_ttlRestart_buildsFromResumeInfoWithPartition()
+      throws Exception {
+    var generationId = new GenerationId(new ObjectId(), Generation.CURRENT);
+    var modeSelector = mock(ChangeStreamModeSelector.class);
+    var clientFactory = mock(ChangeStreamClientFactory.class);
+    var syncClient = mock(ChangeStreamMongoClient.class);
+    var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
+    var partition = new ChangeStreamPartition(1, 3);
+    var namespace = new MongoNamespace("test", "test");
+
+    when(modeSelector.getMode(generationId)).thenReturn(ChangeStreamMode.ALL_FIELDS);
+    when(clientFactory.resumeChangeStream(any(), any())).thenReturn(syncClient);
+
+    // partition-aware "restart" constructor, as used by TimedChangeStreamClient on TTL restart.
+    new ModeAwareChangeStreamClient(
+        modeSelector,
+        operationFactory,
+        clientFactory,
+        ChangeStreamResumeInfo.create(namespace, getResumeToken("restart")),
+        partition,
+        generationId);
+
+    verify(operationFactory)
+        .fromResumeInfo(
+            eq(ChangeStreamResumeInfo.create(namespace, getResumeToken("restart"))),
+            eq(ChangeStreamMode.ALL_FIELDS),
+            eq(partition));
+  }
+
+  @Test
+  public void partitionAwareClient_modeSwitch_resumesFromPartitionToken() throws Exception {
+    var generationId = new GenerationId(new ObjectId(), Generation.CURRENT);
+    var modeSelector = mock(ChangeStreamModeSelector.class);
+    var clientFactory = mock(ChangeStreamClientFactory.class);
+    var syncClient = mock(ChangeStreamMongoClient.class);
+    var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
+    var partition = new ChangeStreamPartition(2, 3);
+    var namespace = new MongoNamespace("test", "test");
+    var startAtOperationTime = new BsonTimestamp(100, 0);
+
+    when(modeSelector.getMode(generationId)).thenReturn(ChangeStreamMode.INDEXED_FIELDS);
+    when(clientFactory.resumeChangeStream(any(), any())).thenReturn(syncClient);
+
+    var modeAwareClient =
+        new ModeAwareChangeStreamClient(
+            modeSelector,
+            operationFactory,
+            clientFactory,
+            namespace,
+            startAtOperationTime,
+            partition,
+            generationId);
+
+    var batch = mock(ChangeStreamBatch.class);
+    when(batch.getPostBatchResumeToken()).thenReturn(getResumeToken("afterFirstBatch"));
+    when(syncClient.getNext()).thenReturn(batch);
+
+    // mode switches after the client is constructed
+    when(modeSelector.getMode(generationId)).thenReturn(ChangeStreamMode.ALL_FIELDS);
+    modeAwareClient.getNext();
+
+    // restart used the partition's own post-batch resume token, with its partition filter
+    verify(operationFactory)
+        .fromResumeInfo(
+            eq(ChangeStreamResumeInfo.create(namespace, getResumeToken("afterFirstBatch"))),
+            eq(ChangeStreamMode.ALL_FIELDS),
+            eq(partition));
+  }
+
+  @Test
+  public void partitionAwareClient_close_closesWrappedClientOnly() {
+    var generationId = new GenerationId(new ObjectId(), Generation.CURRENT);
+    var modeSelector = mock(ChangeStreamModeSelector.class);
+    var clientFactory = mock(ChangeStreamClientFactory.class);
+    var syncClient = mock(ChangeStreamMongoClient.class);
+    var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
+    var partition = new ChangeStreamPartition(0, 3);
+    var namespace = new MongoNamespace("test", "test");
+
+    when(clientFactory.resumeChangeStream(any(), any())).thenReturn(syncClient);
+
+    var modeAwareClient =
+        new ModeAwareChangeStreamClient(
+            modeSelector,
+            operationFactory,
+            clientFactory,
+            namespace,
+            new BsonTimestamp(100, 0),
+            partition,
+            generationId);
+
+    modeAwareClient.close();
+
+    // closes the wrapped client; the one recorded construction is the initial one above
+    verify(syncClient).close();
+    verify(clientFactory).resumeChangeStream(any(), any());
   }
 
   private BsonDocument getResumeToken(String token) {

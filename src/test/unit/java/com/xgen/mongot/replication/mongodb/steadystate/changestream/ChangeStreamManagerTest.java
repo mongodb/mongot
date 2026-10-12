@@ -2279,7 +2279,7 @@ public class ChangeStreamManagerTest {
   }
 
   private AutoCloseable extractMockedMongoClient(
-      ResumeableClientFactory factory, GenerationId generationId) {
+      ResumeableClientFactory factory, GenerationId generationId) throws SteadyStateException {
     return factory.resumeModeAwareChangeStream(
         generationId,
         mock(ChangeStreamResumeInfo.class),
@@ -2303,7 +2303,8 @@ public class ChangeStreamManagerTest {
         GenerationId generationId,
         ChangeStreamResumeInfo resumeInfo,
         IndexDefinition indexDefinition,
-        boolean removeMatchCollectionUuid);
+        boolean removeMatchCollectionUuid)
+        throws SteadyStateException;
   }
 
   @FunctionalInterface
@@ -2488,7 +2489,7 @@ public class ChangeStreamManagerTest {
     }
 
     static ChangeStreamMongoClientFactory syncHangingClient(
-        Map<GenerationId, GetMoreBarrier> barriers) {
+        Map<GenerationId, GetMoreBarrier> barriers) throws Exception {
       var clientFactory = mock(ChangeStreamMongoClientFactory.class);
 
       AtomicInteger count = new AtomicInteger(0);
@@ -2522,7 +2523,8 @@ public class ChangeStreamManagerTest {
      */
     static ChangeStreamMongoClientFactory syncSuccessAndErrorProducingHangingClient(
         Map<GenerationId, GetMoreBarrier> successBarriers,
-        Map<GenerationId, GetMoreBarrier> errorBarriers) {
+        Map<GenerationId, GetMoreBarrier> errorBarriers)
+        throws Exception {
       var clientFactory = mock(ChangeStreamMongoClientFactory.class);
 
       AtomicInteger count = new AtomicInteger(0);

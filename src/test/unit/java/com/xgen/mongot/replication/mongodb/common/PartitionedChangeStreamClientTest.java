@@ -98,6 +98,19 @@ public class PartitionedChangeStreamClientTest {
   }
 
   @Test
+  public void getNext_completedBatches_tagsBatchWithOriginatingPartition() throws Exception {
+    var first = reader(batch(20, event(19)));
+    var second = reader(batch(10, event(9)));
+    try (var client = client(first, second)) {
+      var initial = client.getNext();
+      var next = client.getNext();
+
+      assertThat(initial.getPartition()).hasValue(new ChangeStreamPartition(0, 2));
+      assertThat(next.getPartition()).hasValue(new ChangeStreamPartition(1, 2));
+    }
+  }
+
+  @Test
   public void getNext_emptyBatch_retainsStartingCheckpoint() throws Exception {
     try (var client = client(reader(batch(20)), reader(batch(10)))) {
       var first = client.getNext();

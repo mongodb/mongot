@@ -8,13 +8,17 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamAggregateOperation
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.TimeableChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamMongoClientFactory.ChangeStreamClientFactory;
+import com.xgen.mongot.util.Check;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import org.bson.BsonDocument;
+import org.bson.BsonTimestamp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +31,7 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
   private final MongoNamespace namespace;
   private final GenerationId generationId;
   private final Instant createdAt;
+  private final Optional<ChangeStreamPartition> partition;
 
   private ChangeStreamMode currentMode;
   private ChangeStreamMongoClient<SteadyStateException> wrapped;
@@ -44,6 +49,65 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
     this.namespace = resumeInfo.getNamespace();
     this.generationId = generationId;
     this.createdAt = Instant.now();
+    this.partition = Optional.empty();
+    this.wrapped = createChangeStreamClient(this.currentMode, resumeInfo.getResumeToken());
+  }
+
+  /**
+   * Creates a mode-aware client for one partition of a parallel change stream. The first cursor
+   * starts at {@code startAtOperationTime} with a partition {@code $match}; later restarts (TTL or
+   * mode switch) resume the same partition after its own post-batch resume token.
+   */
+  public ModeAwareChangeStreamClient(
+      ChangeStreamModeSelector modeSelector,
+      ChangeStreamAggregateOperationFactory operationFactory,
+      ChangeStreamClientFactory clientFactory,
+      MongoNamespace namespace,
+      BsonTimestamp startAtOperationTime,
+      ChangeStreamPartition partition,
+      GenerationId generationId) {
+    Check.argNotNull(namespace, "namespace");
+    Check.argNotNull(startAtOperationTime, "startAtOperationTime");
+    Check.argNotNull(partition, "partition");
+
+    this.modeSelector = modeSelector;
+    this.currentMode = modeSelector.getMode(generationId);
+    this.operationFactory = operationFactory;
+    this.clientFactory = clientFactory;
+    this.namespace = namespace;
+    this.generationId = generationId;
+    this.createdAt = Instant.now();
+    this.partition = Optional.of(partition);
+    this.wrapped =
+        this.clientFactory.resumeChangeStream(
+            this.generationId,
+            this.operationFactory.fromOperationTime(
+                this.namespace, startAtOperationTime, this.currentMode, partition));
+  }
+
+  /**
+   * Creates a mode-aware client for one partition of a parallel change stream, resuming from a
+   * saved per-partition resume token (for example, after a {@link TimedChangeStreamClient} TTL
+   * restart). Later restarts (TTL or mode switch) continue to resume the same partition after its
+   * own post-batch resume token.
+   */
+  public ModeAwareChangeStreamClient(
+      ChangeStreamModeSelector modeSelector,
+      ChangeStreamAggregateOperationFactory operationFactory,
+      ChangeStreamClientFactory clientFactory,
+      ChangeStreamResumeInfo resumeInfo,
+      ChangeStreamPartition partition,
+      GenerationId generationId) {
+    Check.argNotNull(partition, "partition");
+
+    this.modeSelector = modeSelector;
+    this.currentMode = modeSelector.getMode(generationId);
+    this.operationFactory = operationFactory;
+    this.clientFactory = clientFactory;
+    this.namespace = resumeInfo.getNamespace();
+    this.generationId = generationId;
+    this.createdAt = Instant.now();
+    this.partition = Optional.of(partition);
     this.wrapped = createChangeStreamClient(this.currentMode, resumeInfo.getResumeToken());
   }
 
@@ -89,9 +153,13 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
   private ChangeStreamMongoClient<SteadyStateException> createChangeStreamClient(
       ChangeStreamMode mode, BsonDocument resumeToken) {
 
+    ChangeStreamResumeInfo resumeInfo = ChangeStreamResumeInfo.create(this.namespace, resumeToken);
+    if (this.partition.isPresent()) {
+      return this.clientFactory.resumeChangeStream(
+          this.generationId,
+          this.operationFactory.fromResumeInfo(resumeInfo, mode, this.partition.get()));
+    }
     return this.clientFactory.resumeChangeStream(
-        this.generationId,
-        this.operationFactory.fromResumeInfo(
-            ChangeStreamResumeInfo.create(this.namespace, resumeToken), mode));
+        this.generationId, this.operationFactory.fromResumeInfo(resumeInfo, mode));
   }
 }

@@ -27,6 +27,8 @@ public class SteadyStateReplicationConfig {
   private final int steadyStatePriorityOptimeThresholdSeconds;
   private final int changeStreamKeepAliveIntervalSec;
   private final boolean retryThrottledGetMoreOnSameCursor;
+  private final boolean enableParallelChangeStreamReaders;
+  private final int numParallelChangeStreamReaders;
 
   private SteadyStateReplicationConfig(
       int numConcurrentChangeStreams,
@@ -45,7 +47,9 @@ public class SteadyStateReplicationConfig {
       int steadyStatePriorityRatio,
       int steadyStatePriorityOptimeThresholdSeconds,
       int changeStreamKeepAliveIntervalSec,
-      boolean retryThrottledGetMoreOnSameCursor) {
+      boolean retryThrottledGetMoreOnSameCursor,
+      boolean enableParallelChangeStreamReaders,
+      int numParallelChangeStreamReaders) {
     this.numConcurrentChangeStreams = numConcurrentChangeStreams;
     this.changeStreamQueryMaxTimeMs = changeStreamQueryMaxTimeMs;
     this.changeStreamCursorMaxTimeSec = changeStreamCursorMaxTimeSec;
@@ -63,6 +67,8 @@ public class SteadyStateReplicationConfig {
     this.steadyStatePriorityOptimeThresholdSeconds = steadyStatePriorityOptimeThresholdSeconds;
     this.changeStreamKeepAliveIntervalSec = changeStreamKeepAliveIntervalSec;
     this.retryThrottledGetMoreOnSameCursor = retryThrottledGetMoreOnSameCursor;
+    this.enableParallelChangeStreamReaders = enableParallelChangeStreamReaders;
+    this.numParallelChangeStreamReaders = numParallelChangeStreamReaders;
   }
 
   public static SteadyStateReplicationConfig.Builder builder() {
@@ -137,6 +143,14 @@ public class SteadyStateReplicationConfig {
     return this.retryThrottledGetMoreOnSameCursor;
   }
 
+  public boolean getEnableParallelChangeStreamReaders() {
+    return this.enableParallelChangeStreamReaders;
+  }
+
+  public int getNumParallelChangeStreamReaders() {
+    return this.numParallelChangeStreamReaders;
+  }
+
   public static class Builder {
     private boolean retryThrottledGetMoreOnSameCursor = false;
     private Optional<Integer> numConcurrentChangeStreams;
@@ -155,7 +169,10 @@ public class SteadyStateReplicationConfig {
     private int steadyStatePriorityRatio;
     private int steadyStatePriorityOptimeThresholdSeconds;
     private int changeStreamKeepAliveIntervalSec;
+    private boolean enableParallelChangeStreamReaders;
+    private int numParallelChangeStreamReaders;
 
+    /** Creates a builder with the default value for every field not explicitly set. */
     public Builder() {
       this.numConcurrentChangeStreams = Optional.empty();
       this.changeStreamQueryMaxTimeMs = Optional.empty();
@@ -177,6 +194,9 @@ public class SteadyStateReplicationConfig {
           MongoDbReplicationConfig.DEFAULT_STEADY_STATE_PRIORITY_OPTIME_THRESHOLD_SECONDS;
       this.changeStreamKeepAliveIntervalSec =
           MongoDbReplicationConfig.DEFAULT_CHANGE_STREAM_KEEP_ALIVE_INTERVAL_SEC;
+      this.enableParallelChangeStreamReaders = false;
+      this.numParallelChangeStreamReaders =
+          MongoDbReplicationConfig.DEFAULT_NUM_PARALLEL_CHANGE_STREAM_READERS;
     }
 
     public Builder setNumConcurrentChangeStreams(int value) {
@@ -268,11 +288,22 @@ public class SteadyStateReplicationConfig {
       return this;
     }
 
+    public Builder setEnableParallelChangeStreamReaders(boolean enableParallelChangeStreamReaders) {
+      this.enableParallelChangeStreamReaders = enableParallelChangeStreamReaders;
+      return this;
+    }
+
+    public Builder setNumParallelChangeStreamReaders(int numParallelChangeStreamReaders) {
+      this.numParallelChangeStreamReaders = numParallelChangeStreamReaders;
+      return this;
+    }
+
     public SteadyStateReplicationConfig build() {
       Check.argIsPositive(
           this.changeStreamInactivityThresholdSec, "changeStreamInactivityThresholdSec");
       Check.argIsPositive(
           this.changeStreamKeepAliveIntervalSec, "changeStreamKeepAliveIntervalSec");
+      Check.argIsPositive(this.numParallelChangeStreamReaders, "numParallelChangeStreamReaders");
       return new SteadyStateReplicationConfig(
           Check.isPresent(this.numConcurrentChangeStreams, "numConcurrentChangeStreams"),
           Check.isPresent(this.changeStreamQueryMaxTimeMs, "changeStreamQueryMaxTimeMs"),
@@ -290,7 +321,9 @@ public class SteadyStateReplicationConfig {
           this.steadyStatePriorityRatio,
           this.steadyStatePriorityOptimeThresholdSeconds,
           this.changeStreamKeepAliveIntervalSec,
-          this.retryThrottledGetMoreOnSameCursor);
+          this.retryThrottledGetMoreOnSameCursor,
+          this.enableParallelChangeStreamReaders,
+          this.numParallelChangeStreamReaders);
     }
   }
 }
