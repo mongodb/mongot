@@ -2,6 +2,7 @@ package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
@@ -9,6 +10,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -33,9 +35,14 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
 
   private static final Logger LOG = LoggerFactory.getLogger(RecomputingLagPriorityStrategy.class);
 
-  private final ConcurrentHashMap<ObjectId, Integer> lagSecondsByIndex = new ConcurrentHashMap<>();
+  /**
+   * Latest lag per partition for each index. A partition that has not reported yet has no entry, so
+   * an index with no reports has zero lag. Unpartitioned batches report as partition 0.
+   */
+  private final ConcurrentHashMap<ObjectId, ConcurrentHashMap<Integer, Integer>>
+      lagSecondsByIndexAndPartition = new ConcurrentHashMap<>();
 
-  /** How many live index generations share each key of {@link #lagSecondsByIndex}. */
+  /** How many live index generations share each key of {@link #lagSecondsByIndexAndPartition}. */
   private final ConcurrentHashMap<ObjectId, Integer> activeGenerationsByIndex =
       new ConcurrentHashMap<>();
 
@@ -106,7 +113,7 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
   @Override
   public final void addIndex(ObjectId indexId) {
     this.activeGenerationsByIndex.merge(indexId, 1, Integer::sum);
-    this.lagSecondsByIndex.putIfAbsent(indexId, 0);
+    this.lagSecondsByIndexAndPartition.putIfAbsent(indexId, new ConcurrentHashMap<>());
   }
 
   @Override
@@ -114,7 +121,14 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
     // Replace rather than put, because a batch can finish after its index was removed: the
     // dispatcher checks for shutdown before fetching a batch, not before reporting one, so a
     // getMore that was in flight when the index stopped still lands here.
-    this.lagSecondsByIndex.replace(indexId, computeLagSeconds(batch));
+    int partitionId = batch.getPartition().map(ChangeStreamPartition::partitionId).orElse(0);
+    int lagSeconds = computeLagSeconds(batch);
+    this.lagSecondsByIndexAndPartition.computeIfPresent(
+        indexId,
+        (id, lagByPartition) -> {
+          lagByPartition.put(partitionId, lagSeconds);
+          return lagByPartition;
+        });
     return this.currentPreferredIndexIds.get().contains(indexId);
   }
 
@@ -125,7 +139,7 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
         this.activeGenerationsByIndex.computeIfPresent(
             indexId, (id, count) -> count == 1 ? null : count - 1);
     if (remainingGenerations == null) {
-      this.lagSecondsByIndex.remove(indexId);
+      this.lagSecondsByIndexAndPartition.remove(indexId);
     }
   }
 
@@ -149,7 +163,7 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
   }
 
   private void recompute() {
-    Map<ObjectId, Integer> snapshot = Map.copyOf(this.lagSecondsByIndex);
+    Map<ObjectId, Integer> snapshot = snapshotWorstPartitionLag();
     if (snapshot.isEmpty()) {
       setPreferredIndexIds(Set.of());
       markRecomputeSucceeded();
@@ -165,6 +179,21 @@ abstract class RecomputingLagPriorityStrategy implements ChangeStreamPriorityStr
     setPreferredIndexIds(
         Set.copyOf(computePreferredSet(snapshot, previous, this.healthyLagFloorSeconds)));
     markRecomputeSucceeded();
+  }
+
+  /**
+   * Each index's lag is its slowest partition's, since that partition holds back what the index can
+   * serve. Partitions that have not reported yet are left out rather than counted as worst-case, so
+   * a newly started index does not outrank indexes that are actually behind.
+   */
+  private Map<ObjectId, Integer> snapshotWorstPartitionLag() {
+    Map<ObjectId, Integer> snapshot = new HashMap<>();
+    this.lagSecondsByIndexAndPartition.forEach(
+        (indexId, lagByPartition) -> {
+          int worst = lagByPartition.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+          snapshot.put(indexId, worst);
+        });
+    return Map.copyOf(snapshot);
   }
 
   /**

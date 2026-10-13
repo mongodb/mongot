@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Optional;
@@ -110,6 +111,129 @@ public class ChangeStreamPriorityStrategyTest {
     assertThat(strategy.isHighPriority(INDEX_ID, batch)).isTrue();
   }
 
+  // OptimeLagPriorityStrategy with partitioned readers
+  @Test
+  public void optimeLag_partitioned_slowPartitionKeepsIndexHighPriority() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 30))).isTrue();
+    // A fast partition reporting afterwards must not hide the slow one.
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 1))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(2, 1))).isTrue();
+  }
+
+  @Test
+  public void optimeLag_partitioned_latestReportPerPartitionWins() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 30))).isTrue();
+    // The slow partition catches up, so the index is no longer lagging.
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 1))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_partitioned_allPartitionsBelowThreshold_isLowPriority() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 2))).isFalse();
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 3))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_partitioned_partitionNotYetReported_doesNotCountAsLagging() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+
+    // Partitions 1 and 2 haven't reported; the index is judged by what has.
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 1))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_partitioned_unreadableTokenOnOnePartition_keepsIndexHighPriority() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+    var malformed =
+        new ChangeStreamBatch(
+            Collections.emptyList(),
+            new BsonDocument("_data", new BsonString("not-hex")),
+            Optional.of(new BsonTimestamp(1, 0)),
+            Optional.of(new ChangeStreamPartition(1, 3)));
+
+    assertThat(strategy.isHighPriority(INDEX_ID, malformed)).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 1))).isTrue();
+  }
+
+  @Test
+  public void optimeLag_unpartitioned_usesLatestBatchOnly() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(30))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(1))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_unpartitioned_generationsDoNotOverwriteEachOther() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    // Two live generations of one index share an index id.
+    strategy.addIndex(INDEX_ID);
+    strategy.addIndex(INDEX_ID);
+
+    // The serving generation is lagging, so its decision is high priority.
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(30))).isTrue();
+    // A healthy generation reports in between.
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(1))).isFalse();
+    // The serving generation is still lagging; the other generation's report must not hide it.
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(30))).isTrue();
+  }
+
+  @Test
+  public void optimeLag_unpartitioned_leavesNoStateForPartitionedBatches() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+
+    // An unpartitioned lagging batch must not count as a slow partition 0.
+    assertThat(strategy.isHighPriority(INDEX_ID, batchWithLag(30))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 1))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_indexNotAdded_judgesBatchAloneAndKeepsNoState() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(0, 30))).isTrue();
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 1))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_removedIndex_dropsItsPartitionState() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+    strategy.isHighPriority(INDEX_ID, partitionBatch(0, 30));
+    strategy.removeIndex(INDEX_ID);
+
+    // A late batch after removal is judged alone; the old slow partition is forgotten.
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 1))).isFalse();
+  }
+
+  @Test
+  public void optimeLag_generationsShareState_untilTheLastIsRemoved() {
+    var strategy = new OptimeLagPriorityStrategy(10);
+    strategy.addIndex(INDEX_ID);
+    strategy.addIndex(INDEX_ID);
+    strategy.isHighPriority(INDEX_ID, partitionBatch(0, 30));
+
+    strategy.removeIndex(INDEX_ID);
+    // One generation is still live, so the slow partition is still remembered.
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 1))).isTrue();
+
+    strategy.removeIndex(INDEX_ID);
+    assertThat(strategy.isHighPriority(INDEX_ID, partitionBatch(1, 1))).isFalse();
+  }
+
   // Helpers
 
   private static ChangeStreamBatch batchWithLag(int lagSeconds) {
@@ -119,6 +243,15 @@ public class ChangeStreamPriorityStrategyTest {
         Collections.emptyList(),
         resumeTokenForTime(resumeTokenTime),
         Optional.of(new BsonTimestamp(now, 0)));
+  }
+
+  private static ChangeStreamBatch partitionBatch(int partitionId, int lagSeconds) {
+    int now = (int) (System.currentTimeMillis() / 1000);
+    return new ChangeStreamBatch(
+        Collections.emptyList(),
+        resumeTokenForTime(new BsonTimestamp(now - lagSeconds, 0)),
+        Optional.of(new BsonTimestamp(now, 0)),
+        Optional.of(new ChangeStreamPartition(partitionId, 3)));
   }
 
   /** Builds a PBRT whose decoded optime is {@code ts}. */

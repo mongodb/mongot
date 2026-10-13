@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.ByteBuffer;
@@ -272,6 +273,116 @@ public class RecomputingLagPriorityStrategyTest {
   }
 
   @Test
+  public void recompute_partitionedIndex_usesWorstPartitionLag() {
+    var strategy = newStrategy(1);
+    ObjectId index = new ObjectId();
+    strategy.addIndex(index);
+    strategy.isHighPriority(index, batchWithLag(10, /* partitionId= */ 0, /* partitionCount= */ 3));
+    strategy.isHighPriority(index, batchWithLag(40, 1, 3));
+    strategy.isHighPriority(index, batchWithLag(25, 2, 3));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(strategy.lastSnapshot).containsExactly(index, 40);
+  }
+
+  @Test
+  public void recompute_oneSlowPartitionAmongFast_indexRanksBySlowOne() {
+    var strategy = newStrategy(/* healthyLagFloorSeconds= */ 30);
+    ObjectId oneSlowPartition = new ObjectId();
+    ObjectId allFast = new ObjectId();
+    strategy.addIndex(oneSlowPartition);
+    strategy.addIndex(allFast);
+    strategy.isHighPriority(oneSlowPartition, batchWithLag(1, 0, 4));
+    strategy.isHighPriority(oneSlowPartition, batchWithLag(2, 1, 4));
+    strategy.isHighPriority(oneSlowPartition, batchWithLag(300, 2, 4));
+    strategy.isHighPriority(oneSlowPartition, batchWithLag(3, 3, 4));
+    strategy.isHighPriority(allFast, batchWithLag(5, 0, 4));
+    strategy.isHighPriority(allFast, batchWithLag(6, 1, 4));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(strategy.isHighPriority(oneSlowPartition, batchWithLag(1, 0, 4))).isTrue();
+    assertThat(strategy.isHighPriority(allFast, batchWithLag(5, 0, 4))).isFalse();
+  }
+
+  @Test
+  public void recompute_partitionLagIsLatestReportNotHighestEver() {
+    var strategy = newStrategy(1);
+    ObjectId index = new ObjectId();
+    strategy.addIndex(index);
+    strategy.isHighPriority(index, batchWithLag(500, 0, 2));
+    strategy.isHighPriority(index, batchWithLag(20, 1, 2));
+    // Partition 0 catches up, so partition 1 is now the slowest.
+    strategy.isHighPriority(index, batchWithLag(5, 0, 2));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(strategy.lastSnapshot).containsExactly(index, 20);
+  }
+
+  @Test
+  public void recompute_partitionNotYetReported_isNotCountedAsWorstCase() {
+    var strategy = newStrategy(1);
+    ObjectId partiallyReported = new ObjectId();
+    ObjectId neverReported = new ObjectId();
+    strategy.addIndex(partiallyReported);
+    strategy.addIndex(neverReported);
+    // Partitions 1 and 2 of this index have not delivered a batch.
+    strategy.isHighPriority(partiallyReported, batchWithLag(15, 0, 3));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(strategy.lastSnapshot).containsExactly(partiallyReported, 15, neverReported, 0);
+  }
+
+  @Test
+  public void recompute_unreadablePartitionToken_makesIndexWorstCase() {
+    var strategy = newStrategy(1);
+    ObjectId index = new ObjectId();
+    strategy.addIndex(index);
+    strategy.isHighPriority(index, batchWithLag(10, 0, 2));
+    strategy.isHighPriority(
+        index,
+        new ChangeStreamBatch(
+            Collections.emptyList(),
+            new BsonDocument("_data", new BsonString("not-valid-hex")),
+            Optional.of(new BsonTimestamp((int) (System.currentTimeMillis() / 1000), 0)),
+            Optional.of(new ChangeStreamPartition(1, 2))));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(strategy.lastSnapshot).containsExactly(index, Integer.MAX_VALUE);
+  }
+
+  @Test
+  public void recompute_singleUnpartitionedReader_usesItsLagUnchanged() {
+    var strategy = newStrategy(1);
+    ObjectId index = new ObjectId();
+    strategy.addIndex(index);
+    strategy.isHighPriority(index, batchWithLag(30));
+    strategy.isHighPriority(index, batchWithLag(12));
+
+    strategy.recomputeNowForTesting();
+
+    // The latest report wins, as before partitioning; the 30 is not kept as a maximum.
+    assertThat(strategy.lastSnapshot).containsExactly(index, 12);
+  }
+
+  @Test
+  public void recompute_singlePartitionOfOne_matchesUnpartitionedBehavior() {
+    var strategy = newStrategy(1);
+    ObjectId index = new ObjectId();
+    strategy.addIndex(index);
+    strategy.isHighPriority(index, batchWithLag(30, 0, 1));
+    strategy.isHighPriority(index, batchWithLag(12, 0, 1));
+
+    strategy.recomputeNowForTesting();
+
+    assertThat(strategy.lastSnapshot).containsExactly(index, 12);
+  }
+
+  @Test
   public void isHighPriority_undecodableResumeTokenHex_treatedAsWorstCaseLag() {
     var strategy = newStrategy(1);
     ObjectId malformed = new ObjectId();
@@ -421,6 +532,16 @@ public class RecomputingLagPriorityStrategyTest {
         Collections.emptyList(),
         resumeToken,
         Optional.of(new BsonTimestamp((int) (System.currentTimeMillis() / 1000), 0)));
+  }
+
+  private static ChangeStreamBatch batchWithLag(
+      int lagSeconds, int partitionId, int partitionCount) {
+    ChangeStreamBatch unpartitioned = batchWithLag(lagSeconds);
+    return new ChangeStreamBatch(
+        unpartitioned.getRawEvents(),
+        unpartitioned.getPostBatchResumeToken(),
+        unpartitioned.getCommandOperationTime(),
+        Optional.of(new ChangeStreamPartition(partitionId, partitionCount)));
   }
 
   private static ChangeStreamBatch batchWithLag(int lagSeconds) {
