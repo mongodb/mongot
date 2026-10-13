@@ -227,15 +227,12 @@ public class DefaultConfigManager implements ConfigManager {
       MeterRegistry meterRegistry,
       Path dynamicFeatureFlagsJournalPath) {
 
-    Crash.because("failed to initialize from config journal")
-        .ifThrows(
-            () ->
-                initializeFromExistingJournal(
-                    configState,
-                    configJournalPath,
-                    desiredIndexIds,
-                    meterRegistry,
-                    quarantinePolicy(featureFlags)));
+    initializeFromExistingJournalOrCrash(
+        configState,
+        configJournalPath,
+        desiredIndexIds,
+        meterRegistry,
+        quarantinePolicy(featureFlags));
 
     Crash.because("failed to upgrade index format versions")
         .ifThrows(() -> IndexFormatVersionUpgrader.upgradeAndDrop(configState));
@@ -321,6 +318,30 @@ public class DefaultConfigManager implements ConfigManager {
     return featureFlags.isEnabled(Feature.QUARANTINE_UNPARSEABLE_INDEX)
         ? QuarantinePolicy.QUARANTINE
         : QuarantinePolicy.FAIL_FAST;
+  }
+
+  /**
+   * Reads the config journal, crashing under {@link
+   * Crash.CrashCategory#CONFIG_JOURNAL_INITIALIZE_FAILURE} if it cannot be read. Shared by the
+   * community/on-prem and Atlas initialize entry points so a journal this binary cannot read is
+   * categorized the same way on both, rather than one path reporting it as {@code OTHER}.
+   */
+  protected static void initializeFromExistingJournalOrCrash(
+      ConfigState configState,
+      Path configJournalPath,
+      Optional<Set<ObjectId>> desiredIndexIds,
+      MeterRegistry meterRegistry,
+      QuarantinePolicy quarantinePolicy) {
+    Crash.because("failed to initialize from config journal")
+        .withCrashCategory(Crash.CrashCategory.CONFIG_JOURNAL_INITIALIZE_FAILURE)
+        .ifThrows(
+            () ->
+                initializeFromExistingJournal(
+                    configState,
+                    configJournalPath,
+                    desiredIndexIds,
+                    meterRegistry,
+                    quarantinePolicy));
   }
 
   /** Initialize state with a config journal if one was written before. */

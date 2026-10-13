@@ -89,6 +89,7 @@ import com.xgen.testing.mongot.mock.index.VectorIndex;
 import com.xgen.testing.mongot.mock.index.query.Query;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -108,6 +109,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
+import org.bson.json.JsonObject;
 import org.bson.types.ObjectId;
 import org.junit.Assert;
 import org.junit.Test;
@@ -185,6 +187,8 @@ public class DefaultConfigManagerTest {
   public void initialize_quarantineFlagDisabled_unparseableEntryCrashes() throws Exception {
     Path configJournalPath = DefaultConfigManagerMocks.getConfigJournalPath();
     writeJournalWithUnparseableLiveIndex(configJournalPath);
+    Path crashLogPath = configJournalPath.resolveSibling("crash.log");
+    Crash.setCrashLogPath(crashLogPath);
 
     AtomicInteger exitCode = new AtomicInteger(-1);
     Crash.setHaltHandlerForTesting(
@@ -201,6 +205,14 @@ public class DefaultConfigManagerTest {
     } finally {
       Crash.clearHaltHandlerForTesting();
     }
+
+    // The crash is reported under the config-journal category rather than inferred as OTHER, so a
+    // journal this binary cannot read is distinguishable from an unrelated startup failure.
+    BsonDocument structuredLogs =
+        new JsonObject(Files.readAllLines(crashLogPath).get(0)).toBsonDocument();
+    assertEquals(
+        Crash.CrashCategory.CONFIG_JOURNAL_INITIALIZE_FAILURE.toString(),
+        structuredLogs.getString("crashCategory").getValue());
   }
 
   /** Lets the halt handler above stop execution instead of letting initialization continue. */

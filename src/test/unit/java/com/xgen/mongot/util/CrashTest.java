@@ -182,4 +182,22 @@ public class CrashTest {
             .orElseThrow()
             .value;
   }
+
+  /**
+   * Note: this test cannot assert the inferred fallback, because {@link Crash#assignCrashCategory}
+   * reads the process-wide shutdown flag that {@link
+   * #assignCrashCategory_handlesAllDefinedCategories} sets and never resets, and JUnit does not
+   * guarantee method order.
+   */
+  @Test
+  public void resolveCrashCategory_categoryAssigned_usesAssignedCategoryOverInferredOne() {
+    // The message would otherwise be inferred as OOM, so a plain pass-through would not be caught.
+    Crash crash =
+        Crash.because("Successfully reported OOM")
+            .withCrashCategory(CrashCategory.CONFIG_JOURNAL_INITIALIZE_FAILURE);
+
+    CrashCategory category = crash.resolveCrashCategory("");
+
+    assertEquals(CrashCategory.CONFIG_JOURNAL_INITIALIZE_FAILURE, category);
+  }
 }

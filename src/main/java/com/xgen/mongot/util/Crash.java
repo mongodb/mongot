@@ -315,7 +315,7 @@ public class Crash {
       // loop, because create() Crashes if the version can't be found.
       String mongotVersion = MongotVersionResolver.getOptional().orElse("unknown");
 
-      CrashCategory category = this.crashCategory.orElse(assignCrashCategory(throwableTrace));
+      CrashCategory category = resolveCrashCategory(throwableTrace);
 
       String crashLogs =
           buildCrashLogs(
@@ -391,6 +391,15 @@ public class Crash {
     }
   }
 
+  /**
+   * Returns the category this crash will be reported under: the one assigned by {@link
+   * #withCrashCategory}, or otherwise the one inferred from the message and stack trace.
+   */
+  @VisibleForTesting
+  CrashCategory resolveCrashCategory(String stackTrace) {
+    return this.crashCategory.orElseGet(() -> assignCrashCategory(stackTrace));
+  }
+
   public CrashCategory assignCrashCategory(String stackTrace) {
     CrashCategory category;
     if (isShutdownStarted.get()) {
@@ -415,6 +424,7 @@ public class Crash {
     OOM,
     EXECUTOR_SHUTDOWN,
     LOCK_CONTENTION,
+    CONFIG_JOURNAL_INITIALIZE_FAILURE,
     OTHER
   }
 }
