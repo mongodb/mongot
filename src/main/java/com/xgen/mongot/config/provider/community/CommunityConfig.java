@@ -240,6 +240,9 @@ public record CommunityConfig(
     // endpoint/CA
     TracingConfig.validateStrictOtlp(document);
     OtlpTracingConfig.validateStrict(document, "logging");
+    // syncSource oidc blocks are strict for the same reason: a misspelled tls key would silently
+    // drop the operator's client certificate.
+    OidcConfig.validateStrict(document);
     // Use a permissive parse context so we can collect any unknown fields.
     PermissiveBsonParseContext context = PermissiveBsonParseContext.root(deploymentEnvironment);
     CommunityConfig config;

@@ -4,6 +4,7 @@ import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -21,6 +22,8 @@ import com.xgen.mongot.util.mongodb.Databases;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import java.io.IOException;
+import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -108,7 +111,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -147,7 +151,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -212,7 +217,8 @@ public class CommunityConfigTest {
                                   true,
                                   Optional.of(Path.of("/etc/mongot/tls/client-combined.pem")),
                                   Optional.empty(),
-                                  Optional.of(Path.of("/etc/mongot/ca.pem")))))),
+                                  Optional.of(Path.of("/etc/mongot/ca.pem"))))),
+                      Optional.empty()),
                   Optional.of(
                       new RouterConfig(
                           List.of(
@@ -229,7 +235,8 @@ public class CommunityConfigTest {
                                       false,
                                       Optional.empty(),
                                       Optional.empty(),
-                                      Optional.empty()))))),
+                                      Optional.empty()))),
+                          Optional.empty())),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
               new ServerConfig(
@@ -276,7 +283,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -315,7 +323,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -362,7 +371,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -409,7 +419,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -456,7 +467,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -507,7 +519,8 @@ public class CommunityConfigTest {
                                   true,
                                   Optional.of(Path.of("/etc/mongot/tls/client-combined.pem")),
                                   Optional.of(Path.of("/etc/mongot/secrets/cert-key-pass")),
-                                  Optional.of(Path.of("/etc/mongot/ca.pem")))))),
+                                  Optional.of(Path.of("/etc/mongot/ca.pem"))))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -547,7 +560,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -592,7 +606,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -650,7 +665,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -689,7 +705,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.of(
                       new ReadPreferenceConfig(MongoReadPreferenceName.NEAREST, Optional.empty()))),
@@ -826,7 +843,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("/etc/mongot/replicaSet.passwd"),
                               new TlsConfig(
-                                  false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  false, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.empty(),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
@@ -884,7 +902,8 @@ public class CommunityConfigTest {
                               "user",
                               Path.of("replicaSet.passwd"),
                               new TlsConfig(
-                                  true, Optional.empty(), Optional.empty(), Optional.empty())))),
+                                  true, Optional.empty(), Optional.empty(), Optional.empty()))),
+                      Optional.empty()),
                   Optional.of(
                       new RouterConfig(
                           List.of(HostAndPort.fromParts("mongos", 27017)),
@@ -899,7 +918,8 @@ public class CommunityConfigTest {
                                       false,
                                       Optional.empty(),
                                       Optional.empty(),
-                                      Optional.empty()))))),
+                                      Optional.empty()))),
+                          Optional.empty())),
                   Optional.empty()),
               new StorageConfig(Path.of("data/mongot")),
               new ServerConfig(
@@ -957,6 +977,185 @@ public class CommunityConfigTest {
           replicaSet.x509().get().tlsConfig().caFile().isPresent());
       assertEquals(
           Path.of("/etc/mongot/tls/ca.pem"), replicaSet.x509().get().tlsConfig().caFile().get());
+    }
+
+    /**
+     * Enterprise runtime: the {@code oidc} block parses into its typed {@link CustomOidcConfig}
+     * representation.
+     */
+    @Test
+    public void readFromFile_withOidc_enterpriseRuntime_parsesTypedConfig()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of("src/test/unit/resources/config/provider/community/communityConfigOidc.yaml");
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.ENTERPRISE))
+              .config();
+
+      var replicaSet = result.syncSourceConfig().replicaSet();
+      assertTrue("replicaSet should use oidc auth", replicaSet.oidc().isPresent());
+      CustomOidcConfig oidc = (CustomOidcConfig) replicaSet.oidc().get();
+      assertEquals(OidcConfig.Environment.CUSTOM, oidc.environment());
+      assertEquals(URI.create("https://idp.example.com/token"), oidc.tokenEndpoint());
+      assertEquals("mongot", oidc.clientId());
+      assertEquals(Path.of("/etc/mongot/secrets/oidc-client-secret"), oidc.clientSecretFile());
+      assertEquals(Path.of("/etc/mongot/tls/ca.pem"), oidc.tls().caFile().get());
+    }
+
+    /** Community runtime: the enterprise-gated {@code oidc} field is rejected at parse time. */
+    @Test
+    public void readFromFile_withOidc_communityRuntime_failsWithEditionError() {
+      Path configPath =
+          Path.of("src/test/unit/resources/config/provider/community/communityConfigOidc.yaml");
+
+      BsonParseException e =
+          assertThrows(
+              BsonParseException.class,
+              () ->
+                  CommunityConfig.readFromFile(
+                      configPath, Optional.of(DeploymentEnvironment.COMMUNITY)));
+
+      // The parse context prefixes the field path; assert on the message tail.
+      assertTrue(
+          "expected the community edition error, got: " + e.getMessage(),
+          e.getMessage().endsWith("is not supported in the COMMUNITY edition"));
+    }
+
+    private static final String OIDC_FIXTURE =
+        "src/test/unit/resources/config/provider/community/communityConfigOidc.yaml";
+
+    /**
+     * Fixture with the oidc block's trailing {@code tls} content replaced and optionally routed.
+     */
+    private static String oidcConfigYaml(String connection, String oidcTlsAndExtras)
+        throws IOException {
+      String yaml = Files.readString(Path.of(OIDC_FIXTURE));
+      String tls = "      tls:\n        caFile: \"/etc/mongot/tls/ca.pem\"\n";
+      assertTrue("fixture must contain the tls block", yaml.contains(tls));
+      assertNotEquals("replacement must change the fixture", tls, oidcTlsAndExtras);
+      if (connection.equals("router")) {
+        String oidcBlock =
+            yaml.substring(yaml.indexOf("    oidc:"), yaml.indexOf("storage:"))
+                .replace(tls, oidcTlsAndExtras);
+        return yaml.replace(
+            "storage:",
+            "  router:\n    hostAndPort: \"router.example.com:27017\"\n" + oidcBlock + "storage:");
+      }
+      return yaml.replace(tls, oidcTlsAndExtras);
+    }
+
+    private static BsonParseException parseOidcConfig(String connection, String oidcTlsAndExtras)
+        throws IOException {
+      return parseYaml(oidcConfigYaml(connection, oidcTlsAndExtras));
+    }
+
+    private static BsonParseException parseOidcConfigWithoutLine(String line) throws IOException {
+      String yaml = Files.readString(Path.of(OIDC_FIXTURE));
+      assertTrue("fixture must contain line: " + line, yaml.contains(line));
+      return parseYaml(yaml.replace(line, ""));
+    }
+
+    private static BsonParseException parseYaml(String yaml) throws IOException {
+      Path configPath = Files.createTempFile("oidcConfig", ".yaml");
+      try {
+        Files.writeString(configPath, yaml);
+        return assertThrows(
+            BsonParseException.class,
+            () ->
+                CommunityConfig.readFromFile(
+                    configPath, Optional.of(DeploymentEnvironment.ENTERPRISE)));
+      } finally {
+        Files.deleteIfExists(configPath);
+      }
+    }
+
+    /**
+     * TLS is always enabled for oidc, so {@code enabled} is not a field of the oidc tls block and
+     * an explicit value, true or false, is rejected as an unknown field.
+     */
+    @Test
+    public void readFromFile_oidcTlsExplicitEnabled_rejectsUnknownField() throws IOException {
+      for (String connection : List.of("replicaSet", "router")) {
+        for (String enabled : List.of("true", "false")) {
+          BsonParseException e =
+              parseOidcConfig(
+                  connection,
+                  "      tls:\n        enabled: "
+                      + enabled
+                      + "\n        caFile: \"/etc/mongot/tls/ca.pem\"\n");
+          assertEquals(
+              "\"syncSource."
+                  + connection
+                  + ".oidc.tls\" unrecognized field \"enabled\". Expected fields are: "
+                  + "caFile, tlsCertificateKeyFile, tlsCertificateKeyFilePasswordFile",
+              e.getMessage());
+        }
+      }
+    }
+
+    @Test
+    public void readFromFile_oidcTlsMisspelledCertKeyField_rejectsUnknownField()
+        throws IOException {
+      for (String connection : List.of("replicaSet", "router")) {
+        BsonParseException e =
+            parseOidcConfig(
+                connection,
+                "      tls:\n        caFile: \"/etc/mongot/tls/ca.pem\"\n"
+                    + "        tlsCertificateKeyFil: \"/etc/mongot/tls/client.pem\"\n");
+        assertEquals(
+            "\"syncSource."
+                + connection
+                + ".oidc.tls\" unrecognized field \"tlsCertificateKeyFil\". Expected fields are: "
+                + "caFile, tlsCertificateKeyFile, tlsCertificateKeyFilePasswordFile",
+            e.getMessage());
+      }
+    }
+
+    @Test
+    public void readFromFile_oidcUnknownKey_rejectsUnknownField() throws IOException {
+      for (String connection : List.of("replicaSet", "router")) {
+        BsonParseException e =
+            parseOidcConfig(
+                connection,
+                "      tls:\n        caFile: \"/etc/mongot/tls/ca.pem\"\n      bogusKey: 1\n");
+        assertEquals(
+            "\"syncSource."
+                + connection
+                + ".oidc\" unrecognized field \"bogusKey\". Expected fields are: "
+                + "clientId, clientSecretFile, environment, idpCaFile, scope, tls, tokenEndpoint",
+            e.getMessage());
+      }
+    }
+
+    @Test
+    public void readFromFile_oidcMissingTokenEndpoint_reportsRequiredFieldNotUnknown()
+        throws IOException {
+      BsonParseException e =
+          parseOidcConfigWithoutLine("      tokenEndpoint: \"https://idp.example.com/token\"\n");
+      assertEquals("\"syncSource.replicaSet.oidc.tokenEndpoint\" is required", e.getMessage());
+      assertFalse(e.getMessage().contains("unrecognized"));
+    }
+
+    @Test
+    public void readFromFile_oidcMissingEnvironment_reportsRequiredFieldNotUnknown()
+        throws IOException {
+      BsonParseException e = parseOidcConfigWithoutLine("      environment: \"custom\"\n");
+      assertEquals("\"syncSource.replicaSet.oidc.environment\" is required", e.getMessage());
+      assertFalse(e.getMessage().contains("unrecognized"));
+    }
+
+    /** A config without an {@code oidc} block parses under the enterprise edition too. */
+    @Test
+    public void readFromFile_withoutOidc_enterpriseRuntime_parses()
+        throws IOException, BsonParseException {
+      Path configPath =
+          Path.of("src/test/unit/resources/config/provider/community/communityConfigX509.yaml");
+      CommunityConfig result =
+          CommunityConfig.readFromFile(configPath, Optional.of(DeploymentEnvironment.ENTERPRISE))
+              .config();
+
+      assertTrue(
+          "replicaSet should use x509", result.syncSourceConfig().replicaSet().x509().isPresent());
     }
 
     @Test

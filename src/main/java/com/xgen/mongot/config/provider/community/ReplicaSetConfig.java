@@ -14,8 +14,9 @@ public final class ReplicaSetConfig extends MongoConnectionConfig {
       List<HostAndPort> hostAndPorts,
       Optional<String> srvHost,
       Optional<X509Config> x509,
-      Optional<ScramConfig> scram) {
-    super(hostAndPorts, srvHost, x509, scram);
+      Optional<ScramConfig> scram,
+      Optional<OidcConfig> oidc) {
+    super(hostAndPorts, srvHost, x509, scram, oidc);
   }
 
   public static final class ReplicaSetConfigCliOptionRegistry extends CliOptionRegistry {
@@ -60,6 +61,7 @@ public final class ReplicaSetConfig extends MongoConnectionConfig {
             .toList(),
         srvHost,
         parser.getField(Fields.X509).unwrap(),
-        parser.getField(Fields.scramField(srvHost.isPresent())).unwrap());
+        parser.getField(Fields.scramField(srvHost.isPresent())).unwrap(),
+        parser.getField(Fields.OIDC).unwrap());
   }
 }

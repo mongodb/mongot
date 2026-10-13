@@ -1,0 +1,24 @@
+syncSource:
+  replicaSet:
+    hostAndPort: "mongod.example.com:27017"
+    oidc:
+      environment: "custom"
+      tokenEndpoint: "https://idp.example.com/token"
+      clientId: "mongot"
+      clientSecretFile: "/etc/mongot/secrets/oidc-client-secret"
+      idpCaFile: "/etc/mongot/tls/idp-ca.pem"
+      tls:
+        caFile: "/etc/mongot/tls/ca.pem"
+storage:
+  dataPath: "/var/lib/mongot"
+server:
+  grpc:
+    address: "localhost:27028"
+metrics:
+  enabled: true
+  address: "localhost:9946"
+healthCheck:
+  address: "localhost:8080"
+logging:
+  verbosity: "DEBUG"
+  logPath: "/var/log/mongot"

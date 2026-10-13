@@ -4,6 +4,7 @@ java_library(
     name = "parser",
     srcs = [
         "PathField.java",
+        "TokenEndpointField.java",
     ],
     visibility = ["//visibility:public"],
     deps = [

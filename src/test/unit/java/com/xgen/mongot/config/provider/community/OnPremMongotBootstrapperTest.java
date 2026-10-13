@@ -407,7 +407,8 @@ public class OnPremMongotBootstrapperTest {
                     Databases.ADMIN,
                     "user",
                     Path.of("/tmp/test.passwd"),
-                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty())))),
+                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))),
+            Optional.empty()),
         Optional.empty(),
         Optional.empty());
   }

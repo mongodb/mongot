@@ -69,7 +69,8 @@ public class InitialSyncHostProviderTest {
                     "admin",
                     "mongot",
                     this.passwordFile,
-                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))));
+                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))),
+            Optional.empty());
 
     this.routerConfig =
         new RouterConfig(
@@ -81,7 +82,8 @@ public class InitialSyncHostProviderTest {
                     "admin",
                     "mongot",
                     this.passwordFile,
-                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))));
+                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))),
+            Optional.empty());
   }
 
   @After
@@ -155,7 +157,8 @@ public class InitialSyncHostProviderTest {
                     "admin",
                     "mongot",
                     this.passwordFile,
-                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))));
+                    new TlsConfig(false, Optional.empty(), Optional.empty(), Optional.empty()))),
+            Optional.empty());
     return new SyncSourceConfig(
         nearestRsConfig,
         Optional.empty(),

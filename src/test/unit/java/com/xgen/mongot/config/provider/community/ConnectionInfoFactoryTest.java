@@ -143,16 +143,18 @@ public class ConnectionInfoFactoryTest {
         hosts,
         Optional.empty(),
         Optional.empty(),
-        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)));
+        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)),
+        Optional.empty());
   }
 
   private static ReplicaSetConfig replicaSetConfig(X509Config x509) {
-    return new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.of(x509), Optional.empty());
+    return new ReplicaSetConfig(
+        HOSTS, Optional.empty(), Optional.of(x509), Optional.empty(), Optional.empty());
   }
 
   private static ReplicaSetConfig replicaSetConfig(ScramConfig scramConfig) {
     return new ReplicaSetConfig(
-        HOSTS, Optional.empty(), Optional.empty(), Optional.of(scramConfig));
+        HOSTS, Optional.empty(), Optional.empty(), Optional.of(scramConfig), Optional.empty());
   }
 
   private static ReplicaSetConfig replicaSetConfigSrv(
@@ -161,7 +163,8 @@ public class ConnectionInfoFactoryTest {
         List.of(),
         Optional.of(SRV_HOST),
         Optional.empty(),
-        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)));
+        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)),
+        Optional.empty());
   }
 
   private static RouterConfig routerConfig(String username, Path passwordFile, TlsConfig tls) {
@@ -169,7 +172,8 @@ public class ConnectionInfoFactoryTest {
         HOSTS,
         Optional.empty(),
         Optional.empty(),
-        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)));
+        Optional.of(new ScramConfig(Databases.ADMIN, username, passwordFile, tls)),
+        Optional.empty());
   }
 
   private static Path createPasswordFile(String password) throws IOException {
@@ -263,7 +267,8 @@ public class ConnectionInfoFactoryTest {
   @Test
   public void getClusterConnectionInfo_noAuthConfig_throwsAssertionError() {
     ReplicaSetConfig config =
-        new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty(), Optional.empty());
+        new ReplicaSetConfig(
+            HOSTS, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     assertThrows(
         AssertionError.class,
@@ -273,7 +278,8 @@ public class ConnectionInfoFactoryTest {
   @Test
   public void getSingleHostConnectionInfo_noAuthConfig_throwsAssertionError() {
     ReplicaSetConfig config =
-        new ReplicaSetConfig(HOSTS, Optional.empty(), Optional.empty(), Optional.empty());
+        new ReplicaSetConfig(
+            HOSTS, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     assertThrows(
         AssertionError.class,

@@ -14,8 +14,9 @@ public final class RouterConfig extends MongoConnectionConfig {
       List<HostAndPort> hostandPorts,
       Optional<String> srvHost,
       Optional<X509Config> x509,
-      Optional<ScramConfig> scram) {
-    super(hostandPorts, srvHost, x509, scram);
+      Optional<ScramConfig> scram,
+      Optional<OidcConfig> oidc) {
+    super(hostandPorts, srvHost, x509, scram, oidc);
   }
 
   public static final class RouterConfigCliOptionRegistry extends CliOptionRegistry {
@@ -58,6 +59,7 @@ public final class RouterConfig extends MongoConnectionConfig {
             .toList(),
         srvHost,
         parser.getField(Fields.X509).unwrap(),
-        parser.getField(Fields.scramField(srvHost.isPresent())).unwrap());
+        parser.getField(Fields.scramField(srvHost.isPresent())).unwrap(),
+        parser.getField(Fields.OIDC).unwrap());
   }
 }

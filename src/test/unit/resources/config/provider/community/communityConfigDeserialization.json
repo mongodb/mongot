@@ -1158,6 +1158,53 @@
       "errorMessageContains": "Exactly one authentication mechanism must be used (x509 or scram)"
     },
     {
+      "description": "replicaSet x509, scram, and oidc all set",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "x509": {
+              "tlsCertificateKeyFile": "/etc/mongot/tls/client.pem",
+              "caFile": "/etc/mongot/ca.pem"
+            },
+            "scramAuth": {
+              "username": "user",
+              "passwordFile": "/etc/mongot/replicaSet.passwd"
+            },
+            "oidc": {
+              "environment": "custom",
+              "tokenEndpoint": "https://idp.example.com/token",
+              "clientId": "mongot",
+              "clientSecretFile": "/etc/mongot/secrets/oidc-client-secret",
+              "idpCaFile": "/etc/mongot/idp-ca.pem",
+              "tls": {
+                "caFile": "/etc/mongot/ca.pem"
+              }
+            }
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG"
+        }
+      },
+      "errorMessageContains": "is not supported in the COMMUNITY edition"
+    },
+    {
       "description": "replicaSet neither auth",
       "value": {
         "syncSource": {
@@ -1481,6 +1528,109 @@
         "durability": {"commitIntervalMs": 0}
       },
       "errorMessageContains": "must be positive"
+    },
+    {
+      "description": "replicaSet oidc",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "oidc": {
+              "environment": "custom",
+              "tokenEndpoint": "https://idp.example.com/token",
+              "clientId": "mongot",
+              "clientSecretFile": "/etc/mongot/secrets/oidc-client-secret",
+              "idpCaFile": "/etc/mongot/idp-ca.pem",
+              "tls": {
+                "caFile": "/etc/mongot/ca.pem"
+              }
+            }
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG",
+          "logPath": "/var/log/mongot"
+        },
+        "advancedConfigs": {
+          "ftdc": {
+            "enabled": true,
+            "directorySizeMb": 100,
+            "fileSizeMb": 10,
+            "collectionPeriodMillis": 1000
+          }
+        }
+      },
+      "errorMessageContains": "is not supported in the COMMUNITY edition"
+    },
+    {
+      "description": "router oidc",
+      "value": {
+        "syncSource": {
+          "replicaSet": {
+            "hostAndPort": "mongod:27017",
+            "scramAuth": {
+              "username": "user",
+              "passwordFile": "/etc/mongot/replicaSet.passwd"
+            }
+          },
+          "router": {
+            "hostAndPort": "mongos:27017",
+            "oidc": {
+              "environment": "custom",
+              "tokenEndpoint": "https://idp.example.com/token",
+              "clientId": "mongot",
+              "clientSecretFile": "/etc/mongot/secrets/oidc-client-secret",
+              "idpCaFile": "/etc/mongot/idp-ca.pem",
+              "tls": {
+                "caFile": "/etc/mongot/ca.pem"
+              }
+            }
+          }
+        },
+        "storage": {
+          "dataPath": "data/mongot"
+        },
+        "server": {
+          "grpc": {
+            "address": "localhost:27028"
+          }
+        },
+        "metrics": {
+          "enabled": true,
+          "address": "localhost:9946"
+        },
+        "healthCheck": {
+          "address": "localhost:8080"
+        },
+        "logging": {
+          "verbosity": "DEBUG",
+          "logPath": "/var/log/mongot"
+        },
+        "advancedConfigs": {
+          "ftdc": {
+            "enabled": true,
+            "directorySizeMb": 100,
+            "fileSizeMb": 10,
+            "collectionPeriodMillis": 1000
+          }
+        }
+      },
+      "errorMessageContains": "is not supported in the COMMUNITY edition"
     }
   ]
 }

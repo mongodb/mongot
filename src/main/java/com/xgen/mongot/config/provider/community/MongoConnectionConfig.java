@@ -26,15 +26,19 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
 
   private final Optional<X509Config> x509;
 
+  private final Optional<OidcConfig> oidc;
+
   public MongoConnectionConfig(
       List<HostAndPort> hostandPorts,
       Optional<String> srvHost,
       Optional<X509Config> x509,
-      Optional<ScramConfig> scram) {
+      Optional<ScramConfig> scram,
+      Optional<OidcConfig> oidc) {
     this.hostandPorts = hostandPorts;
     this.srvHost = srvHost;
     this.x509 = x509;
     this.scram = scram;
+    this.oidc = oidc;
   }
 
   protected static class Fields {
@@ -67,6 +71,14 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
           .optional()
           .noDefault();
     }
+
+    public static final Field.Optional<OidcConfig> OIDC =
+        Field.builder("oidc")
+            .classField(OidcConfig::fromBson, OidcConfig::toBson)
+            .disallowUnknownFields()
+            .edition(DeploymentEnvironment.ENTERPRISE)
+            .optional()
+            .noDefault();
   }
 
   public List<HostAndPort> hostandPorts() {
@@ -85,6 +97,11 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
     return this.scram;
   }
 
+  /** The OIDC auth configuration, or empty when OIDC authentication is not configured. */
+  public Optional<OidcConfig> oidc() {
+    return this.oidc;
+  }
+
   @Override
   public BsonDocument toBson() {
     return BsonDocumentBuilder.builder()
@@ -92,13 +109,16 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
         .field(Fields.SRV_HOST, this.srvHost)
         .field(Fields.X509, this.x509)
         .field(Fields.scramField(this.srvHost.isPresent()), this.scram)
+        .field(Fields.OIDC, this.oidc)
         .build();
   }
 
   /**
-   * Validates the configured authentication mechanism. x509 and scram are mutually exclusive; once
-   * that check passes the call is dispatched to a path-specific validator. Also validates that
-   * HostAndPorts and SrvString fields are mutually exclusive.
+   * Validates the configured authentication mechanism. x509, scram, and oidc are mutually exclusive
+   * — the {@code oidc} block is Enterprise-edition-gated, so community parses reject it at the
+   * field and the exactly-one hint lists it only for Enterprise. Once that check passes the call is
+   * dispatched to a path-specific validator. Also validates that HostAndPorts and SrvString fields
+   * are mutually exclusive.
    */
   public void validate(DocumentParser parser) throws BsonParseException {
     this.validateOnlyOneAuthType(parser);
@@ -108,17 +128,27 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
       this.x509.get().validate(parser);
     } else if (this.scram.isPresent()) {
       this.scram.get().validate(parser);
+    } else if (this.oidc.isPresent()) {
+      this.oidc.get().validate(parser);
     } else {
       throw Check.unreachableError();
     }
   }
 
   private void validateOnlyOneAuthType(DocumentParser parser) throws BsonParseException {
-    long presentCount = Stream.of(this.scram, this.x509).filter(Optional::isPresent).count();
+    long presentCount =
+        Stream.of(this.scram, this.x509, this.oidc).filter(Optional::isPresent).count();
     if (presentCount != 1) {
+      // The oidc block is Enterprise-edition-gated — community parses reject it at the field —
+      // so the hint must not advertise an option community operators cannot use.
+      boolean isEnterprise =
+          parser.getContext().getDeploymentEnvironment().orElse(null)
+              == DeploymentEnvironment.ENTERPRISE;
+      String mechanisms = isEnterprise ? "x509, scram, or oidc" : "x509 or scram";
       parser
           .getContext()
-          .handleSemanticError("Exactly one authentication mechanism must be used (x509 or scram)");
+          .handleSemanticError(
+              "Exactly one authentication mechanism must be used (" + mechanisms + ")");
     }
   }
 
@@ -140,11 +170,12 @@ public abstract sealed class MongoConnectionConfig implements DocumentEncodable
     return Objects.equals(this.hostandPorts, that.hostandPorts)
         && Objects.equals(this.srvHost, that.srvHost)
         && Objects.equals(this.x509, that.x509)
-        && Objects.equals(this.scram, that.scram);
+        && Objects.equals(this.scram, that.scram)
+        && Objects.equals(this.oidc, that.oidc);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(this.hostandPorts, this.srvHost, this.x509, this.scram);
+    return Objects.hash(this.hostandPorts, this.srvHost, this.x509, this.scram, this.oidc);
   }
 }
