@@ -47,6 +47,12 @@ public class AggregationFeatureExplainer implements FeatureExplainer {
   /** Set late, once the cursor exists; see {@link #recordCursorId}. */
   private volatile Optional<Long> cursorId = Optional.empty();
 
+  /**
+   * Set after collection from the partition's heap accountant; see {@link
+   * #recordObservedHeapBytes}.
+   */
+  private volatile Optional<Long> observedHeapBytes = Optional.empty();
+
   public AggregationFeatureExplainer() {
     this.phaseProfile = ExplainTimings.builder().build();
     this.accumulatorProfile = ExplainTimings.builder().build();
@@ -124,7 +130,26 @@ public class AggregationFeatureExplainer implements FeatureExplainer {
                 partitionCount,
                 nodeStats.depth(),
                 nodeStats.nodeCountsByType(),
-                nodeStats.totalObservedBuckets()));
+                nodeStats.totalObservedBuckets(),
+                Optional.empty()));
+  }
+
+  /**
+   * Records the accumulator heap charged for this partition search onto the current explain query,
+   * so {@code aggregation.query.observedHeapBytes} matches the process histogram.
+   *
+   * <p>No-op when the query is not being explained. Recorded separately from {@link
+   * #recordNodeStats} because the accountant total is known only after {@code searcher.search}
+   * returns.
+   */
+  public static void recordObservedHeapBytes(long observedHeapBytes) {
+    Explain.getQueryInfo()
+        .ifPresent(
+            queryInfo ->
+                queryInfo.getFeatureExplainer(
+                            AggregationFeatureExplainer.class, AggregationFeatureExplainer::new)
+                        .observedHeapBytes =
+                    Optional.of(observedHeapBytes));
   }
 
   /**
@@ -190,8 +215,12 @@ public class AggregationFeatureExplainer implements FeatureExplainer {
             QueryExecutionArea.notEmptyAreaForType(
                 ExplainTimings.Type.AGGREGATION_MERGE, timingData),
             this.tree,
-            // The cursor id arrives after the tree, so stitch it on at emit time.
-            this.queryStats.map(stats -> stats.withCursorId(this.cursorId)))
+            // The cursor id and heap bytes arrive after the tree, so stitch them on at emit time.
+            this.queryStats.map(
+                stats ->
+                    stats
+                        .withCursorId(this.cursorId)
+                        .withObservedHeapBytes(this.observedHeapBytes)))
         .ifPresent(builder::aggregationStats);
   }
 }

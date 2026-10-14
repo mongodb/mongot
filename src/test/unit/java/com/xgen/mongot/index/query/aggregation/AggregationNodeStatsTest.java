@@ -231,6 +231,7 @@ public class AggregationNodeStatsTest extends AggregationTestSupport {
               AggregationNodeStats.NodeType.TERMS, 1L, AggregationNodeStats.NodeType.METRIC, 1L);
       assertThat(query.observedBuckets()).isEqualTo(4200);
       assertThat(query.cursorId()).hasValue(7431299184L);
+      assertThat(query.observedHeapBytes()).isEmpty();
     }
   }
 
@@ -269,6 +270,27 @@ public class AggregationNodeStatsTest extends AggregationTestSupport {
 
       assertThat(builder.build().aggregation().orElseThrow().query().orElseThrow().cursorId())
           .hasValue(7431299184L);
+    }
+  }
+
+  @Test
+  public void queryHeader_carriesObservedHeapBytesOnceRecorded() {
+    var root = new AggregationNodeStats("root", List.of());
+
+    try (var unused = explainContext()) {
+      AggregationFeatureExplainer.recordNodeStats(root);
+      AggregationFeatureExplainer.recordObservedHeapBytes(1L << 20);
+      AggregationFeatureExplainer.recordCursorId(7431299184L);
+
+      var builder = new SearchExplainInformationBuilder();
+      Explain.getQueryInfo()
+          .orElseThrow()
+          .getFeatureExplainer(AggregationFeatureExplainer.class, AggregationFeatureExplainer::new)
+          .emitExplanation(Explain.Verbosity.EXECUTION_STATS, builder);
+
+      assertThat(
+              builder.build().aggregation().orElseThrow().query().orElseThrow().observedHeapBytes())
+          .hasValue(1L << 20);
     }
   }
 

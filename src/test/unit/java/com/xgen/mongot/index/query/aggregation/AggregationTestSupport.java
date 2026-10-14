@@ -196,6 +196,19 @@ public abstract class AggregationTestSupport {
     return builder.build();
   }
 
+  protected AggregationContext newContextWithHeapAccountant(
+      AggregationHeapAccountant heapAccountant) {
+    return AggregationContext.create(
+        this.reader,
+        Optional.empty(),
+        luceneField -> Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        0,
+        false,
+        heapAccountant);
+  }
+
   protected AggregationContext newContextWithFieldResolver() {
     return AggregationContext.create(
         this.reader,
@@ -219,7 +232,8 @@ public abstract class AggregationTestSupport {
         Optional.empty(),
         Optional.empty(),
         0,
-        false);
+        false,
+        AggregationHeapAccountant.disabled());
   }
 
   /** Like {@link #newContextWithFieldResolver} but records per-node explain counters. */
@@ -246,7 +260,8 @@ public abstract class AggregationTestSupport {
         Optional.empty(),
         Optional.empty(),
         0,
-        true);
+        true,
+        AggregationHeapAccountant.disabled());
   }
 
   protected AggregationContext newContextWithDoubleFieldResolver() {
@@ -272,7 +287,8 @@ public abstract class AggregationTestSupport {
         Optional.empty(),
         Optional.empty(),
         0,
-        false);
+        false,
+        AggregationHeapAccountant.disabled());
   }
 
   // ===== assertion helpers =====
@@ -481,6 +497,7 @@ public abstract class AggregationTestSupport {
     private final int partitionId;
     private final AtomicLong observedBuckets;
     private final boolean recordExplainNodeStats;
+    private final AggregationHeapAccountant heapAccountant;
 
     protected TestContext(IndexReader indexReader) {
       this(indexReader, false);
@@ -497,7 +514,8 @@ public abstract class AggregationTestSupport {
           Optional.empty(),
           0,
           new AtomicLong(),
-          recordExplainNodeStats);
+          recordExplainNodeStats,
+          AggregationHeapAccountant.disabled());
     }
 
     protected TestContext(
@@ -602,7 +620,8 @@ public abstract class AggregationTestSupport {
           invertedSort,
           partitionId,
           observedBuckets,
-          false);
+          false,
+          AggregationHeapAccountant.disabled());
     }
 
     private TestContext(
@@ -615,7 +634,8 @@ public abstract class AggregationTestSupport {
         Optional<Sort> invertedSort,
         int partitionId,
         AtomicLong observedBuckets,
-        boolean recordExplainNodeStats) {
+        boolean recordExplainNodeStats,
+        AggregationHeapAccountant heapAccountant) {
       this.partitionId = partitionId;
       this.indexReader = indexReader;
       this.cachedGlobalValueLookup = cachedGlobalValueLookup;
@@ -626,6 +646,7 @@ public abstract class AggregationTestSupport {
       this.invertedSort = invertedSort;
       this.observedBuckets = observedBuckets;
       this.recordExplainNodeStats = recordExplainNodeStats;
+      this.heapAccountant = heapAccountant;
     }
 
     @Override
@@ -641,7 +662,8 @@ public abstract class AggregationTestSupport {
           this.invertedSort,
           this.partitionId,
           this.observedBuckets,
-          this.recordExplainNodeStats);
+          this.recordExplainNodeStats,
+          this.heapAccountant);
     }
 
     @Override
@@ -656,7 +678,13 @@ public abstract class AggregationTestSupport {
           this.invertedSort,
           this.partitionId,
           this.observedBuckets,
-          this.recordExplainNodeStats);
+          this.recordExplainNodeStats,
+          this.heapAccountant);
+    }
+
+    @Override
+    public AggregationHeapAccountant getHeapAccountant() {
+      return this.heapAccountant;
     }
 
     @Override

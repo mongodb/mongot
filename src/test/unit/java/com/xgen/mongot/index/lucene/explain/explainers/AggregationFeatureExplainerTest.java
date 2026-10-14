@@ -108,7 +108,9 @@ public class AggregationFeatureExplainerTest {
     var tree =
         new AggregationNodeStatsSpec(
             "_top", Optional.empty(), Optional.empty(), Optional.empty(), 0L, 0L, Optional.empty());
-    var query = new AggregationQueryStats(Optional.empty(), Optional.of(1), 1, Map.of(), 0L);
+    var query =
+        new AggregationQueryStats(
+            Optional.empty(), Optional.of(1), 1, Map.of(), 0L, Optional.empty());
     var expected =
         new AggregationStats(
             Optional.empty(),
@@ -137,9 +139,11 @@ public class AggregationFeatureExplainerTest {
         new AggregationNodeStatsSpec(
             "_top", Optional.empty(), Optional.empty(), Optional.empty(), 0L, 0L, Optional.empty());
     var expectedQuery =
-        new AggregationQueryStats(Optional.empty(), Optional.of(1), 1, Map.of(), 0L);
+        new AggregationQueryStats(
+            Optional.empty(), Optional.of(1), 1, Map.of(), 0L, Optional.of(1L));
     var actualQuery =
-        new AggregationQueryStats(Optional.of(7431299184L), Optional.of(1), 1, Map.of(), 0L);
+        new AggregationQueryStats(
+            Optional.of(7431299184L), Optional.of(1), 1, Map.of(), 0L, Optional.of(1L << 20));
     var expected =
         new AggregationStats(
             Optional.empty(),
@@ -156,6 +160,54 @@ public class AggregationFeatureExplainerTest {
             Optional.of(actualQuery));
 
     Truth.assertThat(expected.equals(actual, Equality.alwaysEqualEquator())).isTrue();
+  }
+
+  /**
+   * Integration JSON fixtures include {@code observedHeapBytes} as a presence marker. The equator
+   * ignores the exact HPPC footprint and requires the runtime value to be present and greater than
+   * zero. Omitting the field from expected no longer matches, so e2e/integration fixtures cannot
+   * silently skip it.
+   */
+  @Test
+  public void timingEquator_requiresPositiveObservedHeapBytesWhenExpectedIncludesIt() {
+    var tree =
+        new AggregationNodeStatsSpec(
+            "_top", Optional.empty(), Optional.empty(), Optional.empty(), 0L, 0L, Optional.empty());
+    var expectedWithMarker =
+        new AggregationStats(
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(tree),
+            Optional.of(
+                new AggregationQueryStats(
+                    Optional.empty(), Optional.of(1), 1, Map.of(), 0L, Optional.of(1L))));
+    var expectedOmittingField =
+        new AggregationStats(
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(tree),
+            Optional.of(
+                new AggregationQueryStats(
+                    Optional.empty(), Optional.of(1), 1, Map.of(), 0L, Optional.empty())));
+
+    Truth.assertThat(
+            expectedWithMarker.equals(
+                statsWithHeap(tree, Optional.of(1L << 20)), Equality.alwaysEqualEquator()))
+        .isTrue();
+    Truth.assertThat(
+            expectedWithMarker.equals(
+                statsWithHeap(tree, Optional.empty()), Equality.alwaysEqualEquator()))
+        .isFalse();
+    Truth.assertThat(
+            expectedWithMarker.equals(
+                statsWithHeap(tree, Optional.of(0L)), Equality.alwaysEqualEquator()))
+        .isFalse();
+    Truth.assertThat(
+            expectedOmittingField.equals(
+                statsWithHeap(tree, Optional.of(1L << 20)), Equality.alwaysEqualEquator()))
+        .isFalse();
   }
 
   @Test
@@ -218,5 +270,17 @@ public class AggregationFeatureExplainerTest {
             .hasValue(7431299184L);
       }
     }
+  }
+
+  private static AggregationStats statsWithHeap(
+      AggregationNodeStatsSpec tree, Optional<Long> observedHeapBytes) {
+    return new AggregationStats(
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(tree),
+        Optional.of(
+            new AggregationQueryStats(
+                Optional.empty(), Optional.of(1), 1, Map.of(), 0L, observedHeapBytes)));
   }
 }

@@ -158,6 +158,7 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
       List<TermsAggregationResult.TermsBucket> buckets = new ArrayList<>(childPairs.size());
       for (OrdPair pair : childPairs) {
         BytesRef key = BytesRef.deepCopyOf(this.topLevelValues.lookupOrd(pair.globalOrd()));
+        this.context.getHeapAccountant().add(key.length);
         buckets.add(
             new TermsAggregationResult.TermsBucket(
                 key,

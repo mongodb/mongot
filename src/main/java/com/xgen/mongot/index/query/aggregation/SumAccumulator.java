@@ -16,7 +16,7 @@ final class SumAccumulator extends Accumulator {
   SumAccumulator(String name, ResolvedNumericMetricField metricField, AggregationContext context) {
     super(name, List.of(), context);
     this.metricField = metricField;
-    this.sums = new DoubleArray(8);
+    this.sums = new DoubleArray(8, context.getHeapAccountant()::add);
     declareMetric(Optional.of(metricField.luceneFieldName()));
   }
 

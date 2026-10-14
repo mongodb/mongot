@@ -52,12 +52,14 @@ final class BucketWinners {
   /** One collector per bucket ordinal; created when a document first lands in that bucket. */
   private final ObjectArray<TopFieldCollector> subCollectors;
 
-  BucketWinners(Sort sort) {
+  BucketWinners(Sort sort, AggregationHeapAccountant heapAccountant) {
     // null after: a bucket's queue is not paginated, so every matching document competes for it.
     // A non-null value would make the collector skip documents up to that sort key, which is what
     // searchAfter wants for a result page and never what a bucket's winner wants.
     this.collectorManager = new TopFieldCollectorManager(sort, 1, null, NO_EARLY_TERMINATION);
-    this.subCollectors = new ObjectArray<>(INITIAL_BUCKETS);
+    // Charge the long-lived per-bucket collectors, not the per-segment leafCollectors array that
+    // forLeaf rebuilds and discards.
+    this.subCollectors = new ObjectArray<>(INITIAL_BUCKETS, heapAccountant::add);
   }
 
   /**

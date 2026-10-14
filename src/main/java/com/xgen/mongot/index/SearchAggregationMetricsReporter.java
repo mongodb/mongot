@@ -10,9 +10,9 @@ import com.xgen.mongot.util.functionalinterfaces.CheckedSupplier;
  * IndexMetricsUpdater.QueryingMetricsUpdater#getSearchAggregationMetricsReporter()}. Callers record
  * through this type rather than holding individual Micrometer instruments.
  *
- * <p>Phase timings and the observed-bucket histogram are execution-time. Group-type and metric-type
- * counters, nesting, and requested-bucket histograms are plan-time, recorded once per aggregation
- * query from {@link QueryMetricsRecorder}.
+ * <p>Phase timings, the observed-bucket histogram, and the observed-heap histogram are
+ * execution-time. Group-type and metric-type counters, nesting, and requested-bucket histograms are
+ * plan-time, recorded once per aggregation query from {@link QueryMetricsRecorder}.
  */
 public interface SearchAggregationMetricsReporter {
 
@@ -62,6 +62,13 @@ public interface SearchAggregationMetricsReporter {
    */
   String OBSERVED_BUCKETS_HISTOGRAM = "aggregationObservedBuckets";
 
+  /**
+   * Histogram of accounted accumulator heap for one aggregation partition search. Read against
+   * {@link #OBSERVED_BUCKETS_HISTOGRAM}: bucket count is a cardinality proxy, this is the charged
+   * byte total.
+   */
+  String OBSERVED_HEAP_BYTES_HISTOGRAM = "aggregationObservedHeapBytes";
+
   enum Phase {
     COLLECTION,
     PARTITION_MERGE
@@ -107,6 +114,12 @@ public interface SearchAggregationMetricsReporter {
   void recordObservedBuckets(long observedBuckets);
 
   /**
+   * Records accounted accumulator heap for one aggregation partition search. One sample per
+   * successful collection, matching {@link #recordObservedBuckets(long)}.
+   */
+  void recordObservedHeapBytes(long observedHeapBytes);
+
+  /**
    * Reporter that runs {@code body} and records nothing. Useful in tests that do not assert
    * metrics.
    */
@@ -149,6 +162,11 @@ public interface SearchAggregationMetricsReporter {
 
     @Override
     public void recordObservedBuckets(long observedBuckets) {
+      // Intentionally empty: tests and disabled aggregations record nothing.
+    }
+
+    @Override
+    public void recordObservedHeapBytes(long observedHeapBytes) {
       // Intentionally empty: tests and disabled aggregations record nothing.
     }
   }

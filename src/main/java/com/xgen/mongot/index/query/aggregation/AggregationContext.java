@@ -115,6 +115,13 @@ public interface AggregationContext {
    */
   Optional<Sort> getInvertedSort();
 
+  /**
+   * Heap charged for this partition search's accumulator state. Shared across derived contexts so
+   * every search slice contributes. Tests that do not assert the metric pass {@link
+   * AggregationHeapAccountant#disabled()}.
+   */
+  AggregationHeapAccountant getHeapAccountant();
+
   /** Marker for skipping metrics when an ancestor group field is multi-valued on a doc. */
   Optional<MultiValueDocMarker> getMultiValueDocMarker();
 
@@ -163,7 +170,8 @@ public interface AggregationContext {
    * global sort, which {@code first}/{@code last} order their buckets by, and {@code invertedSort}
    * is that same sort turned around for {@code last}; the two must be present or absent together.
    * {@code recordExplainNodeStats} is true only for explain queries so the stats tree stays off the
-   * ordinary search path.
+   * ordinary search path. Tests that do not assert the process heap histogram pass {@link
+   * AggregationHeapAccountant#disabled()}.
    */
   static AggregationContext create(
       IndexReader indexReader,
@@ -172,7 +180,8 @@ public interface AggregationContext {
       Optional<Sort> sort,
       Optional<Sort> invertedSort,
       int partitionId,
-      boolean recordExplainNodeStats) {
+      boolean recordExplainNodeStats,
+      AggregationHeapAccountant heapAccountant) {
     return new AggregationContextImpl(
         indexReader,
         AggregationRegistry.getInstance(),
@@ -181,6 +190,7 @@ public interface AggregationContext {
         sort,
         invertedSort,
         partitionId,
-        recordExplainNodeStats);
+        recordExplainNodeStats,
+        heapAccountant);
   }
 }

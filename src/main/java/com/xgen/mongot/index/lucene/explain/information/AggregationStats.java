@@ -36,7 +36,7 @@ import org.bson.BsonDocument;
  * @param tree the accumulator tree, nested as the query nests its facets, with per-node counters
  *     that are deliberately not rolled up into the parent.
  * @param query the flat query-level header alongside the tree: partition count, tree depth, type
- *     histogram, and the observed-bucket total the process metric also records.
+ *     histogram, and the observed-bucket and observed-heap totals the process metrics also record.
  */
 public record AggregationStats(
     Optional<QueryExecutionArea> collect,
@@ -113,7 +113,8 @@ public record AggregationStats(
   /**
    * Timing areas compare under the test equator that ignores durations. {@code tree} and {@code
    * query} compare strictly: both empty, or both present and equal. Fixtures that omit {@code
-   * cursorId} still match a runtime value; see {@link
+   * cursorId} still match a runtime value. Fixtures must include {@code observedHeapBytes}; the
+   * runtime value must be present and greater than zero. See {@link
    * AggregationQueryStats#equalsIgnoringAbsentCursorId}.
    */
   @Override

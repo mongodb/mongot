@@ -13,6 +13,7 @@ import com.xgen.mongot.index.lucene.facet.TokenSsdvFacetState;
 import com.xgen.mongot.index.lucene.searcher.LuceneIndexSearcher;
 import com.xgen.mongot.index.query.aggregation.AggregationContext;
 import com.xgen.mongot.index.query.aggregation.AggregationFieldResolver;
+import com.xgen.mongot.index.query.aggregation.AggregationHeapAccountant;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.TopAggregationSpec;
 import com.xgen.mongot.index.query.sort.SequenceToken;
@@ -94,6 +95,7 @@ public class LuceneAggregationSearchManager
       LuceneIndexSearcherReference searcherReference, int batchSize) throws IOException {
     LuceneIndexSearcher searcher = searcherReference.getIndexSearcher();
 
+    AggregationHeapAccountant heapAccountant = new AggregationHeapAccountant();
     AggregationContext context =
         AggregationContext.create(
             searcher.getIndexReader(),
@@ -105,7 +107,8 @@ public class LuceneAggregationSearchManager
             this.luceneSort,
             this.invertedLuceneSort,
             this.indexPartitionId,
-            Explain.atVerbosity(Explain.Verbosity.EXECUTION_STATS));
+            Explain.atVerbosity(Explain.Verbosity.EXECUTION_STATS),
+            heapAccountant);
 
     int readerLimit = Math.max(1, searcher.getIndexReader().maxDoc());
     int searchLimit = Math.min(readerLimit, batchSize);
@@ -128,6 +131,7 @@ public class LuceneAggregationSearchManager
     // One sample per successful partition search: the context total already sums grouping nodes
     // and slices. Recording after time() so a thrown collection does not emit a partial sample.
     this.metricsReporter.recordObservedBuckets(context.observedBuckets());
+    this.metricsReporter.recordObservedHeapBytes(heapAccountant.currentBytes());
 
     AggregationResult aggResult = Check.instanceOf(results[0], AggregationResult.class);
     TopDocs topDocs = Check.instanceOf(results[1], TopDocs.class);

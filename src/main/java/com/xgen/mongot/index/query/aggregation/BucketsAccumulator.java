@@ -14,11 +14,12 @@ public abstract class BucketsAccumulator extends Accumulator {
   // Per-bucket document counts, indexed by this accumulator's bucket ordinal. Shared by all
   // bucket-producing accumulators (terms now, boundary later) for top-N ordering and for
   // reporting bucket counts in results.
-  private final LongArray docCounts = new LongArray(64);
+  private final LongArray docCounts;
 
   protected BucketsAccumulator(
       String name, List<Accumulator> childAccumulators, AggregationContext context) {
     super(name, childAccumulators, context);
+    this.docCounts = new LongArray(64, context.getHeapAccountant()::add);
     this.childrenCollector = MultiBucketCollector.of(this.children);
   }
 

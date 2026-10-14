@@ -69,6 +69,12 @@ final class ExplainAwareSearchAggregationMetricsReporter
     this.delegate.recordObservedBuckets(observedBuckets);
   }
 
+  @Override
+  public void recordObservedHeapBytes(long observedHeapBytes) {
+    this.delegate.recordObservedHeapBytes(observedHeapBytes);
+    AggregationFeatureExplainer.recordObservedHeapBytes(observedHeapBytes);
+  }
+
   private static ExplainTimings.Type explainType(Phase phase) {
     return switch (phase) {
       case COLLECTION -> ExplainTimings.Type.AGGREGATION_COLLECT;

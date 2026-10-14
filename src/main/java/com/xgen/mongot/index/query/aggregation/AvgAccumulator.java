@@ -17,8 +17,8 @@ final class AvgAccumulator extends Accumulator {
   AvgAccumulator(String name, ResolvedNumericMetricField metricField, AggregationContext context) {
     super(name, List.of(), context);
     this.metricField = metricField;
-    this.sums = new DoubleArray(8);
-    this.counts = new LongArray(8);
+    this.sums = new DoubleArray(8, context.getHeapAccountant()::add);
+    this.counts = new LongArray(8, context.getHeapAccountant()::add);
     declareMetric(Optional.of(metricField.luceneFieldName()));
   }
 

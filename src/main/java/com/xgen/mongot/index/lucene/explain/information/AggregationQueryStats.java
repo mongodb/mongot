@@ -21,8 +21,8 @@ import org.bson.BsonDocument;
  * The flat, query-level half of the aggregation explain section, alongside the per-node tree.
  *
  * <p>These are deliberately <em>not</em> per node. Partition count is a property of the index;
- * {@code cursorId} belongs to the query as a whole; and the observed total is what the process
- * metric records, repeated here so a single explain output is self-contained without a dashboard.
+ * {@code cursorId} belongs to the query as a whole; and the observed totals are what the process
+ * metrics record, repeated here so a single explain output is self-contained without a dashboard.
  *
  * @param cursorId the id this query's outputs are correlated by -- explain, log lines and kill
  *     errors all carry it, including across getMore batches, which record under the same id. It is
@@ -35,13 +35,18 @@ import org.bson.BsonDocument;
  *     undeclared and omitted.
  * @param observedBuckets grouping buckets instantiated in this tree, summed over nodes and search
  *     slices -- the same total the process histogram records.
+ * @param observedHeapBytes accumulator heap charged during this search, in bytes -- the same total
+ *     the process histogram records. Absent until collection finishes far enough to record it.
+ *     Integration fixtures include it as a presence marker; fixture comparison requires the runtime
+ *     field to be present and greater than zero rather than matching the exact HPPC footprint.
  */
 public record AggregationQueryStats(
     Optional<Long> cursorId,
     Optional<Integer> partitionCount,
     int treeDepth,
     Map<NodeType, Long> nodeCountsByType,
-    long observedBuckets)
+    long observedBuckets,
+    Optional<Long> observedHeapBytes)
     implements DocumentEncodable {
 
   static class Fields {
@@ -59,21 +64,50 @@ public record AggregationQueryStats(
 
     static final Field.Required<Long> OBSERVED_BUCKETS =
         Field.builder("observedBuckets").longField().required();
+
+    static final Field.Optional<Long> OBSERVED_HEAP_BYTES =
+        Field.builder("observedHeapBytes").longField().optional().noDefault();
   }
 
   /** Returns a copy carrying {@code cursorId}, which is only known once the cursor exists. */
   public AggregationQueryStats withCursorId(Optional<Long> cursorId) {
     return new AggregationQueryStats(
-        cursorId, this.partitionCount, this.treeDepth, this.nodeCountsByType, this.observedBuckets);
+        cursorId,
+        this.partitionCount,
+        this.treeDepth,
+        this.nodeCountsByType,
+        this.observedBuckets,
+        this.observedHeapBytes);
   }
 
   /**
-   * Fixture comparison: {@code cursorId} is non-deterministic across runs, so an expected value
-   * that omits it still matches an actual that includes one. Every other field compares strictly.
+   * Returns a copy carrying {@code observedHeapBytes}, recorded after collection from the
+   * partition's heap accountant.
+   */
+  public AggregationQueryStats withObservedHeapBytes(Optional<Long> observedHeapBytes) {
+    return new AggregationQueryStats(
+        this.cursorId,
+        this.partitionCount,
+        this.treeDepth,
+        this.nodeCountsByType,
+        this.observedBuckets,
+        observedHeapBytes);
+  }
+
+  /**
+   * Fixture comparison: {@code cursorId} is omitted from expected fixtures because it is
+   * non-deterministic, so an expected value that omits it still matches an actual that includes
+   * one. {@code observedHeapBytes} is present in fixtures as a presence marker (the exact HPPC
+   * footprint is JVM-dependent and is not compared). The actual value must be present and greater
+   * than zero. Every other field compares strictly.
    */
   boolean equalsIgnoringAbsentCursorId(AggregationQueryStats other) {
     boolean cursorOk = this.cursorId.isEmpty() || Objects.equals(this.cursorId, other.cursorId);
+    boolean heapOk =
+        this.observedHeapBytes.isPresent()
+            && other.observedHeapBytes.filter(bytes -> bytes > 0).isPresent();
     return cursorOk
+        && heapOk
         && Objects.equals(this.partitionCount, other.partitionCount)
         && this.treeDepth == other.treeDepth
         && Objects.equals(this.nodeCountsByType, other.nodeCountsByType)
@@ -86,7 +120,8 @@ public record AggregationQueryStats(
         parser.getField(Fields.PARTITION_COUNT).unwrap(),
         parser.getField(Fields.TREE_DEPTH).unwrap(),
         decodeNodeCounts(parser.getField(Fields.NODE_COUNTS_BY_TYPE).unwrap()),
-        parser.getField(Fields.OBSERVED_BUCKETS).unwrap());
+        parser.getField(Fields.OBSERVED_BUCKETS).unwrap(),
+        parser.getField(Fields.OBSERVED_HEAP_BYTES).unwrap());
   }
 
   @Override
@@ -97,6 +132,7 @@ public record AggregationQueryStats(
         .field(Fields.TREE_DEPTH, this.treeDepth)
         .field(Fields.NODE_COUNTS_BY_TYPE, encodeNodeCounts(this.nodeCountsByType))
         .field(Fields.OBSERVED_BUCKETS, this.observedBuckets)
+        .field(Fields.OBSERVED_HEAP_BYTES, this.observedHeapBytes)
         .build();
   }
 

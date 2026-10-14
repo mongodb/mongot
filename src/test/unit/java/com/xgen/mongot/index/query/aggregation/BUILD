@@ -21,6 +21,8 @@ java_test_suite(
     name = "aggregation",
     srcs = [
         "AccumulatorTest.java",
+        "AggregationHeapAccountantTest.java",
+        "AggregationHeapAccountingTest.java",
         "AggregationIntegrationTest.java",
         "AggregationNodeStatsTest.java",
         "AggregationRegistryTest.java",
@@ -71,6 +73,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/query/sort",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
+        "@maven//:com_carrotsearch_hppc",
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_truth_truth",
         "@maven//:io_opentelemetry_opentelemetry_context",

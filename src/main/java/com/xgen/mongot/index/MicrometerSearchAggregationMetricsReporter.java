@@ -45,6 +45,11 @@ public final class MicrometerSearchAggregationMetricsReporter
     10, 100, 1000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000
   };
 
+  /** Byte bands for {@link #OBSERVED_HEAP_BYTES_HISTOGRAM}: 1 MiB through 4 GiB. */
+  private static final double[] OBSERVED_HEAP_BYTES_BOUNDS = {
+    1L << 20, 1L << 23, 1L << 26, 1L << 29, 1L << 32
+  };
+
   private final Timer collectionTimer;
   private final Timer partitionMergeTimer;
   private final Map<FacetDefinition.Type, Counter> groupCounters;
@@ -54,11 +59,12 @@ public final class MicrometerSearchAggregationMetricsReporter
   private final DistributionSummary maxPathBucketsHistogram;
   private final Counter bucketLimitRejectionsCounter;
   private final DistributionSummary observedBucketsHistogram;
+  private final DistributionSummary observedHeapBytesHistogram;
 
   /**
    * Returns a no-op reporter when search aggregation is disabled so the process factory does not
    * export permanently-zero series. Otherwise registers timers, group-type and metric-type
-   * counters, nesting, requested-bucket, and observed-bucket histograms.
+   * counters, nesting, requested-bucket, observed-bucket, and observed-heap histograms.
    */
   public static SearchAggregationMetricsReporter create(
       MetricsFactory processMetricsFactory, boolean searchAggregationEnabled) {
@@ -75,7 +81,8 @@ public final class MicrometerSearchAggregationMetricsReporter
         processMetricsFactory.histogram(REQUESTED_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
         processMetricsFactory.histogram(MAX_PATH_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
         processMetricsFactory.counter(BUCKET_LIMIT_REJECTIONS_COUNTER),
-        processMetricsFactory.histogram(OBSERVED_BUCKETS_HISTOGRAM, OBSERVED_BUCKETS_BOUNDS));
+        processMetricsFactory.histogram(OBSERVED_BUCKETS_HISTOGRAM, OBSERVED_BUCKETS_BOUNDS),
+        processMetricsFactory.histogram(OBSERVED_HEAP_BYTES_HISTOGRAM, OBSERVED_HEAP_BYTES_BOUNDS));
   }
 
   private MicrometerSearchAggregationMetricsReporter(
@@ -87,7 +94,8 @@ public final class MicrometerSearchAggregationMetricsReporter
       DistributionSummary requestedBucketsHistogram,
       DistributionSummary maxPathBucketsHistogram,
       Counter bucketLimitRejectionsCounter,
-      DistributionSummary observedBucketsHistogram) {
+      DistributionSummary observedBucketsHistogram,
+      DistributionSummary observedHeapBytesHistogram) {
     this.collectionTimer = collectionTimer;
     this.partitionMergeTimer = partitionMergeTimer;
     this.groupCounters = groupCounters;
@@ -97,6 +105,7 @@ public final class MicrometerSearchAggregationMetricsReporter
     this.maxPathBucketsHistogram = maxPathBucketsHistogram;
     this.bucketLimitRejectionsCounter = bucketLimitRejectionsCounter;
     this.observedBucketsHistogram = observedBucketsHistogram;
+    this.observedHeapBytesHistogram = observedHeapBytesHistogram;
   }
 
   @Override
@@ -133,6 +142,11 @@ public final class MicrometerSearchAggregationMetricsReporter
   @Override
   public void recordObservedBuckets(long observedBuckets) {
     this.observedBucketsHistogram.record(observedBuckets);
+  }
+
+  @Override
+  public void recordObservedHeapBytes(long observedHeapBytes) {
+    this.observedHeapBytesHistogram.record(observedHeapBytes);
   }
 
   private Timer timerFor(Phase phase) {

@@ -21,9 +21,9 @@ public class SpecTest {
   private static final FieldPath PRICE = FieldPath.parse("price");
 
   /**
-   * Stub context -- the inline spec/accumulator fixtures store it but never call any method on it,
-   * so unsupported-operation throws are fine. SpecTest only checks how specs wire accumulators
-   * together; no Lucene scan runs here.
+   * Stub context -- the inline spec/accumulator fixtures store it and only consult {@link
+   * AggregationContext#getHeapAccountant()} (via {@code BucketsAccumulator}). Other methods throw.
+   * SpecTest only checks how specs wire accumulators together; no Lucene scan runs here.
    */
   private static AggregationContext stubContext(Optional<MultiValueDocMarker> multiValueDocMarker) {
     return new AggregationContext() {
@@ -70,6 +70,11 @@ public class SpecTest {
       @Override
       public int getPartitionId() {
         return 0;
+      }
+
+      @Override
+      public AggregationHeapAccountant getHeapAccountant() {
+        return AggregationHeapAccountant.disabled();
       }
 
       @Override

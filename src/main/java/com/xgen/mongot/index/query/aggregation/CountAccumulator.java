@@ -11,7 +11,7 @@ final class CountAccumulator extends Accumulator {
 
   CountAccumulator(String name, AggregationContext context) {
     super(name, List.of(), context);
-    this.counts = new LongArray(8);
+    this.counts = new LongArray(8, context.getHeapAccountant()::add);
     declareMetric(Optional.empty());
   }
 

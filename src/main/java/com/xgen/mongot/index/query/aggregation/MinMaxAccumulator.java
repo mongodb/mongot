@@ -77,7 +77,7 @@ final class MinMaxAccumulator extends Accumulator {
     super(name, List.of(), context);
     this.path = path;
     this.extremum = extremum;
-    this.extrema = new ObjectArray<>(8);
+    this.extrema = new ObjectArray<>(8, context.getHeapAccountant()::add);
     declareMetric(Optional.of(path.toString()));
   }
 

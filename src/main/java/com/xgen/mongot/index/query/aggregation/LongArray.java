@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import com.carrotsearch.hppc.LongArrayList;
+import java.util.function.LongConsumer;
 
 /**
  * Growable long array backed by HPPC's {@link LongArrayList}.
@@ -10,9 +11,31 @@ import com.carrotsearch.hppc.LongArrayList;
  */
 public class LongArray implements AutoCloseable {
   private final LongArrayList list;
+  private final LongConsumer ramDeltaBytes;
+  private long lastObservedRamBytesAllocated;
 
   public LongArray(int initialCapacity) {
+    this(initialCapacity, unused -> {});
+  }
+
+  /**
+   * Same as {@link #LongArray(int)}, reporting HPPC {@link LongArrayList#ramBytesAllocated()}
+   * growth to {@code ramDeltaBytes}. Charge allocated ram, not {@link #size}, so a sparse write at
+   * a high ordinal includes the zero-filled slack and the list's own overhead.
+   */
+  public LongArray(int initialCapacity, LongConsumer ramDeltaBytes) {
     this.list = new LongArrayList(initialCapacity);
+    this.ramDeltaBytes = ramDeltaBytes;
+    this.lastObservedRamBytesAllocated = 0;
+    accountRam();
+  }
+
+  private void accountRam() {
+    long allocated = this.list.ramBytesAllocated();
+    if (allocated > this.lastObservedRamBytesAllocated) {
+      this.ramDeltaBytes.accept(allocated - this.lastObservedRamBytesAllocated);
+      this.lastObservedRamBytesAllocated = allocated;
+    }
   }
 
   public int size() {
@@ -26,6 +49,7 @@ public class LongArray implements AutoCloseable {
   public void set(int index, long value) {
     if (index >= this.list.size()) {
       this.list.resize(index + 1);
+      accountRam();
     }
     this.list.set(index, value);
   }
@@ -33,6 +57,7 @@ public class LongArray implements AutoCloseable {
   public void increment(int index, long value) {
     if (index >= this.list.size()) {
       this.list.resize(index + 1);
+      accountRam();
     }
     this.list.set(index, this.list.get(index) + value);
   }

@@ -181,7 +181,8 @@ public class SumAccumulatorTest extends AggregationTestSupport {
             Optional.empty(),
             Optional.empty(),
             0,
-            false);
+            false,
+            AggregationHeapAccountant.disabled());
 
     TopLevelAggregationResult top =
         (TopLevelAggregationResult) collectAll(topSpec, context).buildTopLevelResult();

@@ -53,7 +53,7 @@ abstract class FirstLastAccumulatorBase extends Accumulator {
                 () -> new IllegalStateException("Aggregation field resolver is not configured"))
             .resolveToken(path);
     declareMetric(Optional.of(path.toString()));
-    this.winners = new BucketWinners(collectorSort);
+    this.winners = new BucketWinners(collectorSort, context.getHeapAccountant());
     this.mergeSort = mergeSort;
     this.partitionId = context.getPartitionId();
   }

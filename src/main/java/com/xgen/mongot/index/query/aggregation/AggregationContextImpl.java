@@ -19,6 +19,7 @@ final class AggregationContextImpl implements AggregationContext {
   private final Optional<LeafReaderContext> leafReaderContext;
   private final AtomicLong observedBuckets;
   private final boolean recordExplainNodeStats;
+  private final AggregationHeapAccountant heapAccountant;
 
   private AggregationContextImpl(
       IndexReader indexReader,
@@ -31,7 +32,8 @@ final class AggregationContextImpl implements AggregationContext {
       Optional<MultiValueDocMarker> multiValueDocMarker,
       Optional<LeafReaderContext> leafReaderContext,
       AtomicLong observedBuckets,
-      boolean recordExplainNodeStats) {
+      boolean recordExplainNodeStats,
+      AggregationHeapAccountant heapAccountant) {
     Check.checkArg(
         sort.isPresent() == invertedSort.isPresent(),
         "sort and invertedSort must be present or absent together");
@@ -46,6 +48,7 @@ final class AggregationContextImpl implements AggregationContext {
     this.leafReaderContext = leafReaderContext;
     this.observedBuckets = observedBuckets;
     this.recordExplainNodeStats = recordExplainNodeStats;
+    this.heapAccountant = heapAccountant;
   }
 
   AggregationContextImpl(
@@ -56,7 +59,8 @@ final class AggregationContextImpl implements AggregationContext {
       Optional<Sort> sort,
       Optional<Sort> invertedSort,
       int partitionId,
-      boolean recordExplainNodeStats) {
+      boolean recordExplainNodeStats,
+      AggregationHeapAccountant heapAccountant) {
     this(
         indexReader,
         registry,
@@ -68,7 +72,8 @@ final class AggregationContextImpl implements AggregationContext {
         Optional.empty(),
         Optional.empty(),
         new AtomicLong(),
-        recordExplainNodeStats);
+        recordExplainNodeStats,
+        heapAccountant);
   }
 
   @Override
@@ -84,7 +89,8 @@ final class AggregationContextImpl implements AggregationContext {
         this.multiValueDocMarker,
         Optional.of(context),
         this.observedBuckets,
-        this.recordExplainNodeStats);
+        this.recordExplainNodeStats,
+        this.heapAccountant);
   }
 
   @Override
@@ -100,7 +106,13 @@ final class AggregationContextImpl implements AggregationContext {
         Optional.of(marker),
         this.leafReaderContext,
         this.observedBuckets,
-        this.recordExplainNodeStats);
+        this.recordExplainNodeStats,
+        this.heapAccountant);
+  }
+
+  @Override
+  public AggregationHeapAccountant getHeapAccountant() {
+    return this.heapAccountant;
   }
 
   @Override

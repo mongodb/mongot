@@ -8,6 +8,7 @@ import static com.xgen.mongot.index.SearchAggregationMetricsReporter.COLLECTION_
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.MAX_PATH_BUCKETS_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.NESTING_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.OBSERVED_BUCKETS_HISTOGRAM;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.OBSERVED_HEAP_BYTES_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.PARTITION_MERGE_LATENCY_TIMER;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.REQUESTED_BUCKETS_HISTOGRAM;
 import static org.junit.Assert.assertThrows;
@@ -139,6 +140,10 @@ public class SearchAggregationMetricsReporterTest {
         () -> metricsFactory.getProcessMetricsFactory().get(OBSERVED_BUCKETS_HISTOGRAM).summary());
     assertThrows(
         MeterNotFoundException.class,
+        () ->
+            metricsFactory.getProcessMetricsFactory().get(OBSERVED_HEAP_BYTES_HISTOGRAM).summary());
+    assertThrows(
+        MeterNotFoundException.class,
         () -> groupCounter(metricsFactory, FacetDefinition.Type.STRING));
     assertThrows(
         MeterNotFoundException.class,
@@ -227,6 +232,19 @@ public class SearchAggregationMetricsReporterTest {
   }
 
   @Test
+  public void recordObservedHeapBytes_recordsOneSample() {
+    PerIndexMetricsFactory metricsFactory = SearchIndex.mockMetricsFactory();
+    SearchAggregationMetricsReporter reporter =
+        new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory)
+            .getSearchAggregationMetricsReporter();
+
+    reporter.recordObservedHeapBytes(1 << 20);
+
+    assertThat(summaryMax(metricsFactory, OBSERVED_HEAP_BYTES_HISTOGRAM)).isEqualTo(1 << 20);
+    assertThat(summaryCount(metricsFactory, OBSERVED_HEAP_BYTES_HISTOGRAM)).isEqualTo(1);
+  }
+
+  @Test
   public void noop_recordMethodsDoNotThrow() {
     SearchAggregationMetricsReporter.noop().recordGroupType(FacetDefinition.Type.STRING);
     SearchAggregationMetricsReporter.noop()
@@ -234,6 +252,7 @@ public class SearchAggregationMetricsReporterTest {
     SearchAggregationMetricsReporter.noop().recordNesting(1);
     SearchAggregationMetricsReporter.noop().recordRequestedBuckets(10, 5);
     SearchAggregationMetricsReporter.noop().recordObservedBuckets(7);
+    SearchAggregationMetricsReporter.noop().recordObservedHeapBytes(1024);
   }
 
   private static long timerCount(PerIndexMetricsFactory metricsFactory, String name) {
