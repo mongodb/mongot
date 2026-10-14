@@ -214,11 +214,13 @@ public class IndexMetricsUpdaterTest {
     }
 
     @Test
-    public void getMetrics_copiesTieredStorageMetricsFromSupplier() {
+    public void getMetrics_copiesVectorliteIndexMetricsFromSupplier() {
       var supplier = IndexMetricsSupplier.mockEmptyIndexMetricsSupplier();
-      Mockito.doReturn(new TieredStorageMetrics(1, 2, 3, 4))
+      Mockito.doReturn(
+              new VectorliteIndexMetrics(
+                  new VectorliteIndexMetrics.TieredStorageMetrics(1, 2, 3, 4), 5))
           .when(supplier)
-          .getTieredStorageMetrics();
+          .getVectorliteIndexMetrics();
       IndexMetrics result = buildUpdater(supplier).getMetrics();
 
       Assert.assertEquals(1, result.indexingMetrics().coldStorageSizeBytes());
@@ -228,9 +230,9 @@ public class IndexMetricsUpdaterTest {
     }
 
     @Test
-    public void getMetrics_nullTieredStorageMetrics_defaultsToZero() {
+    public void getMetrics_nullVectorliteIndexMetrics_defaultsToZero() {
       var supplier = IndexMetricsSupplier.mockEmptyIndexMetricsSupplier();
-      Assert.assertNull(supplier.getTieredStorageMetrics());
+      Assert.assertNull(supplier.getVectorliteIndexMetrics());
       IndexMetrics result = buildUpdater(supplier).getMetrics();
 
       Assert.assertEquals(0, result.indexingMetrics().coldStorageSizeBytes());
@@ -274,7 +276,7 @@ public class IndexMetricsUpdaterTest {
 
         var result =
             mockedIndexingMetricsUpdater.getMetrics(
-                mockedIndexMetricsSupplier, 0, TieredStorageMetrics.ZERO);
+                mockedIndexMetricsSupplier, 0, VectorliteIndexMetrics.TieredStorageMetrics.ZERO);
         var expected =
             IndexMetricsBuilder.IndexingMetricsBuilder.builder()
                 .replicationOpTime(new BsonTimestamp(10L))
@@ -308,7 +310,7 @@ public class IndexMetricsUpdaterTest {
                 .getMetrics(
                     IndexMetricsSupplier.mockEmptyIndexMetricsSupplier(),
                     0,
-                    TieredStorageMetrics.ZERO)
+                    VectorliteIndexMetrics.TieredStorageMetrics.ZERO)
                 .replicationLagMs()
                 .isPresent());
         // it should also be reported to the meter registry
@@ -640,7 +642,8 @@ public class IndexMetricsUpdaterTest {
         var queryingMetricsUpdater = new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory);
         queryingMetricsUpdater.getFailedQueryCounter().increment();
 
-        var result = queryingMetricsUpdater.getMetrics(TieredStorageMetrics.ZERO);
+        var result =
+            queryingMetricsUpdater.getMetrics(VectorliteIndexMetrics.TieredStorageMetrics.ZERO);
         var expected =
             IndexMetricsBuilder.QueryingMetricsBuilder.builder().failedQueryCount(1).build();
 

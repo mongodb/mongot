@@ -223,10 +223,14 @@ public class IndexMetricsUpdater implements Closeable {
    */
   public IndexMetrics getMetrics() {
     IndexDefinition indexDefinition = getIndexDefinition();
+    // Refresh once so the getters below read a single snapshot rather than re-reading per value.
+    this.indexMetricValuesSupplier.refreshMetrics();
     // Mockito mocks of the supplier return null from this record-typed default method.
-    TieredStorageMetrics tiered =
+    VectorliteIndexMetrics engineMetrics =
         Objects.requireNonNullElse(
-            this.indexMetricValuesSupplier.getTieredStorageMetrics(), TieredStorageMetrics.ZERO);
+            this.indexMetricValuesSupplier.getVectorliteIndexMetrics(),
+            VectorliteIndexMetrics.ZERO);
+    VectorliteIndexMetrics.TieredStorageMetrics tiered = engineMetrics.tieredStorage();
     return IndexMetrics.create(
         indexDefinition,
         this.indexMetricValuesSupplier.getIndexStatus(),
@@ -482,7 +486,7 @@ public class IndexMetricsUpdater implements Closeable {
     IndexMetrics.IndexingMetrics getMetrics(
         IndexMetricValuesSupplier indexMetricValuesSupplier,
         int numNestedVectorFields,
-        TieredStorageMetrics tiered) {
+        VectorliteIndexMetrics.TieredStorageMetrics tiered) {
       DocCounts docCounts = indexMetricValuesSupplier.getDocCounts();
       return IndexMetrics.IndexingMetrics.create(
           this.documentEventTypeCounterMap,
@@ -1151,7 +1155,7 @@ public class IndexMetricsUpdater implements Closeable {
     }
 
     @VisibleForTesting
-    IndexMetrics.QueryingMetrics getMetrics(TieredStorageMetrics tiered) {
+    IndexMetrics.QueryingMetrics getMetrics(VectorliteIndexMetrics.TieredStorageMetrics tiered) {
       return IndexMetrics.QueryingMetrics.create(
           this.totalQueryCounter,
           this.failedQueryCounter,

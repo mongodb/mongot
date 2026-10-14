@@ -51,6 +51,15 @@ public interface IndexMetricValuesSupplier {
     return getCachedIndexSize();
   }
 
+  /**
+   * Refreshes cached metric values so that subsequent getters observe a single, current snapshot
+   * and any expensive native read happens at most once per call.
+   *
+   * <p>Callers should invoke this before reading several values from the same supplier. The default
+   * is a no-op for suppliers that compute their values on demand.
+   */
+  default void refreshMetrics() {}
+
   int getNumFields();
 
   /** Returns a mapping of the number of fields present in an index per {@link TypeField}. */
@@ -73,11 +82,11 @@ public interface IndexMetricValuesSupplier {
   }
 
   /**
-   * Returns the tiered storage metrics for this index.
+   * Returns the Vectorlite engine metrics for this index.
    *
-   * <p>Returns {@link TieredStorageMetrics#ZERO} for indexes without tiered storage.
+   * <p>Returns {@link VectorliteIndexMetrics#ZERO} for indexes without Vectorlite metrics.
    */
-  default TieredStorageMetrics getTieredStorageMetrics() {
-    return TieredStorageMetrics.ZERO;
+  default VectorliteIndexMetrics getVectorliteIndexMetrics() {
+    return VectorliteIndexMetrics.ZERO;
   }
 }

@@ -216,13 +216,13 @@ public record IndexMetrics(
           Field.builder("numNestedVectorFields").intField().optional().withDefault(0);
 
       private static final Field.WithDefault<Long> COLD_STORAGE_SIZE_BYTES =
-          Field.builder(TieredStorageMetrics.COLD_STORAGE_SIZE_BYTES)
+          Field.builder(VectorliteIndexMetrics.TieredStorageMetrics.COLD_STORAGE_SIZE_BYTES)
               .longField()
               .optional()
               .withDefault(0L);
 
       private static final Field.WithDefault<Long> WARM_CACHE_SIZE_BYTES =
-          Field.builder(TieredStorageMetrics.WARM_CACHE_SIZE_BYTES)
+          Field.builder(VectorliteIndexMetrics.TieredStorageMetrics.WARM_CACHE_SIZE_BYTES)
               .longField()
               .optional()
               .withDefault(0L);
@@ -245,7 +245,7 @@ public record IndexMetrics(
         Timer batchIndexingTimer,
         long requiredMemory,
         int numNestedVectorFields,
-        TieredStorageMetrics tiered) {
+        VectorliteIndexMetrics.TieredStorageMetrics tiered) {
       return new IndexingMetrics(
           getCurrentStatsFromCounters(DocumentEvent.EventType.class, documentEventTypeCounterMap),
           initialSyncExceptionCounter.count(),
@@ -376,16 +376,16 @@ public record IndexMetrics(
               .optional()
               .noDefault();
 
-      /** See {@link TieredStorageMetrics#warmQueriesCount()}. */
+      /** See {@link VectorliteIndexMetrics.TieredStorageMetrics#warmQueriesCount()}. */
       private static final Field.WithDefault<Long> WARM_QUERIES_COUNT =
-          Field.builder(TieredStorageMetrics.WARM_QUERIES_COUNT)
+          Field.builder(VectorliteIndexMetrics.TieredStorageMetrics.WARM_QUERIES_COUNT)
               .longField()
               .optional()
               .withDefault(0L);
 
-      /** See {@link TieredStorageMetrics#coldQueriesCount()}. */
+      /** See {@link VectorliteIndexMetrics.TieredStorageMetrics#coldQueriesCount()}. */
       private static final Field.WithDefault<Long> COLD_QUERIES_COUNT =
-          Field.builder(TieredStorageMetrics.COLD_QUERIES_COUNT)
+          Field.builder(VectorliteIndexMetrics.TieredStorageMetrics.COLD_QUERIES_COUNT)
               .longField()
               .optional()
               .withDefault(0L);
@@ -400,7 +400,7 @@ public record IndexMetrics(
         Timer tokenFacetsStateRefreshLatencyTimer,
         Timer stringFacetsStateRefreshLatencyTimer,
         QueryFeaturesMetrics queryFeaturesMetrics,
-        TieredStorageMetrics tiered) {
+        VectorliteIndexMetrics.TieredStorageMetrics tiered) {
 
       return new QueryingMetrics(
           totalQueryCounter.count(),
