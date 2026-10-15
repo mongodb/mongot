@@ -774,7 +774,7 @@ public class CommunityMetadataUpdaterTest {
         definition,
         status,
         Collections.emptyList(),
-        new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L),
+        new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L, 0L),
         Optional.of(detailedStatus),
         Optional.empty(),
         Collections.emptyMap());
@@ -793,7 +793,7 @@ public class CommunityMetadataUpdaterTest {
         definition,
         status,
         Collections.emptyList(),
-        new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L),
+        new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L, 0L),
         Optional.of(detailedStatus),
         Optional.empty());
   }

@@ -367,7 +367,7 @@ public class CommunityReadinessCheckerTest {
             def,
             IndexStatus.steady(),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(0L, 0L, new BsonTimestamp(0L), 0L),
+            new AggregatedIndexMetrics(0L, 0L, new BsonTimestamp(0L), 0L, 0L),
             Optional.empty(), // No main index
             Optional.empty(),
             Collections.emptyMap());
@@ -656,7 +656,7 @@ public class CommunityReadinessCheckerTest {
         definition,
         status,
         Collections.emptyList(),
-        new AggregatedIndexMetrics(0L, 0L, new BsonTimestamp(0L), 0L),
+        new AggregatedIndexMetrics(0L, 0L, new BsonTimestamp(0L), 0L, 0L),
         Optional.of(mainIndex),
         Optional.empty(),
         Collections.emptyMap());

@@ -447,7 +447,7 @@ public class AicListSearchIndexesCommandTest {
     when(this.mockServerState.list(any(BsonDocument.class))).thenReturn(List.of());
 
     // Create IndexInformation with numDocs
-    var aggregatedMetrics = new AggregatedIndexMetrics(0L, 12345L, new BsonTimestamp(0L), 0L);
+    var aggregatedMetrics = new AggregatedIndexMetrics(0L, 12345L, new BsonTimestamp(0L), 0L, 0L);
     var indexInfo =
         new IndexInformation.Search(
             (SearchIndexDefinition) indexDefinition,
@@ -488,7 +488,7 @@ public class AicListSearchIndexesCommandTest {
     // Create IndexInformation but with a different indexId so numDocs won't be found
     var differentIndexId = new ObjectId();
     var differentIndexDefinition = createIndexDefinition(differentIndexId, "different_index");
-    var aggregatedMetrics = new AggregatedIndexMetrics(0L, 99999L, new BsonTimestamp(0L), 0L);
+    var aggregatedMetrics = new AggregatedIndexMetrics(0L, 99999L, new BsonTimestamp(0L), 0L, 0L);
     var indexInfo =
         new IndexInformation.Search(
             (SearchIndexDefinition) differentIndexDefinition,

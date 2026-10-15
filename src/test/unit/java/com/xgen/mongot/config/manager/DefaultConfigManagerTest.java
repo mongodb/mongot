@@ -924,7 +924,7 @@ public class DefaultConfigManagerTest {
                 MOCK_INDEX_DEFINITION,
                 MOCK_INDEX_STATUS,
                 List.of(),
-                new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0),
+                new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0, 0L),
                 Optional.of(
                     new IndexDetailedStatus.Search(
                         MOCK_SYNONYM_DETAILED_STATUS,
@@ -932,20 +932,22 @@ public class DefaultConfigManagerTest {
                         List.of(),
                         MOCK_INDEX_STATUS,
                         MOCK_INDEX_DEFINITION_GENERATION_CURRENT.getGenerationId(),
-                        Optional.of(new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0)))),
+                        Optional.of(
+                            new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0, 0L)))),
                 Optional.empty(),
                 MOCK_SYNONYM_STATUS),
             new IndexInformation.Vector(
                 MOCK_VECTOR_DEFINITION,
                 IndexStatus.steady(),
                 List.of(),
-                new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0),
+                new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0, 0L),
                 Optional.of(
                     new IndexDetailedStatus.Vector(
                         MOCK_VECTOR_DEFINITION,
                         IndexStatus.steady(),
                         MOCK_VECTOR_INDEX_DEFINITION_GENERATION_CURRENT.getGenerationId(),
-                        Optional.of(new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0)))),
+                        Optional.of(
+                            new AggregatedIndexMetrics(0, 0, new BsonTimestamp(0), 0, 0L)))),
                 Optional.empty()));
 
     var actual = new ArrayList<>(mocks.configManager.getIndexInfos());

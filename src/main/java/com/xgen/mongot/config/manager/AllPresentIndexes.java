@@ -46,7 +46,7 @@ class AllPresentIndexes {
    * <p>Most information is taken out of the staged index (if exists), then the live one, or any of
    * the phasing out ones in this order of precedence.
    *
-   * <p>Data size is summed over all the indexes.
+   * <p>Data size and cold storage bytes are summed over all the indexes.
    */
   static AllIndexInformations allIndexInfos(ConfigState configState) {
     return new AllIndexInformations(allIndexInfosAndMetrics(configState));

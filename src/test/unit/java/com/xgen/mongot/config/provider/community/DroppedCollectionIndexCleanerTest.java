@@ -344,7 +344,7 @@ public class DroppedCollectionIndexCleanerTest {
             def,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L),
+            new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L, 0L),
             Optional.empty(),
             Optional.empty(),
             Collections.emptyMap());
@@ -499,7 +499,7 @@ public class DroppedCollectionIndexCleanerTest {
         def,
         IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND),
         Collections.emptyList(),
-        new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L),
+        new AggregatedIndexMetrics(0L, 0L, new org.bson.BsonTimestamp(0L), 0L, 0L),
         Optional.empty(),
         Optional.empty(),
         Collections.emptyMap());

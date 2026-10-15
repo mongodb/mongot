@@ -5,8 +5,18 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonTimestamp;
 
+/**
+ * Per-index metrics folded across an index's generations for the conf call. {@code dataSize} and
+ * {@code coldStorageSizeBytes} are both summed over generations, so a rebuild reports old plus new.
+ * Cold storage bytes stay on their own key, never folded into {@code dataSize}, because every
+ * reader of {@code dataSize} treats it as local disk.
+ */
 public record AggregatedIndexMetrics(
-    long dataSize, long numDocs, BsonTimestamp opTime, long requiredMemory) {
+    long dataSize,
+    long numDocs,
+    BsonTimestamp opTime,
+    long requiredMemory,
+    long coldStorageSizeBytes) {
 
   /** Constructs a new AggregatedIndexMetrics. */
   @VisibleForTesting
@@ -39,6 +49,12 @@ public record AggregatedIndexMetrics(
             .map(indexMetrics -> indexMetrics.indexingMetrics().requiredMemory().toBytes())
             .orElse(0L);
 
-    return new AggregatedIndexMetrics(dataSize, numDocs, opTime, requiredMemory);
+    long coldStorageSizeBytes =
+        metricsByDescendingPrecedence.stream()
+            .mapToLong(indexMetrics -> indexMetrics.indexingMetrics().coldStorageSizeBytes())
+            .sum();
+
+    return new AggregatedIndexMetrics(
+        dataSize, numDocs, opTime, requiredMemory, coldStorageSizeBytes);
   }
 }

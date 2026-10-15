@@ -59,14 +59,14 @@ public class IndexStatsEntryMapperTest {
             List.of(),
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Generation.CURRENT.generationId(INDEX_ID),
-            Optional.of(new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L)));
+            Optional.of(new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L, 0L)));
 
     var indexInfo =
         new IndexInformation.Search(
             searchDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L),
+            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L, 0L),
             Optional.of(mainIndexStatus),
             Optional.empty(),
             Map.of("synonym1", SynonymStatus.READY, "synonym2", SynonymStatus.INITIAL_SYNC));
@@ -127,7 +127,7 @@ public class IndexStatsEntryMapperTest {
             searchDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L),
+            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L, 0L),
             Optional.of(mainIndexStatus),
             Optional.of(stagedIndexStatus),
             Map.of("synonym1", SynonymStatus.READY));
@@ -175,7 +175,7 @@ public class IndexStatsEntryMapperTest {
             searchDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L),
+            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L, 0L),
             Optional.of(mainIndexStatus),
             Optional.empty(),
             Collections.emptyMap());
@@ -208,14 +208,14 @@ public class IndexStatsEntryMapperTest {
             vectorDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Generation.CURRENT.generationId(INDEX_ID),
-            Optional.of(new AggregatedIndexMetrics(500L, 1000L, new BsonTimestamp(2L), 100L)));
+            Optional.of(new AggregatedIndexMetrics(500L, 1000L, new BsonTimestamp(2L), 100L, 0L)));
 
     var indexInfo =
         new IndexInformation.Vector(
             vectorDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(500L, 1000L, new BsonTimestamp(2L), 100L),
+            new AggregatedIndexMetrics(500L, 1000L, new BsonTimestamp(2L), 100L, 0L),
             Optional.of(mainIndexStatus),
             Optional.empty());
 
@@ -262,7 +262,7 @@ public class IndexStatsEntryMapperTest {
             vectorDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(500L, 1000L, new BsonTimestamp(2L), 100L),
+            new AggregatedIndexMetrics(500L, 1000L, new BsonTimestamp(2L), 100L, 0L),
             Optional.of(mainIndexStatus),
             Optional.of(stagedIndexStatus));
 
@@ -297,7 +297,7 @@ public class IndexStatsEntryMapperTest {
             searchDef,
             new IndexStatus(IndexStatus.StatusCode.STEADY),
             Collections.emptyList(),
-            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L),
+            new AggregatedIndexMetrics(100L, 200L, new BsonTimestamp(1L), 50L, 0L),
             Optional.empty(), // Empty main index
             Optional.empty(),
             Collections.emptyMap());
