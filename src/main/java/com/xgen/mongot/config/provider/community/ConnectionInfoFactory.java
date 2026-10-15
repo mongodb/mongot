@@ -3,6 +3,8 @@ package com.xgen.mongot.config.provider.community;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.HostAndPort;
 import com.mongodb.ConnectionString;
+import com.mongodb.MongoCredential;
+import com.mongodb.MongoCredential.OidcCallback;
 import com.mongodb.ReadConcernLevel;
 import com.mongodb.ReadPreference;
 import com.mongodb.TaggableReadPreference;
@@ -21,9 +23,13 @@ import java.util.stream.StreamSupport;
 public class ConnectionInfoFactory {
 
   public static ConnectionInfo getClusterConnectionInfo(
-      MongoConnectionConfig config, ReadPreference readPreference) {
+      MongoConnectionConfig config,
+      ReadPreference readPreference,
+      OidcCallbackFactory oidcCallbackFactory) {
     return new ConnectionInfo(
-        getClusterConnectionString(config, readPreference), getSslContextFactory(config));
+        getClusterConnectionString(config, readPreference),
+        getSslContextFactory(config),
+        getOidcCredential(config, oidcCallbackFactory));
   }
 
   /**
@@ -31,10 +37,13 @@ public class ConnectionInfoFactory {
    * specified {@code hostAndPort}, using the authentication and TLS settings from {@code config}.
    */
   public static ConnectionInfo getSingleHostConnectionInfo(
-      MongoConnectionConfig config, HostAndPort hostAndPort) {
+      MongoConnectionConfig config,
+      HostAndPort hostAndPort,
+      OidcCallbackFactory oidcCallbackFactory) {
     return new ConnectionInfo(
         getSingleHostConnectionString(config, hostAndPort, Optional.empty()),
-        getSslContextFactory(config));
+        getSslContextFactory(config),
+        getOidcCredential(config, oidcCallbackFactory));
   }
 
   /**
@@ -46,10 +55,14 @@ public class ConnectionInfoFactory {
    * each command so that mongos can route to the correct shard members.
    */
   public static ConnectionInfo getSingleHostConnectionInfo(
-      MongoConnectionConfig config, HostAndPort hostAndPort, ReadPreference readPreference) {
+      MongoConnectionConfig config,
+      HostAndPort hostAndPort,
+      ReadPreference readPreference,
+      OidcCallbackFactory oidcCallbackFactory) {
     return new ConnectionInfo(
         getSingleHostConnectionString(config, hostAndPort, Optional.of(readPreference)),
-        getSslContextFactory(config));
+        getSslContextFactory(config),
+        getOidcCredential(config, oidcCallbackFactory));
   }
 
   private static ConnectionString getSingleHostConnectionString(
@@ -108,13 +121,15 @@ public class ConnectionInfoFactory {
 
   private static ConnectionString getConnectionString(
       MongoConnectionConfig config, ConnectionStringBuilder connectionStringBuilder) {
-
     if (config.scram().isPresent()) {
       ScramConfig scramConfig = config.scram().get();
       return buildScramConnectionString(scramConfig, connectionStringBuilder);
     }
     if (config.x509().isPresent()) {
       return buildx509ConnectionString(connectionStringBuilder);
+    }
+    if (config.oidc().isPresent()) {
+      return buildOidcConnectionString(connectionStringBuilder);
     }
     throw Check.unreachableError();
   }
@@ -152,6 +167,47 @@ public class ConnectionInfoFactory {
         .ifThrowsExceptionOrError(() -> connectionStringBuilder.build());
   }
 
+  /**
+   * Builds the connection string for an OIDC config: hosts and non-auth options, plus {@code
+   * authMechanism=MONGODB-OIDC} and {@code authSource=$external} with no {@code
+   * authMechanismProperties} — a custom (external identity provider) environment carries its
+   * credential via {@link ConnectionInfo#oidcCredential()} rather than the connection string.
+   */
+  private static ConnectionString buildOidcConnectionString(
+      ConnectionStringBuilder connectionStringBuilder) {
+    connectionStringBuilder
+        .withOption("readConcernLevel", ReadConcernLevel.MAJORITY.getValue())
+        .withOption("tls", Boolean.toString(true));
+    connectionStringBuilder.withOidcConfig(Optional.empty());
+
+    return Crash.because("failed to construct connection string")
+        .ifThrowsExceptionOrError(() -> connectionStringBuilder.build());
+  }
+
+  /**
+   * Returns the {@code MONGODB_OIDC} {@link MongoCredential} to attach to the {@link
+   * ConnectionInfo}, if one is needed. The credential wraps a driver-invoked {@code OidcCallback}
+   * built by the injected {@link OidcCallbackFactory}: the driver calls the callback whenever it
+   * needs an access token, rather than acquiring one itself. Equal configs share one callback,
+   * because the factory memoizes it.
+   *
+   * @throws IllegalStateException when an {@code oidc} block is configured but the factory is
+   *     {@link OidcCallbackFactory#unsupported()}. Unreachable in production: community rejects the
+   *     block at parse time (the field is enterprise-gated), and the enterprise entry point
+   *     supplies the real factory.
+   */
+  private static Optional<MongoCredential> getOidcCredential(
+      MongoConnectionConfig config, OidcCallbackFactory oidcCallbackFactory) {
+    return config.oidc().map(oidc -> oidcCredentialForCallback(oidcCallbackFactory.create(oidc)));
+  }
+
+  /** Wraps a driver {@link OidcCallback} into a {@code MONGODB_OIDC} {@link MongoCredential}. */
+  private static MongoCredential oidcCredentialForCallback(OidcCallback callback) {
+    return MongoCredential.createOidcCredential(null)
+        .withMechanismProperty(MongoCredential.OIDC_CALLBACK_KEY, callback);
+  }
+
+  /** Resolves the {@link SslContextFactory} for {@code config}. */
   @VisibleForTesting
   public static Optional<SslContextFactory> getSslContextFactory(MongoConnectionConfig config) {
     if (config.scram().isPresent()) {
@@ -159,6 +215,9 @@ public class ConnectionInfoFactory {
     }
     if (config.x509().isPresent()) {
       return Optional.of(getX509SslContextFactory(config.x509().get()));
+    }
+    if (config.oidc().isPresent()) {
+      return Optional.of(getOidcSslContextFactory(config.oidc().get()));
     }
     throw Check.unreachableError();
   }
@@ -206,5 +265,28 @@ public class ConnectionInfoFactory {
               tlsConfig.tlsCertificateKeyFilePasswordFile()));
     }
     return tlsConfig.caFile().map(SslContextFactory::withCaFile);
+  }
+
+  /**
+   * Builds a {@link SslContextFactory} for OIDC authentication. Config validation requires {@code
+   * tls.caFile}, so this does not re-check it. When {@code tlsCertificateKeyFile} is also
+   * configured, a client certificate is included to enable mTLS alongside OIDC.
+   *
+   * @param oidcConfig the OIDC auth configuration, including TLS settings
+   * @return a {@link SslContextFactory} trusting the configured CA file
+   */
+  private static SslContextFactory getOidcSslContextFactory(OidcConfig oidcConfig) {
+    // TODO(CLOUDP-455641): SslContextFactory has identity equality, so two ConnectionInfos built
+    // from the same TLS config are unequal. Fix it with value equality on SslContextFactory.
+    TlsConfig tlsConfig = oidcConfig.tls();
+    // Config validation requires tls.caFile (mirroring the x509 factory backstop).
+    Check.checkArg(tlsConfig.caFile().isPresent(), "caFile must be set within the oidc config");
+    if (tlsConfig.tlsCertificateKeyFile().isPresent()) {
+      return SslContextFactory.withCertKeyFile(
+          tlsConfig.caFile(),
+          tlsConfig.tlsCertificateKeyFile().get(),
+          tlsConfig.tlsCertificateKeyFilePasswordFile());
+    }
+    return SslContextFactory.withCaFile(tlsConfig.caFile().get());
   }
 }

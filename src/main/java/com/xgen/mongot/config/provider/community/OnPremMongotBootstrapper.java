@@ -137,6 +137,14 @@ public class OnPremMongotBootstrapper {
   private final DeploymentEnvironment edition;
 
   /**
+   * Builds the driver token-acquisition callback when the config carries an {@code oidc} block.
+   * Supplied by the enterprise entry point; community uses {@link
+   * OidcCallbackFactory#unsupported()} (the enterprise-gated {@code oidc} field is rejected at
+   * parse time).
+   */
+  private final OidcCallbackFactory oidcCallbackFactory;
+
+  /**
    * Creates a bootstrapper for an on-prem mongot edition.
    *
    * @param dynamicFeatureFlagRegistry the registry wired into all subsystems and installed as the
@@ -149,9 +157,23 @@ public class OnPremMongotBootstrapper {
       DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
       FeatureFlags featureFlags,
       DeploymentEnvironment edition) {
+    this(dynamicFeatureFlagRegistry, featureFlags, edition, OidcCallbackFactory.unsupported());
+  }
+
+  /**
+   * Same as {@link #OnPremMongotBootstrapper(DynamicFeatureFlagRegistry, FeatureFlags,
+   * DeploymentEnvironment)}, with the {@link OidcCallbackFactory} used when the config carries an
+   * {@code oidc} block.
+   */
+  public OnPremMongotBootstrapper(
+      DynamicFeatureFlagRegistry dynamicFeatureFlagRegistry,
+      FeatureFlags featureFlags,
+      DeploymentEnvironment edition,
+      OidcCallbackFactory oidcCallbackFactory) {
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
     this.featureFlags = featureFlags;
     this.edition = edition;
+    this.oidcCallbackFactory = oidcCallbackFactory;
   }
 
   /**
@@ -229,7 +251,8 @@ public class OnPremMongotBootstrapper {
     // InitialSyncHostProvider starts replica-set discovery when it's first instantiated. Initiate
     // it early in the bootstrap process so as a best-effort it can be ready before first use.
     var initialSyncHostProvider =
-        new InitialSyncHostProvider(config.syncSourceConfig(), meterRegistry);
+        new InitialSyncHostProvider(
+            config.syncSourceConfig(), meterRegistry, this.oidcCallbackFactory);
 
     var indexCatalog = new DefaultIndexCatalog();
     // Shared with the ConfigManager, which registers the journal entries it cannot parse.
@@ -294,7 +317,9 @@ public class OnPremMongotBootstrapper {
         ReplicationStateMonitor.diskBased(
             replicationGateConfig, initialSyncGateConfig, diskMonitor);
 
-    var syncSourceConfig = syncSourceConfig(config.syncSourceConfig(), initialSyncHostProvider);
+    var syncSourceConfig =
+        syncSourceConfig(
+            config.syncSourceConfig(), initialSyncHostProvider, this.oidcCallbackFactory);
     var mongoDbMetadataClient =
         new MongoDbMetadataClient(Optional.of(syncSourceConfig), meterRegistry);
     mongoDbMetadataClient.refreshServerInfo();
@@ -444,19 +469,21 @@ public class OnPremMongotBootstrapper {
 
   private static SyncSourceConfig syncSourceConfig(
       com.xgen.mongot.config.provider.community.SyncSourceConfig communitySyncSourceConfig,
-      InitialSyncHostProvider initialSyncHostProvider) {
+      InitialSyncHostProvider initialSyncHostProvider,
+      OidcCallbackFactory oidcCallbackFactory) {
 
     var replicaSet = communitySyncSourceConfig.replicaSet();
     var replicationReadPreference = communitySyncSourceConfig.getReplicationReaderReadPreference();
 
     var mongodClusterReplicationUri =
-        ConnectionInfoFactory.getClusterConnectionInfo(replicaSet, replicationReadPreference);
+        ConnectionInfoFactory.getClusterConnectionInfo(
+            replicaSet, replicationReadPreference, oidcCallbackFactory);
 
     // Default the read-preference to secondary-preferred. Callers should override to primary where
     // applicable.
     var mongodClusterReadWriteUri =
         ConnectionInfoFactory.getClusterConnectionInfo(
-            replicaSet, ReadPreference.secondaryPreferred());
+            replicaSet, ReadPreference.secondaryPreferred(), oidcCallbackFactory);
 
     var mongosClusterReadWriteUri =
         communitySyncSourceConfig
@@ -464,7 +491,7 @@ public class OnPremMongotBootstrapper {
             .map(
                 router ->
                     ConnectionInfoFactory.getClusterConnectionInfo(
-                        router, ReadPreference.secondaryPreferred()));
+                        router, ReadPreference.secondaryPreferred(), oidcCallbackFactory));
 
     // The InitialSyncHostProvider may not have finished replica-set discovery and is not 'ready'
     // yet. If that's the case the SyncSourceConfig will be configured with empty single host

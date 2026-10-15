@@ -29,6 +29,7 @@ java_test_suite(
         "MetricsConfigTest.java",
         "MongoConnectionConfigTest.java",
         "MongoDbReplicationConfigMapperTest.java",
+        "OidcCallbackFactoryTest.java",
         "OnPremMongotBootstrapperTest.java",
         "OtlpEndpointValidationTest.java",
         "OtlpExporterFactoryTest.java",

@@ -33,6 +33,7 @@ java_library(
         "MongoConnectionConfig.java",
         "MongoDbReplicationConfigMapper.java",
         "MongoReadPreferenceName.java",
+        "OidcCallbackFactory.java",
         "OidcConfig.java",
         "OnPremMongotBootstrapper.java",
         "OtlpExporterFactory.java",

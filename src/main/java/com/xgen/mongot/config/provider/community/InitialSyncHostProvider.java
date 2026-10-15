@@ -48,6 +48,11 @@ public class InitialSyncHostProvider implements Closeable {
   private final MongoConnectionConfig replicaSetConfig;
   private final Optional<RouterConfig> routerConfig;
 
+  // Builds the driver token-acquisition callback when an oidc block is configured. Always the
+  // unsupported default in community: the enterprise-gated oidc field is rejected at parse time
+  // before this provider runs.
+  private final OidcCallbackFactory oidcCallbackFactory;
+
   // Long-lived SDAM clients that continuously heartbeat to mongod/mongos.
   private final MongoClient mongodClient;
   private final Optional<MongoClient> mongosClient;
@@ -67,21 +72,34 @@ public class InitialSyncHostProvider implements Closeable {
    */
   public InitialSyncHostProvider(
       SyncSourceConfig communitySyncSourceConfig, MeterRegistry meterRegistry) {
+    this(communitySyncSourceConfig, meterRegistry, OidcCallbackFactory.unsupported());
+  }
+
+  /**
+   * Same as {@link #InitialSyncHostProvider(SyncSourceConfig, MeterRegistry)}, with the {@link
+   * OidcCallbackFactory} used to build token-acquisition callbacks when the config carries an
+   * {@code oidc} block.
+   */
+  public InitialSyncHostProvider(
+      SyncSourceConfig communitySyncSourceConfig,
+      MeterRegistry meterRegistry,
+      OidcCallbackFactory oidcCallbackFactory) {
     this.replicaSetConfig = communitySyncSourceConfig.replicaSet();
     this.routerConfig = communitySyncSourceConfig.router();
     this.replicationReadPreference = communitySyncSourceConfig.getReplicationReaderReadPreference();
+    this.oidcCallbackFactory = oidcCallbackFactory;
 
     this.mongodClient =
         createSdamClient(
             ConnectionInfoFactory.getClusterConnectionInfo(
-                this.replicaSetConfig, this.replicationReadPreference),
+                this.replicaSetConfig, this.replicationReadPreference, this.oidcCallbackFactory),
             meterRegistry);
     this.mongosClient =
         this.routerConfig.map(
             router ->
                 createSdamClient(
                     ConnectionInfoFactory.getClusterConnectionInfo(
-                        router, this.replicationReadPreference),
+                        router, this.replicationReadPreference, this.oidcCallbackFactory),
                     meterRegistry));
 
     startDiscovery(meterRegistry);
@@ -93,9 +111,20 @@ public class InitialSyncHostProvider implements Closeable {
       MongoClient mongodClient,
       Optional<MongoClient> mongosClient,
       boolean ready) {
+    this(config, mongodClient, mongosClient, ready, OidcCallbackFactory.unsupported());
+  }
+
+  @VisibleForTesting
+  InitialSyncHostProvider(
+      SyncSourceConfig config,
+      MongoClient mongodClient,
+      Optional<MongoClient> mongosClient,
+      boolean ready,
+      OidcCallbackFactory oidcCallbackFactory) {
     this.replicaSetConfig = config.replicaSet();
     this.routerConfig = config.router();
     this.replicationReadPreference = config.getReplicationReaderReadPreference();
+    this.oidcCallbackFactory = oidcCallbackFactory;
     this.mongodClient = mongodClient;
     this.mongosClient = mongosClient;
     this.isReady.set(ready);
@@ -201,8 +230,9 @@ public class InitialSyncHostProvider implements Closeable {
     return Optional.of(
         uriReadPref.isPresent()
             ? ConnectionInfoFactory.getSingleHostConnectionInfo(
-                config, hostAndPort, uriReadPref.get())
-            : ConnectionInfoFactory.getSingleHostConnectionInfo(config, hostAndPort));
+                config, hostAndPort, uriReadPref.get(), this.oidcCallbackFactory)
+            : ConnectionInfoFactory.getSingleHostConnectionInfo(
+                config, hostAndPort, this.oidcCallbackFactory));
   }
 
   private boolean isHostStillValid(

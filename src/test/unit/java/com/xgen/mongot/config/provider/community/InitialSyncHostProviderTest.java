@@ -5,6 +5,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.common.net.HostAndPort;
+import com.mongodb.AuthenticationMechanism;
+import com.mongodb.MongoCredential.OidcCallbackResult;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.connection.ClusterConnectionMode;
@@ -16,15 +18,31 @@ import com.mongodb.connection.ServerType;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,6 +61,7 @@ public class InitialSyncHostProviderTest {
   @Mock private MongoClient mongosClient;
 
   private Path passwordFile;
+  private Path oidcCaFile;
   private ReplicaSetConfig replicaSetConfig;
   private RouterConfig routerConfig;
 
@@ -89,6 +108,9 @@ public class InitialSyncHostProviderTest {
   @After
   public void tearDown() throws IOException {
     Files.deleteIfExists(this.passwordFile);
+    if (this.oidcCaFile != null) {
+      Files.deleteIfExists(this.oidcCaFile);
+    }
   }
 
   private SyncSourceConfig nonShardedConfig() {
@@ -230,6 +252,56 @@ public class InitialSyncHostProviderTest {
           .ifPresent(ci -> selectedHosts.addAll(ci.uri().getHosts()));
     }
     assertThat(selectedHosts).containsExactly("rs2.local:27018");
+  }
+
+  @Test
+  public void getMongodInitialSyncConnection_oidc_carriesCallbackCredential() throws Exception {
+    // The SSL context is built eagerly from the CA file, so it must contain a real PEM cert.
+    this.oidcCaFile = generateCaPemFile();
+    TlsConfig oidcTls =
+        new TlsConfig(true, Optional.empty(), Optional.empty(), Optional.of(this.oidcCaFile));
+    CustomOidcConfig oidcConfig =
+        new CustomOidcConfig(
+            URI.create("https://idp.example.com/token"),
+            "mongot",
+            Path.of("/etc/mongot/secrets/oidc-client-secret"),
+            Path.of("/etc/mongot/tls/idp-ca.pem"),
+            Optional.empty(),
+            oidcTls);
+    ReplicaSetConfig oidcReplicaSetConfig =
+        new ReplicaSetConfig(
+            List.of(
+                HostAndPort.fromParts("rs1.local", 27017),
+                HostAndPort.fromParts("rs2.local", 27018)),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(oidcConfig));
+
+    AtomicInteger builds = new AtomicInteger();
+    OidcCallbackFactory factory =
+        new OidcCallbackFactory(
+            oidc -> {
+              builds.incrementAndGet();
+              return context -> new OidcCallbackResult("token");
+            });
+    when(this.mongodClient.getClusterDescription())
+        .thenReturn(replicaSetCluster(List.of(RS_HOST_1)));
+    var provider =
+        new InitialSyncHostProvider(
+            new SyncSourceConfig(oidcReplicaSetConfig, Optional.empty(), Optional.empty()),
+            this.mongodClient,
+            Optional.empty(),
+            true,
+            factory);
+
+    Optional<ConnectionInfo> result = provider.getMongodInitialSyncConnection();
+
+    assertThat(result).isPresent();
+    assertThat(result.get().oidcCredential()).isPresent();
+    assertThat(result.get().oidcCredential().get().getAuthenticationMechanism())
+        .isEqualTo(AuthenticationMechanism.MONGODB_OIDC);
+    assertThat(builds.get()).isEqualTo(1);
   }
 
   // ---- getMongosInitialSyncConnection ----
@@ -452,5 +524,37 @@ public class InitialSyncHostProviderTest {
                 .state(ServerConnectionState.CONNECTING)
                 .ok(false)
                 .build()));
+  }
+
+  private static Path generateCaPemFile() throws Exception {
+    KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+    kpg.initialize(2048, new SecureRandom());
+    KeyPair caKeyPair = kpg.generateKeyPair();
+
+    X500Name name = new X500Name("CN=Initial Sync Test CA");
+    Instant now = Instant.now();
+    JcaX509v3CertificateBuilder builder =
+        new JcaX509v3CertificateBuilder(
+            name,
+            BigInteger.valueOf(1),
+            Date.from(now),
+            Date.from(now.plus(365, ChronoUnit.DAYS)),
+            name,
+            caKeyPair.getPublic());
+    ContentSigner signer =
+        new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+    X509Certificate caCert =
+        new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+
+    Path caFile = Files.createTempFile("initial-sync-test-ca", ".pem");
+    Files.writeString(caFile, toPemCert(caCert));
+    return caFile;
+  }
+
+  private static String toPemCert(X509Certificate cert) throws Exception {
+    byte[] encoded = cert.getEncoded();
+    String b64 =
+        Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.UTF_8)).encodeToString(encoded);
+    return "-----BEGIN CERTIFICATE-----\n" + b64 + "\n-----END CERTIFICATE-----\n";
   }
 }
