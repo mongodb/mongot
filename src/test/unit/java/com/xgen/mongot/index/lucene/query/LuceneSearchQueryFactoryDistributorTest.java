@@ -88,6 +88,7 @@ import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
@@ -121,6 +122,7 @@ import org.apache.lucene.search.Weight;
 import org.apache.lucene.search.WildcardQuery;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.search.join.ScoreMode;
+import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.BytesRef;
@@ -1544,8 +1546,7 @@ public class LuceneSearchQueryFactoryDistributorTest {
       assertThat(exception)
           .hasMessageThat()
           .contains(
-              "field 'variants.description' is not indexed as number, date, or token under scope"
-                  + " 'variants'");
+              "field 'variants.description' is not indexed as sortable under scope 'variants'");
     }
   }
 
@@ -1572,19 +1573,37 @@ public class LuceneSearchQueryFactoryDistributorTest {
   }
 
   @Test
-  public void createSort_doubleAndToken_rejected() {
-    var exception =
-        Assert.assertThrows(
-            InvalidQueryException.class,
-            () ->
-                createScopedSort(
-                    scopedMapping(FieldName.TypeField.NUMBER_DOUBLE_V2, FieldName.TypeField.TOKEN),
-                    true,
-                    Representation.DOUBLE,
-                    Optional.empty(),
-                    false));
+  public void createSort_singleTypeSchemaWithForeignIndexedType_rejected() throws Exception {
+    FieldPath path = FieldPath.parse("variants.price");
+    FieldPath scope = FieldPath.parse("variants");
+    // Normal indexing drops undeclared types. Build an inconsistent reader directly to exercise
+    // the defensive check against the helper's number-only int64 schema.
+    Document child = new Document();
+    child.add(
+        new SortedNumericDocValuesField(
+            FieldName.TypeField.NUMBER_INT64_V2.getLuceneFieldName(path, Optional.of(scope)), 5));
+    child.add(
+        new SortedSetDocValuesField(
+            FieldName.TypeField.TOKEN.getLuceneFieldName(path, Optional.of(scope)),
+            new BytesRef("z")));
+    try (Directory index = new ByteBuffersDirectory();
+        IndexWriter indexWriter = new IndexWriter(index, new IndexWriterConfig())) {
+      indexWriter.addDocument(child);
+      try (IndexReader reader = DirectoryReader.open(indexWriter)) {
+        var mapping = FieldToSortableTypesMapping.create(reader);
 
-    assertThat(exception).hasMessageThat().contains("mixed sortable types");
+        var exception =
+            Assert.assertThrows(InvalidQueryException.class, () -> createScopedSort(mapping, true));
+
+        assertThat(mapping.getFieldToSortableTypes(Optional.of(scope)).get(path))
+            .containsExactly(FieldName.TypeField.NUMBER_INT64_V2, FieldName.TypeField.TOKEN);
+        assertThat(exception)
+            .hasMessageThat()
+            .contains(
+                "embeddedDocument-scoped sort does not support mixed sortable types"
+                    + " for field 'variants.price' under scope 'variants'");
+      }
+    }
   }
 
   @Test

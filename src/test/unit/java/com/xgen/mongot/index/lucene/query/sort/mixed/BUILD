@@ -10,6 +10,7 @@ java_test_suite(
         "MixedNumericLeafComparatorTest.java",
         "MixedOrdinalLeafComparatorTest.java",
         "MqlMixedSortTest.java",
+        "ScopedMqlMixedSortTest.java",
     ],
     tags = ["unit"],
     deps = [
@@ -25,6 +26,7 @@ java_test_suite(
         "@maven//:junit_junit",
         "@maven//:org_apache_commons_commons_lang3",
         "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_apache_lucene_lucene_join",
         "@maven//:org_apache_lucene_lucene_test_framework",
         "@maven//:org_mockito_mockito_core",
         "@maven//:org_mongodb_bson",

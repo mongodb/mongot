@@ -22,6 +22,7 @@ import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDoubleSort;
 import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedLongSort;
 import com.xgen.mongot.index.lucene.query.sort.LuceneSortFactory;
 import com.xgen.mongot.index.lucene.query.sort.MqlSortedSetSortField;
+import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
@@ -472,7 +473,7 @@ public class LuceneSearchQueryFactoryDistributor {
    * scope operator is recovered from the raw {@code embeddedDocument} carried on the sort option
    * (kept unparsed so it survives serialization; see CLOUDP-441316), compiled to a child query, and
    * combined with the root parent bitset. Scoped sort is gated behind {@code
-   * ENABLE_EMBEDDED_SCOPED_SORT} and supports numeric (int64/double), date, and token fields.
+   * ENABLE_EMBEDDED_SCOPED_SORT} and supports the mixed engine's sortable BSON types.
    */
   private Map<FieldPath, SortField> buildScopedSortOverrides(
       SortSpec sortSpec,
@@ -507,34 +508,68 @@ public class LuceneSearchQueryFactoryDistributor {
           this.queryFactoryContext.getDateFieldDefinition(field.field(), Optional.of(scopePath));
       var tokenDefinition =
           this.queryFactoryContext.getTokenFieldDefinition(field.field(), Optional.of(scopePath));
+      var booleanDefinition =
+          this.queryFactoryContext.getBooleanFieldDefinition(field.field(), Optional.of(scopePath));
+      var uuidDefinition =
+          this.queryFactoryContext.getUuidFieldDefinition(field.field(), Optional.of(scopePath));
+      var objectIdDefinition =
+          this.queryFactoryContext.getObjectIdFieldDefinition(
+              field.field(), Optional.of(scopePath));
+      // A field declared as more than one sortable type sorts by MongoDB's cross-type bracket
+      // order, via the mixed engine. Single number/date/token fields keep specialized engines.
+      int declaredTypes =
+          (numericDefinition.isPresent() ? 1 : 0)
+              + (dateDefinition.isPresent() ? 1 : 0)
+              + (tokenDefinition.isPresent() ? 1 : 0)
+              + (booleanDefinition.isPresent() ? 1 : 0)
+              + (uuidDefinition.isPresent() ? 1 : 0)
+              + (objectIdDefinition.isPresent() ? 1 : 0);
       InvalidQueryException.validate(
-          numericDefinition.isPresent()
-              || dateDefinition.isPresent()
-              || tokenDefinition.isPresent(),
-          "embeddedDocument-scoped sort currently supports number, date, and token (string) fields;"
-              + " field '%s' is not indexed as number, date, or token under scope '%s'",
+          declaredTypes > 0,
+          "embeddedDocument-scoped sort supports number, date, token, boolean, uuid, and objectId;"
+              + " field '%s' is not indexed as sortable under scope '%s'",
           field.field(),
           scopePath);
-      FieldName.TypeField sortType;
-      if (numericDefinition.isPresent()) {
+      // Types without a specialized scoped engine also use the mixed comparator on their own.
+      boolean multiType = declaredTypes > 1;
+      boolean useMixed =
+          multiType
+              || booleanDefinition.isPresent()
+              || uuidDefinition.isPresent()
+              || objectIdDefinition.isPresent();
+      Optional<FieldName.TypeField> sortType;
+      if (multiType) {
+        sortType = Optional.empty();
+      } else if (numericDefinition.isPresent()) {
         sortType =
-            switch (numericDefinition.orElseThrow().options().representation()) {
-              case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
-              case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
-            };
+            Optional.of(
+                switch (numericDefinition.orElseThrow().options().representation()) {
+                  case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
+                  case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
+                });
       } else if (dateDefinition.isPresent()) {
-        sortType = FieldName.TypeField.DATE_V2;
+        sortType = Optional.of(FieldName.TypeField.DATE_V2);
+      } else if (tokenDefinition.isPresent()) {
+        sortType = Optional.of(FieldName.TypeField.TOKEN);
+      } else if (booleanDefinition.isPresent()) {
+        sortType = Optional.of(FieldName.TypeField.BOOLEAN);
+      } else if (uuidDefinition.isPresent()) {
+        sortType = Optional.of(FieldName.TypeField.UUID);
       } else {
-        sortType = FieldName.TypeField.TOKEN;
+        sortType = Optional.of(FieldName.TypeField.OBJECT_ID);
       }
       ImmutableSet<FieldName.TypeField> types =
           fieldsToSortableTypesMapping
               .getFieldToSortableTypes(Optional.of(scopePath))
               .get(field.field());
-      // FieldInfos may be empty on a shard with no values. The schema still determines its
-      // comparator. Nulls are missing values; every other representation is unsupported.
+      // FieldInfos may be empty on a shard with no values. The schema still determines the
+      // comparator. Nulls are missing values. A single-type field must not have indexed values of
+      // some other type; a multi-type field is handled by the mixed engine's bracket ordering.
       InvalidQueryException.validate(
-          types.stream().allMatch(type -> type == sortType || type == FieldName.TypeField.NULL),
+          multiType
+              || types.stream()
+                  .allMatch(
+                      type -> type == sortType.orElseThrow() || type == FieldName.TypeField.NULL),
           "embeddedDocument-scoped sort does not support mixed sortable types"
               + " for field '%s' under scope '%s': %s",
           field.field(),
@@ -550,16 +585,23 @@ public class LuceneSearchQueryFactoryDistributor {
       Query childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
       BitSetProducer childFilter = new QueryBitSetProducer(childQuery);
       BitSetProducer parentFilter = rootParentBitSetProducer();
-      SortField scopedSort =
-          switch (sortType) {
-            case NUMBER_INT64_V2 ->
-                new EmbeddedScopedLongSort(field, scopePath, parentFilter, childFilter);
-            case NUMBER_DOUBLE_V2 ->
-                new EmbeddedScopedDoubleSort(field, scopePath, parentFilter, childFilter);
-            case DATE_V2 -> new EmbeddedScopedDateSort(field, scopePath, parentFilter, childFilter);
-            default ->
-                MqlSortedSetSortField.scopedTokenSort(field, scopePath, parentFilter, childFilter);
-          };
+      SortField scopedSort;
+      if (useMixed) {
+        scopedSort = MqlMixedSort.scoped(field, scopePath, parentFilter, childFilter);
+      } else {
+        scopedSort =
+            switch (sortType.orElseThrow()) {
+              case NUMBER_INT64_V2 ->
+                  new EmbeddedScopedLongSort(field, scopePath, parentFilter, childFilter);
+              case NUMBER_DOUBLE_V2 ->
+                  new EmbeddedScopedDoubleSort(field, scopePath, parentFilter, childFilter);
+              case DATE_V2 ->
+                  new EmbeddedScopedDateSort(field, scopePath, parentFilter, childFilter);
+              default ->
+                  MqlSortedSetSortField.scopedTokenSort(
+                      field, scopePath, parentFilter, childFilter);
+            };
+      }
       overrides.put(field.field(), scopedSort);
     }
     return overrides;
