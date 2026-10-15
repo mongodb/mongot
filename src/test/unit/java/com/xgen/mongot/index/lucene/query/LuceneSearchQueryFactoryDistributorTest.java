@@ -1496,12 +1496,57 @@ public class LuceneSearchQueryFactoryDistributorTest {
   }
 
   @Test
-  public void createSort_scopedSortNonNumeric_rejected() {
+  public void createSort_scopedSortUnsupportedType_rejected() {
+    // Flag on, but objectId is not a supported scoped-sort type (number/date/token only).
     var exception =
         Assert.assertThrows(
             InvalidQueryException.class,
-            () -> createScopedSort(scopedMapping(FieldName.TypeField.TOKEN), true));
-    assertThat(exception).hasMessageThat().contains("mixed or non-numeric sortable types");
+            () -> createScopedSort(scopedMapping(FieldName.TypeField.OBJECT_ID), true));
+    assertThat(exception).hasMessageThat().contains("mixed sortable types");
+  }
+
+  @Test
+  public void createSort_scopedAnalyzedStringWithoutSortableMapping_rejected() throws Exception {
+    var factory = scopedSortTestFactory(Representation.INT64);
+    var scope =
+        new EmbeddedSortScope(
+            FieldPath.parse("variants"),
+            BsonDocument.parse("{\"exists\": {\"path\": \"variants.description\"}}"));
+    SortSpec sortSpec =
+        SortSpecBuilder.builder()
+            .sortField(
+                SortFieldBuilder.builder()
+                    .path("variants.description")
+                    .sortOption(
+                        new UserFieldSortOptions(
+                            SortOrder.ASC,
+                            SortSelector.MIN,
+                            NullEmptySortPosition.LOWEST,
+                            Optional.of(scope)))
+                    .build())
+            .buildSort();
+    try (IndexReader reader = new MultiReader()) {
+      var exception =
+          Assert.assertThrows(
+              InvalidQueryException.class,
+              () ->
+                  factory.createSort(
+                      Optional.of(sortSpec),
+                      Optional.empty(),
+                      scopedMapping(),
+                      Optional.empty(),
+                      DEFAULT_OPTIONS,
+                      Optional.empty(),
+                      false,
+                      reader,
+                      true));
+
+      assertThat(exception)
+          .hasMessageThat()
+          .contains(
+              "field 'variants.description' is not indexed as number, date, or token under scope"
+                  + " 'variants'");
+    }
   }
 
   @Test
@@ -1539,7 +1584,7 @@ public class LuceneSearchQueryFactoryDistributorTest {
                     Optional.empty(),
                     false));
 
-    assertThat(exception).hasMessageThat().contains("mixed or non-numeric sortable types");
+    assertThat(exception).hasMessageThat().contains("mixed sortable types");
   }
 
   @Test
@@ -1553,7 +1598,7 @@ public class LuceneSearchQueryFactoryDistributorTest {
                         FieldName.TypeField.NUMBER_INT64_V2, FieldName.TypeField.NUMBER_DOUBLE_V2),
                     true));
 
-    assertThat(exception).hasMessageThat().contains("mixed or non-numeric sortable types");
+    assertThat(exception).hasMessageThat().contains("mixed sortable types");
   }
 
   @Test
@@ -1745,6 +1790,11 @@ public class LuceneSearchQueryFactoryDistributorTest {
                             .embeddedDocuments(
                                 EmbeddedDocumentsFieldDefinitionBuilder.builder()
                                     .dynamic(true)
+                                    .field(
+                                        "description",
+                                        FieldDefinitionBuilder.builder()
+                                            .string(StringFieldDefinitionBuilder.builder().build())
+                                            .build())
                                     .field(
                                         "children",
                                         FieldDefinitionBuilder.builder()

@@ -29,7 +29,7 @@ public class MqlDateSort extends MqlSortedNumericSortField {
       };
 
   private final boolean enablePruning;
-  private final NullEmptySortPosition nullEmptySortPosition;
+  protected final NullEmptySortPosition nullEmptySortPosition;
 
   MqlDateSort(
       FieldName.TypeField fieldType,
@@ -57,15 +57,23 @@ public class MqlDateSort extends MqlSortedNumericSortField {
     Pruning configurePruning = this.enablePruning ? lucenePruning : Pruning.NONE;
 
     return new FieldComparatorBsonWrapper<>(
-        new MqlLongComparator(
-            numHits,
-            getField(),
-            getReverse(),
-            configurePruning,
-            getNumericType(),
-            getSelector(),
-            this.nullEmptySortPosition),
+        createComparator(numHits, configurePruning),
         DATE_CONVERTER,
         this.nullEmptySortPosition.getNullMissingSortValue());
+  }
+
+  /**
+   * Builds the underlying long comparator over the encoded dates. Overridden by the
+   * embeddedDoc-scoped variant to reduce over a parent's matching children.
+   */
+  protected MqlLongComparator createComparator(int numHits, Pruning pruning) {
+    return new MqlLongComparator(
+        numHits,
+        getField(),
+        getReverse(),
+        pruning,
+        getNumericType(),
+        getSelector(),
+        this.nullEmptySortPosition);
   }
 }

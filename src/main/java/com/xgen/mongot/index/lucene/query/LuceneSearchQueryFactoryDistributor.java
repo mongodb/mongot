@@ -17,9 +17,11 @@ import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
 import com.xgen.mongot.index.lucene.query.custom.WrappedQuery;
+import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDateSort;
 import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDoubleSort;
 import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedLongSort;
 import com.xgen.mongot.index.lucene.query.sort.LuceneSortFactory;
+import com.xgen.mongot.index.lucene.query.sort.MqlSortedSetSortField;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
@@ -470,7 +472,7 @@ public class LuceneSearchQueryFactoryDistributor {
    * scope operator is recovered from the raw {@code embeddedDocument} carried on the sort option
    * (kept unparsed so it survives serialization; see CLOUDP-441316), compiled to a child query, and
    * combined with the root parent bitset. Scoped sort is gated behind {@code
-   * ENABLE_EMBEDDED_SCOPED_SORT} and currently supports numeric (int64/double) fields.
+   * ENABLE_EMBEDDED_SCOPED_SORT} and supports numeric (int64/double), date, and token fields.
    */
   private Map<FieldPath, SortField> buildScopedSortOverrides(
       SortSpec sortSpec,
@@ -501,26 +503,39 @@ public class LuceneSearchQueryFactoryDistributor {
           "embeddedDocument-scoped numeric sort requires index feature version 4 or later");
       var numericDefinition =
           this.queryFactoryContext.getNumericFieldDefinition(field.field(), Optional.of(scopePath));
+      var dateDefinition =
+          this.queryFactoryContext.getDateFieldDefinition(field.field(), Optional.of(scopePath));
+      var tokenDefinition =
+          this.queryFactoryContext.getTokenFieldDefinition(field.field(), Optional.of(scopePath));
       InvalidQueryException.validate(
-          numericDefinition.isPresent(),
-          "embeddedDocument-scoped sort currently supports only numeric (int64/double) fields;"
-              + " field '%s' is not indexed as numeric under scope '%s'",
+          numericDefinition.isPresent()
+              || dateDefinition.isPresent()
+              || tokenDefinition.isPresent(),
+          "embeddedDocument-scoped sort currently supports number, date, and token (string) fields;"
+              + " field '%s' is not indexed as number, date, or token under scope '%s'",
           field.field(),
           scopePath);
-      FieldName.TypeField numericType =
-          switch (numericDefinition.orElseThrow().options().representation()) {
-            case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
-            case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
-          };
+      FieldName.TypeField sortType;
+      if (numericDefinition.isPresent()) {
+        sortType =
+            switch (numericDefinition.orElseThrow().options().representation()) {
+              case INT64 -> FieldName.TypeField.NUMBER_INT64_V2;
+              case DOUBLE -> FieldName.TypeField.NUMBER_DOUBLE_V2;
+            };
+      } else if (dateDefinition.isPresent()) {
+        sortType = FieldName.TypeField.DATE_V2;
+      } else {
+        sortType = FieldName.TypeField.TOKEN;
+      }
       ImmutableSet<FieldName.TypeField> types =
           fieldsToSortableTypesMapping
               .getFieldToSortableTypes(Optional.of(scopePath))
               .get(field.field());
       // FieldInfos may be empty on a shard with no values. The schema still determines its
-      // comparator. Nulls are missing numeric values; every other representation is unsupported.
+      // comparator. Nulls are missing values; every other representation is unsupported.
       InvalidQueryException.validate(
-          types.stream().allMatch(type -> type == numericType || type == FieldName.TypeField.NULL),
-          "embeddedDocument-scoped sort does not support mixed or non-numeric sortable types"
+          types.stream().allMatch(type -> type == sortType || type == FieldName.TypeField.NULL),
+          "embeddedDocument-scoped sort does not support mixed sortable types"
               + " for field '%s' under scope '%s': %s",
           field.field(),
           scopePath,
@@ -534,12 +549,17 @@ public class LuceneSearchQueryFactoryDistributor {
       EmbeddedDocumentScope scope = parseSortScope(field.field(), sortScope.toBson());
       Query childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
       BitSetProducer childFilter = new QueryBitSetProducer(childQuery);
+      BitSetProducer parentFilter = rootParentBitSetProducer();
       SortField scopedSort =
-          numericType == FieldName.TypeField.NUMBER_INT64_V2
-              ? new EmbeddedScopedLongSort(
-                  field, scopePath, rootParentBitSetProducer(), childFilter)
-              : new EmbeddedScopedDoubleSort(
-                  field, scopePath, rootParentBitSetProducer(), childFilter);
+          switch (sortType) {
+            case NUMBER_INT64_V2 ->
+                new EmbeddedScopedLongSort(field, scopePath, parentFilter, childFilter);
+            case NUMBER_DOUBLE_V2 ->
+                new EmbeddedScopedDoubleSort(field, scopePath, parentFilter, childFilter);
+            case DATE_V2 -> new EmbeddedScopedDateSort(field, scopePath, parentFilter, childFilter);
+            default ->
+                MqlSortedSetSortField.scopedTokenSort(field, scopePath, parentFilter, childFilter);
+          };
       overrides.put(field.field(), scopedSort);
     }
     return overrides;

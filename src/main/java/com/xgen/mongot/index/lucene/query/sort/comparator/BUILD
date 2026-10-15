@@ -4,6 +4,7 @@ java_library(
     name = "comparator",
     srcs = [
         "BlockJoinReducedNumericDocValues.java",
+        "BlockJoinReducedSortedDocValues.java",
         "BsonConverter.java",
         "DoubleFieldConverter.java",
         "EmbeddedScopedLongComparator.java",
