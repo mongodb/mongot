@@ -170,6 +170,8 @@ public enum DynamicFeatureFlags {
   AUTO_EMBEDDING_MATERIALIZE_VECTOR_SEARCH(
       "mongot.featureFlag.autoEmbeddingMaterializeVectorSearch", false),
   ENABLE_OTEL_TRACING("mongot.featureFlag.enableOTELTracing", false),
+  /** Allows one Envoy peer retry for catalog-backed index unavailability. Off by default. */
+  INDEX_UNAVAILABLE_RETRY("mongot.featureFlag.enableIndexUnavailableRetry", false),
   /**
    * When enabled, {@link com.xgen.mongot.server.executors.BulkheadCommandExecutor} deliberately
    * crashes the process if it observes {@code OutOfMemoryError: unable to create native thread}

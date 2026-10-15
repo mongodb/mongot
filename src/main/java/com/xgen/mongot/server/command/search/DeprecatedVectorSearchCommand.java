@@ -2,6 +2,7 @@ package com.xgen.mongot.server.command.search;
 
 import static com.xgen.mongot.index.definition.IndexDefinitionGeneration.Type;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
@@ -14,6 +15,7 @@ import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.cursor.serialization.MongotCursorBatch;
 import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.featureflag.Feature;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
@@ -40,6 +42,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +55,7 @@ import org.slf4j.LoggerFactory;
  */
 public class DeprecatedVectorSearchCommand implements Command {
 
+  private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
   private static final Logger LOG = LoggerFactory.getLogger(DeprecatedVectorSearchCommand.class);
 
   private final VectorSearchCommandDefinition definition;
@@ -117,6 +122,7 @@ public class DeprecatedVectorSearchCommand implements Command {
         // VectorSearchCommand because a miss never reaches the delegation below.
         this.quarantinedIndexLookup.throwIfQuarantined(
             this.definition.db(), this.definition.collectionUuid(), query.index());
+        this.vectorCommandFactory.recordNonexistentIndex();
       }
 
       Optional<InitializedIndex> initializedIndex =
@@ -174,11 +180,25 @@ public class DeprecatedVectorSearchCommand implements Command {
           return batch;
         }
       }
-    } catch (InvalidQueryException | IndexUnavailableException | BsonParseException e) {
+    } catch (IndexUnavailableException e) {
+      if (this.searchEnvoyMetadata.isPresent()
+          && this.metadata
+              .dynamicFeatureFlagRegistry()
+              .evaluateClusterInvariant(DynamicFeatureFlags.INDEX_UNAVAILABLE_RETRY)) {
+        throw new CompletionException(e);
+      }
+      return MessageUtils.createErrorBody(e);
+    } catch (CompletionException e) {
+      if (e.getCause() instanceof IndexUnavailableException) {
+        throw e;
+      }
+      FLOGGER.atSevere().atMostEvery(1, TimeUnit.MINUTES).withCause(e).log("Unexpected error");
+      return MessageUtils.createErrorBody(e);
+    } catch (InvalidQueryException | BsonParseException e) {
       return MessageUtils.createErrorBody(e);
     } catch (Exception e) {
       // we didn't expect this error, so we will log the entire stack trace for diagnostics
-      LOG.error("Unexpected error", e);
+      FLOGGER.atSevere().atMostEvery(1, TimeUnit.MINUTES).withCause(e).log("Unexpected error");
       return MessageUtils.createErrorBody(e);
     }
   }

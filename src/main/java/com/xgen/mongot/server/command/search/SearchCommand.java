@@ -69,6 +69,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonDocument;
 import org.bson.BsonValue;
@@ -242,6 +243,15 @@ public class SearchCommand implements Command {
 
       boolean isUserFacing = UserFacingException.isUserFacing(e);
       this.metrics.recordInternalFailure(e);
+
+      if (e instanceof IndexUnavailableException
+          && this.searchEnvoyMetadata.isPresent()
+          && this.metadata
+              .dynamicFeatureFlagRegistry()
+              .evaluateClusterInvariant(DynamicFeatureFlags.INDEX_UNAVAILABLE_RETRY)) {
+        // Preserve the failure for gRPC to choose a peer retry or the final BSON error.
+        throw new CompletionException(e);
+      }
 
       if (!isUserFacing) {
         // Mongot internal processing error should be rare, log with a low limit. We still need a
@@ -544,6 +554,7 @@ public class SearchCommand implements Command {
         // as nonexistent would hide why it is unavailable.
         this.quarantinedIndexLookup.throwIfQuarantined(
             this.definition.db(), this.definition.collectionUuid(), query.index());
+        this.metrics.nonexistentIndexQueries.increment();
         return Optional.empty();
       }
       var index = indexGeneration.get();
@@ -678,8 +689,7 @@ public class SearchCommand implements Command {
     // Tracks instances where a RuntimeException wrapping an InvalidQueryException was caught and
     // unwrapped.
     private final Counter searchCommandUnwrappedExceptions;
-    // A query that is valid, but mongot internally hit an error when processing/executing this
-    // query.
+    private final Counter nonexistentIndexQueries;
     private final Counter queriesAgainstView;
     private final Counter queriesAgainstViewSourceCollection;
 
@@ -689,6 +699,7 @@ public class SearchCommand implements Command {
       this.searchCommandInvalidQueries = metricsFactory.counter("searchCommandInvalidQueries");
       this.searchCommandUnwrappedExceptions =
           metricsFactory.counter("searchCommandWrappedInvalidQueryException");
+      this.nonexistentIndexQueries = metricsFactory.counter("searchCommandNonexistentIndex");
       this.queriesAgainstView = metricsFactory.counter("queriesAgainstView");
       this.queriesAgainstViewSourceCollection =
           metricsFactory.counter("queriesAgainstViewSourceCollection");

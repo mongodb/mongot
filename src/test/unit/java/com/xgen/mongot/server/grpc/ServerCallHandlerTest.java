@@ -14,8 +14,11 @@ import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.cursor.MongotCursorManagerImpl;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexUnavailableException;
+import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
@@ -26,6 +29,7 @@ import com.xgen.mongot.server.command.search.KillCursorsCommand;
 import com.xgen.mongot.server.executors.BulkheadCommandExecutor;
 import com.xgen.mongot.server.executors.LoadSheddingRejectedException;
 import com.xgen.mongot.server.executors.RegularBlockingRequestSettings;
+import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.index.query.OperatorQueryBuilder;
 import com.xgen.testing.mongot.index.query.operators.OperatorBuilder;
 import io.grpc.Status;
@@ -41,10 +45,12 @@ import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.BsonDocumentCodec;
+import org.bson.types.ObjectId;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 /**
  * Covers {@link ServerCallHandler}'s choice between terminating a failed command with a retryable
@@ -96,13 +102,38 @@ public class ServerCallHandlerTest {
   }
 
   private static BulkheadCommandExecutor executor(boolean shouldRetryViaEnvoy) {
+    return executor(
+        shouldRetryViaEnvoy, indexRetryRegistry(DynamicFeatureFlagConfig.Phase.ENABLED));
+  }
+
+  private static BulkheadCommandExecutor executor(
+      boolean shouldRetryViaEnvoy, DynamicFeatureFlagRegistry registry) {
     return new BulkheadCommandExecutor(
         new SimpleMeterRegistry(),
         RegularBlockingRequestSettings.defaults(),
         FeatureFlags.getDefault(),
-        DynamicFeatureFlagRegistry.empty(),
+        registry,
         Optional.empty(),
         shouldRetryViaEnvoy);
+  }
+
+  private static DynamicFeatureFlagConfig indexRetryConfig(DynamicFeatureFlagConfig.Phase phase) {
+    return new DynamicFeatureFlagConfig(
+        DynamicFeatureFlags.INDEX_UNAVAILABLE_RETRY.getName(),
+        phase,
+        List.of(),
+        List.of(),
+        0,
+        DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+  }
+
+  private static DynamicFeatureFlagRegistry indexRetryRegistry(
+      DynamicFeatureFlagConfig.Phase phase) {
+    return new DynamicFeatureFlagRegistry(
+        Optional.of(List.of(indexRetryConfig(phase))),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(new ObjectId()));
   }
 
   @SuppressWarnings("unchecked")
@@ -280,11 +311,12 @@ public class ServerCallHandlerTest {
   }
 
   @Test
-  public void onNext_indexUnavailableForOtherReasons_repliesWithInBandError() {
+  public void onNext_indexUnavailableBehindEnvoy_failsStreamWithUnavailable() {
     var observer = mockObserver();
+    var commandExecutor = executor(/* shouldRetryViaEnvoy */ true);
     var handler =
         new FailingCallHandler(
-            executor(/* shouldRetryViaEnvoy */ true),
+            commandExecutor,
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
@@ -294,16 +326,192 @@ public class ServerCallHandlerTest {
 
     handler.onNext(REQUEST);
 
-    verify(observer).onNext(any());
+    assertThat(capturedStatus(observer).getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+    verify(observer, never()).onNext(any());
+    var retryCounter =
+        commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter();
+    assertThat(retryCounter.count()).isEqualTo(1.0);
+    assertThat(retryCounter.getId().getTags()).isEmpty();
+  }
+
+  @Test
+  public void onNext_initialSyncBehindEnvoy_failsStreamWithUnavailable() {
+    var observer = mockObserver();
+    var commandExecutor = executor(false);
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
+            /* envoyInRequestPath */ true,
+            observer,
+            new InitialSyncIndexUnavailableException("initial sync"));
+
+    handler.onNext(REQUEST);
+
+    assertThat(capturedStatus(observer).getCode()).isEqualTo(Status.Code.UNAVAILABLE);
+    verify(observer, never()).onNext(any());
+    var retryCounter =
+        commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter();
+    assertThat(retryCounter.count()).isEqualTo(1.0);
+    assertThat(retryCounter.getId().getTags()).isEmpty();
+  }
+
+  @Test
+  public void onNext_indexUnavailableOnSecondAttempt_repliesWithInBandError() {
+    var observer = mockObserver();
+    var commandExecutor = executor(false);
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            /* envoyAttemptCount */ 2,
+            /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
+            /* envoyInRequestPath */ true,
+            observer,
+            new IndexUnavailableException("not initialized"));
+
+    var logger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(ServerCallHandler.class);
+    var logs = TestUtils.getLogEvents(logger);
+
+    handler.onNext(REQUEST);
+
+    assertThat(logs).isEmpty();
+
+    assertThat(capturedReply(observer).getInt32("ok").getValue()).isEqualTo(0);
     verify(observer, never()).onError(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void onNext_indexUnavailableWithNoEnvoy_repliesWithInBandError() {
+    var observer = mockObserver();
+    var commandExecutor = executor(false);
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
+            /* envoyInRequestPath */ false,
+            observer,
+            new IndexUnavailableException("not initialized"));
+
+    handler.onNext(REQUEST);
+
+    assertThat(capturedReply(observer).getInt32("ok").getValue()).isEqualTo(0);
+    verify(observer, never()).onError(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void onNext_indexUnavailableWithNoRetryBudget_repliesWithInBandError() {
+    var observer = mockObserver();
+    var commandExecutor = executor(false);
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 1,
+            /* isShadow */ false,
+            /* envoyInRequestPath */ true,
+            observer,
+            new IndexUnavailableException("not initialized"));
+
+    handler.onNext(REQUEST);
+
+    assertThat(capturedReply(observer).getInt32("ok").getValue()).isEqualTo(0);
+    verify(observer, never()).onError(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void onNext_indexUnavailable_flagAbsent_repliesWithInBandError() {
+    var observer = mockObserver();
+    var commandExecutor = executor(true, DynamicFeatureFlagRegistry.empty());
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            1,
+            3,
+            false,
+            true,
+            observer,
+            new IndexUnavailableException("not initialized"));
+
+    handler.onNext(REQUEST);
+
+    assertThat(capturedReply(observer).getString("errmsg").getValue()).isEqualTo("not initialized");
+    verify(observer, never()).onError(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void onNext_indexUnavailable_flagDisabled_repliesWithInBandError() {
+    var observer = mockObserver();
+    var commandExecutor =
+        executor(true, indexRetryRegistry(DynamicFeatureFlagConfig.Phase.DISABLED));
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            1,
+            3,
+            false,
+            true,
+            observer,
+            new IndexUnavailableException("not initialized"));
+
+    handler.onNext(REQUEST);
+
+    assertThat(capturedReply(observer).getString("errmsg").getValue()).isEqualTo("not initialized");
+    verify(observer, never()).onError(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void onNext_indexRetryDisabledAfterHandlerCreation_repliesWithInBandError() {
+    var registry = indexRetryRegistry(DynamicFeatureFlagConfig.Phase.ENABLED);
+    var observer = mockObserver();
+    var commandExecutor = executor(false, registry);
+    var handler =
+        new FailingCallHandler(
+            commandExecutor,
+            1,
+            3,
+            false,
+            true,
+            observer,
+            new InitialSyncIndexUnavailableException("initial sync"));
+    registry.updateDynamicFeatureFlags(
+        List.of(indexRetryConfig(DynamicFeatureFlagConfig.Phase.DISABLED)));
+
+    handler.onNext(REQUEST);
+
+    assertThat(capturedReply(observer).getString("errmsg").getValue()).isEqualTo("initial sync");
+    verify(observer, never()).onError(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
   }
 
   @Test
   public void onNext_loadSheddingWithFlagOn_failsStreamWithResourceExhausted() {
     var observer = mockObserver();
+    var commandExecutor = executor(/* shouldRetryViaEnvoy */ true);
     var handler =
         new FailingCallHandler(
-            executor(/* shouldRetryViaEnvoy */ true),
+            commandExecutor,
             /* envoyAttemptCount */ 1,
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
@@ -315,6 +523,9 @@ public class ServerCallHandlerTest {
 
     assertThat(capturedStatus(observer).getCode()).isEqualTo(Status.Code.RESOURCE_EXHAUSTED);
     verify(observer, never()).onNext(any());
+    assertThat(
+            commandExecutor.getMeterRegistry().get("indexUnavailable.envoyRetry").counter().count())
+        .isEqualTo(0.0);
   }
 
   @Test

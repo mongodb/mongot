@@ -38,6 +38,7 @@ import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.cursor.serialization.MongotIntermediateCursorBatch;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
+import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagConfig;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.CountResult;
@@ -73,6 +74,7 @@ import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
@@ -99,6 +101,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -711,9 +714,10 @@ public class SearchCommandTest {
 
   @Test
   public void testInvalidIndexName() throws Exception {
+    var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
-            new SearchCommand.Metrics(mockMetricsFactory()),
+            new SearchCommand.Metrics(metricsFactory),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -728,8 +732,12 @@ public class SearchCommandTest {
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             () -> null);
 
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+
     BsonDocument result = command.run();
     Assert.assertEquals(INVALID_INDEX_RESPONSE, result);
+    Truth.assertThat(metricsFactory.counter("searchCommandNonexistentIndex").count())
+        .isEqualTo(1.0);
   }
 
   /**
@@ -742,9 +750,10 @@ public class SearchCommandTest {
     incompatibleIndexes.addLiveIndex(
         quarantined("invalid", "unsupported field 'fieldFromTheFuture'"));
 
+    var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
-            new SearchCommand.Metrics(mockMetricsFactory()),
+            new SearchCommand.Metrics(metricsFactory),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -770,6 +779,10 @@ public class SearchCommandTest {
                     "Index 'invalid' is unavailable: its definition cannot be parsed (unsupported"
                         + " field 'fieldFromTheFuture').")),
         result);
+    Truth.assertThat(metricsFactory.counter("searchCommandNonexistentIndex").count())
+        .isEqualTo(0.0);
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+    Assert.assertEquals(result, command.run());
   }
 
   /** A quarantined index of another name leaves the nonexistent-index behaviour untouched. */
@@ -1814,8 +1827,28 @@ public class SearchCommandTest {
     Assert.assertEquals(500, smallFacet.numBuckets());
   }
 
+  private static DynamicFeatureFlagConfig indexRetryConfig(DynamicFeatureFlagConfig.Phase phase) {
+    return new DynamicFeatureFlagConfig(
+        DynamicFeatureFlags.INDEX_UNAVAILABLE_RETRY.getName(),
+        phase,
+        List.of(),
+        List.of(),
+        0,
+        DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER);
+  }
+
   @Test
   public void testIndexNotInitializedReturnsErrorResponse() throws Exception {
+    var retryRegistry =
+        new DynamicFeatureFlagRegistry(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(new ObjectId()));
+    var metadata =
+        new SearchCommandsRegister.BootstrapperMetadata(
+            BOOTSTRAPPER_METADATA.mongotVersion(),
+            BOOTSTRAPPER_METADATA.mongotHostName(),
+            BOOTSTRAPPER_METADATA.mongoDbServerInfoProvider(),
+            BOOTSTRAPPER_METADATA.featureFlags(),
+            retryRegistry);
     var metricsFactory = mockMetricsFactory();
     IndexCatalog catalog = mock(IndexCatalog.class);
     InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
@@ -1846,7 +1879,7 @@ public class SearchCommandTest {
                 .collectionUuid(COLLECTION_UUID)
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
-            BOOTSTRAPPER_METADATA,
+            metadata,
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             () -> null);
 
@@ -1864,10 +1897,33 @@ public class SearchCommandTest {
                 IndexUnavailableException.class.getSimpleName(),
                 ErrorType.USER_FACING_ERROR))
         .isEqualTo(1.0);
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+
+    Truth.assertThat(command.run()).isEqualTo(result);
+    retryRegistry.updateDynamicFeatureFlags(
+        List.of(indexRetryConfig(DynamicFeatureFlagConfig.Phase.ENABLED)));
+
+    var failure = Assert.assertThrows(CompletionException.class, command::run);
+    Truth.assertThat(failure.getCause()).isInstanceOf(IndexUnavailableException.class);
+    retryRegistry.updateDynamicFeatureFlags(
+        List.of(indexRetryConfig(DynamicFeatureFlagConfig.Phase.DISABLED)));
+    Truth.assertThat(command.run()).isEqualTo(result);
+    Truth.assertThat(metricsFactory.counter("searchCommandNonexistentIndex").count())
+        .isEqualTo(0.0);
   }
 
   @Test
   public void testIndexInInitialSyncRecordsIndexUnavailableMetric() throws Exception {
+    var retryRegistry =
+        new DynamicFeatureFlagRegistry(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(new ObjectId()));
+    var metadata =
+        new SearchCommandsRegister.BootstrapperMetadata(
+            BOOTSTRAPPER_METADATA.mongotVersion(),
+            BOOTSTRAPPER_METADATA.mongotHostName(),
+            BOOTSTRAPPER_METADATA.mongoDbServerInfoProvider(),
+            BOOTSTRAPPER_METADATA.featureFlags(),
+            retryRegistry);
     var metricsFactory = mockMetricsFactory();
     IndexCatalog catalog = mock(IndexCatalog.class);
     InitializedIndexCatalog initializedIndexCatalog = mock(InitializedIndexCatalog.class);
@@ -1901,7 +1957,7 @@ public class SearchCommandTest {
                 .collectionUuid(COLLECTION_UUID)
                 .query(VALID_OPERATOR_QUERY)
                 .build(),
-            BOOTSTRAPPER_METADATA,
+            metadata,
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
             () -> null);
 
@@ -1914,6 +1970,19 @@ public class SearchCommandTest {
                 InitialSyncIndexUnavailableException.class.getSimpleName(),
                 ErrorType.USER_FACING_ERROR))
         .isEqualTo(1.0);
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+
+    Truth.assertThat(command.run()).isEqualTo(result);
+    retryRegistry.updateDynamicFeatureFlags(
+        List.of(indexRetryConfig(DynamicFeatureFlagConfig.Phase.ENABLED)));
+
+    var failure = Assert.assertThrows(CompletionException.class, command::run);
+    Truth.assertThat(failure.getCause()).isInstanceOf(IndexUnavailableException.class);
+    retryRegistry.updateDynamicFeatureFlags(
+        List.of(indexRetryConfig(DynamicFeatureFlagConfig.Phase.DISABLED)));
+    Truth.assertThat(command.run()).isEqualTo(result);
+    Truth.assertThat(metricsFactory.counter("searchCommandNonexistentIndex").count())
+        .isEqualTo(0.0);
   }
 
   @Test

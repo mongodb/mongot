@@ -318,6 +318,12 @@ public class BulkheadCommandExecutor implements Closeable {
     return this.shouldRetryViaEnvoy;
   }
 
+  /** Evaluates the rollout gate on each failure so config updates can stop retries at runtime. */
+  public boolean shouldRetryUnavailableIndexViaEnvoy() {
+    return this.dynamicFeatureFlagRegistry.evaluateClusterInvariant(
+        DynamicFeatureFlags.INDEX_UNAVAILABLE_RETRY);
+  }
+
   @Override
   public void close() {
     Executors.shutdownOrFail(this.regularBlockingCommandExecutor);

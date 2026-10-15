@@ -105,6 +105,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import org.bson.BsonArray;
@@ -300,6 +301,8 @@ public class VectorSearchCommandTest {
             "Index 'default' is unavailable: its definition cannot be parsed (unsupported field"
                 + " 'fieldFromTheFuture')."),
         result.get("errmsg"));
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+    Assert.assertEquals(result, command.run());
   }
 
   @Test
@@ -762,6 +765,7 @@ public class VectorSearchCommandTest {
   @Test
   public void testIndexNameThatDoesNotExistReturnsEmptyBatch() throws Exception {
     var mocks = new Mocks();
+    var metricsFactory = mockMetricsFactory();
     var command =
         new VectorSearchCommand(
             VectorSearchCommandDefinitionBuilder.builder()
@@ -786,12 +790,16 @@ public class VectorSearchCommandTest {
             new IncompatibleIndexes(TestMeterRegistry.get()),
             bootstrapperMetadata(),
             MOCK_EMBEDDING_SERVICE,
-            new VectorSearchCommand.Metrics(mockMetricsFactory()),
+            new VectorSearchCommand.Metrics(metricsFactory),
             mocks.cursorManager,
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
 
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+
     var result = command.run();
     mocks.verifyEmptyBatchReturned(result, command);
+    Assert.assertEquals(
+        1.0, metricsFactory.counter("vectorSearchCommandNonexistentIndex").count(), 0);
   }
 
   @Test
@@ -827,6 +835,17 @@ public class VectorSearchCommandTest {
     verify(mockVectorIndex).throwIfUnavailableForQuerying();
     Assert.assertEquals(1.0, unavailableIndexCount(registry, "LUCENE"), 0);
     Assert.assertEquals(0.0, unavailableIndexCount(registry, "VECTORLITE"), 0);
+    Assert.assertEquals(
+        result, runAgainstCatalog(catalog, initializedIndexCatalog, registry, true, false));
+    var failure =
+        Assert.assertThrows(
+            CompletionException.class,
+            () -> runAgainstCatalog(catalog, initializedIndexCatalog, registry, true));
+    Assert.assertTrue(failure.getCause() instanceof IndexUnavailableException);
+    Assert.assertEquals(
+        0.0,
+        registry.get("search_metrics.vectorSearchCommandNonexistentIndex").counter().count(),
+        0);
   }
 
   @Test
@@ -855,11 +874,57 @@ public class VectorSearchCommandTest {
     Assert.assertEquals("unavailable", result.getString("errmsg").getValue());
     Assert.assertEquals(0.0, unavailableIndexCount(registry, "LUCENE"), 0);
     Assert.assertEquals(1.0, unavailableIndexCount(registry, "VECTORLITE"), 0);
+    Assert.assertEquals(
+        result, runAgainstCatalog(catalog, initializedIndexCatalog, registry, true, false));
+    var failure =
+        Assert.assertThrows(
+            CompletionException.class,
+            () -> runAgainstCatalog(catalog, initializedIndexCatalog, registry, true));
+    Assert.assertTrue(failure.getCause() instanceof IndexUnavailableException);
+    Assert.assertEquals(
+        0.0,
+        registry.get("search_metrics.vectorSearchCommandNonexistentIndex").counter().count(),
+        0);
   }
 
   private BsonDocument runAgainstCatalog(
       IndexCatalog catalog, InitializedIndexCatalog initializedIndexCatalog, MeterRegistry registry)
       throws Exception {
+    return runAgainstCatalog(catalog, initializedIndexCatalog, registry, false);
+  }
+
+  private BsonDocument runAgainstCatalog(
+      IndexCatalog catalog,
+      InitializedIndexCatalog initializedIndexCatalog,
+      MeterRegistry registry,
+      boolean grpc)
+      throws Exception {
+    return runAgainstCatalog(catalog, initializedIndexCatalog, registry, grpc, true);
+  }
+
+  private BsonDocument runAgainstCatalog(
+      IndexCatalog catalog,
+      InitializedIndexCatalog initializedIndexCatalog,
+      MeterRegistry registry,
+      boolean grpc,
+      boolean retryEnabled)
+      throws Exception {
+    var retryRegistry =
+        new DynamicFeatureFlagRegistry(
+            Optional.of(
+                List.of(
+                    new DynamicFeatureFlagConfig(
+                        DynamicFeatureFlags.INDEX_UNAVAILABLE_RETRY.getName(),
+                        retryEnabled
+                            ? DynamicFeatureFlagConfig.Phase.ENABLED
+                            : DynamicFeatureFlagConfig.Phase.DISABLED,
+                        List.of(),
+                        List.of(),
+                        0,
+                        DynamicFeatureFlagConfig.Scope.MONGOT_CLUSTER))),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(new ObjectId()));
     var mocks = new Mocks();
     var command =
         new VectorSearchCommand(
@@ -883,11 +948,14 @@ public class VectorSearchCommandTest {
             catalog,
             initializedIndexCatalog,
             new IncompatibleIndexes(TestMeterRegistry.get()),
-            bootstrapperMetadata(),
+            bootstrapperMetadata(retryRegistry),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(new MetricsFactory("search_metrics", registry)),
             mocks.cursorManager,
             CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+    if (grpc) {
+      command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+    }
     return command.run();
   }
 

@@ -5,6 +5,7 @@ import static com.xgen.mongot.util.Check.checkArg;
 
 import com.google.common.base.Stopwatch;
 import com.xgen.mongot.cursor.MongotCursorManager;
+import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.metrics.ServerStatusDataExtractor.LoadSheddingMeterData;
@@ -69,6 +70,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // only costs that caller a bare status on its own query.
   private final boolean envoyInRequestPath;
   private final EnvoyRetryMetrics envoyRetryMetrics;
+  private final Counter indexUnavailableRetryCounter;
   // Counts every incoming command regardless of outcome (success, rejection, error). Serves as
   // the denominator for load-shedding / envoy-retry rates. Tagged retry=true when this stream's
   // x-envoy-attempt-count is greater than 1 (an envoy retry), otherwise retry=false.
@@ -102,6 +104,8 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.createdCursorIds = Collections.emptyList();
     this.envoyRetryMetrics =
         new EnvoyRetryMetrics(commandExecutor.getMeterRegistry(), envoyMaxAttemptCount);
+    this.indexUnavailableRetryCounter =
+        commandExecutor.getMeterRegistry().counter("indexUnavailable.envoyRetry");
     this.totalRequestsCounter =
         commandExecutor
             .getMeterRegistry()
@@ -254,6 +258,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     }
 
     if (!(cause instanceof InvalidQueryException)
+        && !(cause instanceof IndexUnavailableException)
         && !(cause instanceof CancelledStreamSkipException)) {
       LOG.warn("unexpected exception", cause);
     }
@@ -271,8 +276,9 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
    * Whether to answer this failure with a retryable gRPC status rather than an in-band error body.
    *
    * <p>Load shedding stays behind {@code OVERLOAD_RETRY_SIGNAL} because its {@code
-   * RESOURCE_EXHAUSTED} needs a matching envoy {@code retry_on} that mms rolls out with it.
-   * Quarantine needs no such coordination, so it turns only on envoy being there to retry.
+   * RESOURCE_EXHAUSTED} needs a matching envoy {@code retry_on} that mms rolls out with it. Index
+   * unavailability uses the existing UNAVAILABLE retry policy. Catalog-backed availability failures
+   * get one retry; quarantine retains the configured retry budget.
    */
   private boolean shouldRetryViaEnvoy(Throwable cause) {
     if (this.envoyAttemptCount >= this.envoyMaxAttemptCount) {
@@ -281,6 +287,11 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     if (cause instanceof QuarantinedIndexException) {
       return this.envoyInRequestPath;
     }
+    if (cause instanceof IndexUnavailableException) {
+      return this.envoyInRequestPath
+          && this.envoyAttemptCount == 1
+          && this.commandExecutor.shouldRetryUnavailableIndexViaEnvoy();
+    }
     if (cause instanceof LoadSheddingRejectedException) {
       return this.commandExecutor.shouldRetryViaEnvoy();
     }
@@ -288,25 +299,27 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   }
 
   /**
-   * The status that makes envoy retry against a peer: {@code UNAVAILABLE} for quarantine, which is
-   * node-local and already envoy's default {@code retry_on}, {@code RESOURCE_EXHAUSTED} for load
-   * shedding. Only reached while the retry budget has room; the final attempt falls back to {@link
+   * The status that makes envoy retry against a peer: {@code UNAVAILABLE} for index unavailability,
+   * already envoy's default {@code retry_on}, {@code RESOURCE_EXHAUSTED} for load shedding. Only
+   * reached while the retry budget has room; the final attempt falls back to {@link
    * #getErrorMessage} so the parse error, not a bare status, is what mongod ends up surfacing.
    */
   private Status retryStatusFor(Throwable cause) {
     if (cause instanceof QuarantinedIndexException) {
       return Status.UNAVAILABLE.withDescription("Index is quarantined on this node");
     }
+    if (cause instanceof IndexUnavailableException) {
+      return Status.UNAVAILABLE.withDescription(cause.getMessage());
+    }
     return Status.RESOURCE_EXHAUSTED.withDescription("Search server at capacity");
   }
 
-  /**
-   * Records the envoy overload-retry counter when a load-shedding rejection occurs on the {@code
-   * OVERLOAD_RETRY_SIGNAL} path. {@code rejected} when envoy may still retry, {@code exhausted} on
-   * the final attempt. When the flag is off the rejection is plain load shedding (already counted
-   * by {@code loadShedding.rejected}) and no envoy-retry series is registered.
-   */
+  /** Counts index-unavailable retry signals and preserves the overload-retry outcome counters. */
   private void recordEnvoyRetryMetricIfApplicable(Throwable cause, boolean retryViaEnvoy) {
+    if (cause instanceof IndexUnavailableException && retryViaEnvoy) {
+      this.indexUnavailableRetryCounter.increment();
+      return;
+    }
     if (!(cause instanceof LoadSheddingRejectedException)) {
       return;
     }
