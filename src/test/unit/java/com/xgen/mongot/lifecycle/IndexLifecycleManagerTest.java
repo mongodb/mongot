@@ -310,6 +310,26 @@ public class IndexLifecycleManagerTest {
   }
 
   @Test
+  public void startLifecycle_snapshotterAbsent_initializesAndReplicatesWithoutFcis() {
+    Mocks mocks = Mocks.create(false);
+    when(mocks.snapshotterManager.get(mocks.indexGeneration.getGenerationId()))
+        .thenReturn(Optional.empty());
+
+    mocks.indexLifecycleManager.startLifecycle(Runnable::run, Runnable::run, Runnable::run);
+
+    assertEquals(IndexLifecycleManager.State.RUNNING, mocks.indexLifecycleManager.getState());
+    assertTrue(
+        mocks
+            .initializedIndexCatalog
+            .getIndex(mocks.indexGeneration.getGenerationId())
+            .isPresent());
+    verify(mocks.snapshotterManager).add(mocks.indexGeneration);
+    verify(mocks.replicationManager).add(mocks.indexGeneration);
+    verify(mocks.snapshotterManager, never()).scheduleUpload(any());
+    assertEquals(0, mocks.metrics.failedDownloadIndexes.count(), 0);
+  }
+
+  @Test
   public void testBlobstoreSnapshotter() throws BlobstoreException {
     {
       Mocks mocks = Mocks.create(false);
