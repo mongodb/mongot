@@ -9,7 +9,6 @@ import com.xgen.mongot.util.bson.parser.Value;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Stream;
 import org.bson.BsonDocument;
 
@@ -61,36 +60,40 @@ public record TypeSetDefinition(String name, List<FieldTypeDefinition> types)
   }
 
   /**
-   * Field types that a type set may not contain. Single source of truth for the type-set
-   * restriction.
+   * Whether {@code type} is disallowed in a type set. Single source of truth for the type-set
+   * restriction: this switch is exhaustive over all constants, so a new {@link
+   * FieldTypeDefinition.Type} fails to compile here instead of silently defaulting to valid. The
+   * deprecated types are deliberately invalid.
    */
-  public static final Set<FieldTypeDefinition.Type> INVALID_TYPES =
-      Set.of(
-          FieldTypeDefinition.Type.AUTO_EMBED,
-          FieldTypeDefinition.Type.DATE_FACET,
-          FieldTypeDefinition.Type.DOCUMENT,
-          FieldTypeDefinition.Type.EMBEDDED_DOCUMENTS,
-          FieldTypeDefinition.Type.VECTOR,
-          FieldTypeDefinition.Type.KNN_VECTOR,
-          FieldTypeDefinition.Type.NUMBER_FACET,
-          FieldTypeDefinition.Type.SORTABLE_DATE_BETA_V1,
-          FieldTypeDefinition.Type.SORTABLE_NUMBER_BETA_V1,
-          FieldTypeDefinition.Type.SORTABLE_STRING_BETA_V1,
-          FieldTypeDefinition.Type.STRING_FACET);
-
-  static Optional<String> ensureValidFieldTypes(List<FieldTypeDefinition> typeDefinitions) {
-    Set<FieldTypeDefinition.Type> invalidFieldTypes = getInvalidFieldTypes();
-    return typeDefinitions.stream()
-            .map(FieldTypeDefinition::getType)
-            .anyMatch(invalidFieldTypes::contains)
-        ? Optional.of(
-            String.format(
-                "The following field type definitions are disallowed in a typeSet definition: %s",
-                invalidFieldTypes))
-        : Optional.empty();
+  public static boolean isInvalidForTypeSet(FieldTypeDefinition.Type type) {
+    return switch (type) {
+      case AUTO_EMBED,
+          DATE_FACET,
+          DOCUMENT,
+          EMBEDDED_DOCUMENTS,
+          VECTOR,
+          KNN_VECTOR,
+          NUMBER_FACET,
+          SORTABLE_DATE_BETA_V1,
+          SORTABLE_NUMBER_BETA_V1,
+          SORTABLE_STRING_BETA_V1,
+          STRING_FACET ->
+          true;
+      case AUTOCOMPLETE, BOOLEAN, DATE, GEO, NUMBER, OBJECT_ID, STRING, TOKEN, UUID -> false;
+    };
   }
 
-  private static Set<FieldTypeDefinition.Type> getInvalidFieldTypes() {
-    return INVALID_TYPES;
+  static Optional<String> ensureValidFieldTypes(List<FieldTypeDefinition> typeDefinitions) {
+    var invalidTypes =
+        typeDefinitions.stream()
+            .map(FieldTypeDefinition::getType)
+            .filter(TypeSetDefinition::isInvalidForTypeSet)
+            .toList();
+    return invalidTypes.isEmpty()
+        ? Optional.empty()
+        : Optional.of(
+            String.format(
+                "The following field type definitions are disallowed in a typeSet definition: %s",
+                invalidTypes));
   }
 }
