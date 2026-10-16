@@ -16,6 +16,7 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.FutureUtils;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
+import java.nio.file.NoSuchFileException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -215,6 +216,13 @@ public class IndexLifecycleManager {
           try {
             initializedIndex.close();
             initializedIndex.drop();
+          } catch (NoSuchFileException e) {
+            // The concurrent drop already deleted the index directory.
+            LOG.atWarn()
+                .addKeyValue("indexId", generationId.indexId)
+                .addKeyValue("generationId", generationId)
+                .setCause(e)
+                .log("Index directory already deleted by concurrent drop");
           } catch (Exception e) {
             LOG.atError()
                 .addKeyValue("indexId", generationId.indexId)

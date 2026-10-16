@@ -39,11 +39,13 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.util.Crash;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -426,11 +428,12 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
       searcherManager.close();
     }
 
-    // The LuceneIndexWriter uses the Directory, so close it before closing the Directory.
-    this.writer.close();
-    for (Directory directory : this.directories) {
-      directory.close();
-    }
+    // The LuceneIndexWriter uses the Directory, so close it before closing the Directory. Every
+    // close is attempted; the writer's exception propagates with later ones suppressed.
+    List<Closeable> resources = new ArrayList<>();
+    resources.add(this.writer);
+    resources.addAll(this.directories);
+    IOUtils.close(resources);
     this.initializedResourcesClosed = true;
     LOG.atInfo()
         .addKeyValue("indexId", getDefinition().getIndexId())

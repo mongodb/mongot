@@ -55,6 +55,7 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -212,6 +213,70 @@ public class InitializedLuceneSearchIndexTest {
     }
     shutdownSequence.verify(writer).close();
     shutdownSequence.verify(directory).close();
+  }
+
+  @Test
+  public void close_writerCloseFails_stillClosesDirectories() throws IOException {
+    var directory = mock(Directory.class);
+    var writer = mock(SingleLuceneIndexWriter.class);
+    doThrow(new NoSuchFileException("index")).when(writer).close();
+    var index =
+        new LuceneSearchIndex(
+            SearchIndexDefinitionBuilder.VALID_INDEX,
+            new AtomicReference<>(IndexStatus.steady()),
+            getIndexProperties());
+    var initializedIndex =
+        new InitializedLuceneSearchIndex(
+            MOCK_INDEX_GENERATION_ID,
+            index,
+            List.of(directory),
+            writer,
+            mock(MeteredSearchIndexReader.class),
+            mock(PeriodicLuceneIndexRefresher.class),
+            ImmutableList.of(spy(new NoopSearcherManager())),
+            IndexMetricsUpdaterBuilder.builder()
+                .metricsFactory(SearchIndex.mockMetricsFactory())
+                .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+                .build());
+
+    Assert.assertThrows(NoSuchFileException.class, initializedIndex::close);
+
+    verify(directory).close();
+  }
+
+  @Test
+  public void close_writerAndDirectoryCloseFail_keepsWriterExceptionWithDirectorySuppressed()
+      throws IOException {
+    var firstDirectory = mock(Directory.class);
+    var secondDirectory = mock(Directory.class);
+    var writer = mock(SingleLuceneIndexWriter.class);
+    IOException writerFailure = new IOException("writer");
+    doThrow(writerFailure).when(writer).close();
+    doThrow(new NoSuchFileException("index")).when(firstDirectory).close();
+    var index =
+        new LuceneSearchIndex(
+            SearchIndexDefinitionBuilder.VALID_INDEX,
+            new AtomicReference<>(IndexStatus.steady()),
+            getIndexProperties());
+    var initializedIndex =
+        new InitializedLuceneSearchIndex(
+            MOCK_INDEX_GENERATION_ID,
+            index,
+            List.of(firstDirectory, secondDirectory),
+            writer,
+            mock(MeteredSearchIndexReader.class),
+            mock(PeriodicLuceneIndexRefresher.class),
+            ImmutableList.of(spy(new NoopSearcherManager())),
+            IndexMetricsUpdaterBuilder.builder()
+                .metricsFactory(SearchIndex.mockMetricsFactory())
+                .indexMetricsSupplier(IndexMetricsSupplier.mockEmptyIndexMetricsSupplier())
+                .build());
+
+    IOException thrown = Assert.assertThrows(IOException.class, initializedIndex::close);
+
+    Assert.assertSame(writerFailure, thrown);
+    Assert.assertTrue(thrown.getSuppressed()[0] instanceof NoSuchFileException);
+    verify(secondDirectory).close();
   }
 
   @Test

@@ -31,8 +31,10 @@ import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.MongoDbReplicationManager;
+import com.xgen.testing.mongot.mock.index.SearchIndex;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
@@ -521,6 +523,62 @@ public class IndexLifecycleManagerTest {
     verify(mocks.snapshotterManager).add(mocks.indexGeneration);
     verify(mocks.snapshotterManager, never()).scheduleUpload(mocks.indexGeneration);
     verify(mocks.replicationManager, never()).dropIndex(any());
+  }
+
+  @Test
+  public void drop_whileInitializing_directoryAlreadyDeleted_isNotAFailedDrop() throws Exception {
+    Mocks mocks = Mocks.create(false);
+    CountDownLatch initializedIndexCreated = new CountDownLatch(1);
+    CountDownLatch blockInitializeCompletion = new CountDownLatch(1);
+    InitializedIndex initializedIndex = SearchIndex.mockInitializedIndex(mocks.indexGeneration);
+    doThrow(new NoSuchFileException("index")).when(initializedIndex).close();
+    doAnswer(
+            x -> {
+              initializedIndexCreated.countDown();
+              blockInitializeCompletion.await();
+              return initializedIndex;
+            })
+        .when(mocks.indexFactory)
+        .getInitializedIndex(any(), any(), any());
+
+    mocks.indexLifecycleManager.startLifecycle(EXECUTOR, EXECUTOR, EXECUTOR);
+    initializedIndexCreated.await();
+    mocks.indexLifecycleManager.drop();
+    blockInitializeCompletion.countDown();
+
+    verify(initializedIndex, timeout(5000)).close();
+    // The catch runs under the manager's lock; taking it waits for the catch to finish.
+    synchronized (mocks.indexLifecycleManager) {
+      assertEquals(0, mocks.metrics.failedDropIndexes.count(), 0.1);
+    }
+    verify(initializedIndex, never()).drop();
+  }
+
+  @Test
+  public void drop_whileInitializing_otherCloseFailure_isAFailedDrop() throws Exception {
+    Mocks mocks = Mocks.create(false);
+    CountDownLatch initializedIndexCreated = new CountDownLatch(1);
+    CountDownLatch blockInitializeCompletion = new CountDownLatch(1);
+    InitializedIndex initializedIndex = SearchIndex.mockInitializedIndex(mocks.indexGeneration);
+    doThrow(new IOException("disk error")).when(initializedIndex).close();
+    doAnswer(
+            x -> {
+              initializedIndexCreated.countDown();
+              blockInitializeCompletion.await();
+              return initializedIndex;
+            })
+        .when(mocks.indexFactory)
+        .getInitializedIndex(any(), any(), any());
+
+    mocks.indexLifecycleManager.startLifecycle(EXECUTOR, EXECUTOR, EXECUTOR);
+    initializedIndexCreated.await();
+    mocks.indexLifecycleManager.drop();
+    blockInitializeCompletion.countDown();
+
+    verify(initializedIndex, timeout(5000)).close();
+    synchronized (mocks.indexLifecycleManager) {
+      assertEquals(1, mocks.metrics.failedDropIndexes.count(), 0.1);
+    }
   }
 
   @Test

@@ -46,6 +46,7 @@ import java.util.function.BooleanSupplier;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.search.ReferenceManager;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -433,11 +434,12 @@ class InitializedLuceneSearchIndex implements InitializedSearchIndex {
       searcherManager.close();
     }
 
-    // The LuceneIndexWriter uses the Directory, so close it before closing the Directory.
-    this.writer.close();
-    for (Directory directory : this.directories) {
-      directory.close();
-    }
+    // The LuceneIndexWriter uses the Directory, so close it before closing the Directory. Every
+    // close is attempted; the writer's exception propagates with later ones suppressed.
+    List<Closeable> resources = new ArrayList<>();
+    resources.add(this.writer);
+    resources.addAll(this.directories);
+    IOUtils.close(resources);
     this.initializedResourcesClosed = true;
     LOG.info("closed index {} in {}", getDefinition().getIndexId(), closeIndexTime);
   }
