@@ -7,6 +7,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
@@ -135,9 +136,35 @@ public class GlobalMetricsFactoryTest {
   }
 
   private void assertBloomCounter(String name, double expected) {
-    Counter counter = this.registry.find(name).counter();
+    FunctionCounter counter = this.registry.find(name).functionCounter();
     assertNotNull("Expected counter " + name + " to be registered", counter);
     assertEquals(expected, counter.count(), 0.0);
+  }
+
+  @Test
+  public void testBloomFilterCounters_incrementedBeforeInit_countedOnceBound() {
+    // Pre-initialize increments land in the backing AtomicLong, so they are reported once the
+    // counter is bound at initialize instead of being dropped with a warning.
+    GlobalMetricFactory.incrementBloomFilterIdLookupSkipped();
+    GlobalMetricFactory.initialize(this.registry);
+
+    assertBloomCounter("bloom_filter_id_lookup_skipped", 1.0);
+  }
+
+  @Test
+  public void testBloomFilterCounters_reregisteredAfterReset_incrementNewRegistryCounters() {
+    GlobalMetricFactory.initialize(this.registry);
+    GlobalMetricFactory.incrementBloomFilterIdLookupSkipped();
+    GlobalMetricFactory.resetForTest();
+
+    SimpleMeterRegistry newRegistry = new SimpleMeterRegistry();
+    GlobalMetricFactory.initialize(newRegistry);
+    GlobalMetricFactory.incrementBloomFilterIdLookupSkipped();
+
+    // resetForTest zeroes the backing values and the next initialize rebinds them, so the new
+    // registry starts from a clean count.
+    assertEquals(
+        1.0, newRegistry.find("bloom_filter_id_lookup_skipped").functionCounter().count(), 0.0);
   }
 
   @Test

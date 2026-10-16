@@ -14,7 +14,7 @@ import com.xgen.mongot.index.lucene.codec.bloom.MongotFuzzySet;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.util.GlobalMetricFactory;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
-import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
@@ -370,7 +370,7 @@ public class LuceneCodecBloomFilterTest {
   }
 
   private static double counterCount(MeterRegistry registry, String name) {
-    Counter counter = registry.find(name).counter();
+    FunctionCounter counter = registry.find(name).functionCounter();
     return counter == null ? 0.0 : counter.count();
   }
 

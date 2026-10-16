@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.flogger.FluentLogger;
 import com.google.errorprone.annotations.CompileTimeConstant;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +44,15 @@ public final class GlobalMetricFactory {
       new AtomicLong();
   private static final AtomicLong NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE = new AtomicLong();
 
+  // The bloom filter counters are incremented once per _id lookup per segment on the indexing path
+  // from multiple writer threads, so the hot path increments striped LongAdders directly and
+  // initialize only binds them to the registry as FunctionCounters -- no registry lookup (builder
+  // allocation plus a Meter.Id hash) per increment, and no single cache line CAS to contend on.
+  private static final LongAdder BLOOM_FILTER_ID_LOOKUP_SKIPPED_VALUE = new LongAdder();
+  private static final LongAdder BLOOM_FILTER_ID_LOOKUP_PROBED_VALUE = new LongAdder();
+  private static final LongAdder BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE_VALUE = new LongAdder();
+  private static final LongAdder BLOOM_FILTER_SATURATED_DROPPED_VALUE = new LongAdder();
+
   /**
    * Eager-register only when:
    *
@@ -53,14 +64,6 @@ public final class GlobalMetricFactory {
    */
   private static final Map<String, String> EAGER_COUNTER_TO_DESCRIPTIONS =
       Map.of(
-          BLOOM_FILTER_ID_LOOKUP_SKIPPED,
-          "Counts _id lookups skipped because the bloom filter reported the term as absent",
-          BLOOM_FILTER_ID_LOOKUP_PROBED,
-          "Counts _id lookups the bloom filter admitted, requiring a delegate postings lookup",
-          BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE,
-          "Counts _id bloom filter false positives (admitted but no matching delegate term)",
-          BLOOM_FILTER_SATURATED_DROPPED,
-          "Counts per-field bloom filters dropped at write time because the FuzzySet saturated",
           NATIVE_SCALAR_VECTOR_SCORING_ENGAGED,
           "Counts native scalar-quantized scorer engagements -- once per native scorer/supplier"
               + " construction call, typically once per segment touched by a merge or a"
@@ -84,6 +87,7 @@ public final class GlobalMetricFactory {
     }
     meterRegistry = Optional.of(registry);
     registerEagerCounters(registry);
+    registerBloomFilterCounters(registry);
     registerNativeScalarVectorScoringQueryActiveGauge(registry);
     registerNativeByteVectorScoringQueryActiveGauge(registry);
     LOGGER.info("GlobalMetricFactory initialized successfully.");
@@ -155,7 +159,7 @@ public final class GlobalMetricFactory {
    * postings lookup).
    */
   public static void incrementBloomFilterIdLookupSkipped() {
-    incrementBloomCounter(BLOOM_FILTER_ID_LOOKUP_SKIPPED, 1);
+    BLOOM_FILTER_ID_LOOKUP_SKIPPED_VALUE.increment();
   }
 
   /**
@@ -163,7 +167,7 @@ public final class GlobalMetricFactory {
    * therefore fell through to a delegate postings lookup.
    */
   public static void incrementBloomFilterIdLookupProbed() {
-    incrementBloomCounter(BLOOM_FILTER_ID_LOOKUP_PROBED, 1);
+    BLOOM_FILTER_ID_LOOKUP_PROBED_VALUE.increment();
   }
 
   /**
@@ -171,7 +175,7 @@ public final class GlobalMetricFactory {
    * the term but the delegate postings had no matching term.
    */
   public static void incrementBloomFilterIdLookupFalsePositive() {
-    incrementBloomCounter(BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE, 1);
+    BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE_VALUE.increment();
   }
 
   /**
@@ -184,17 +188,7 @@ public final class GlobalMetricFactory {
    * @param amount the number of saturated blooms dropped in this write
    */
   public static void incrementBloomFilterSaturatedDropped(int amount) {
-    incrementBloomCounter(BLOOM_FILTER_SATURATED_DROPPED, amount);
-  }
-
-  private static void incrementBloomCounter(String name, int amount) {
-    Optional<MeterRegistry> maybeRegistry = meterRegistry;
-    if (maybeRegistry.isEmpty()) {
-      FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
-          "GlobalMetricFactory not initialized, cannot record bloom filter metric %s", name);
-      return;
-    }
-    getOrRegisterCounter(maybeRegistry.get(), name).increment(amount);
+    BLOOM_FILTER_SATURATED_DROPPED_VALUE.add(amount);
   }
 
   /**
@@ -303,9 +297,46 @@ public final class GlobalMetricFactory {
   }
 
   /**
-   * Eagerly registers all bloom filter counters (initialized to 0) so they are always present in
-   * the scrape output. These metrics back dashboards and alerts, so they must exist even before the
-   * first event -- otherwise a cluster that has not yet exercised the bloom read path would report
+   * Binds the bloom filter counters to the registry as FunctionCounters (initialized to 0) so they
+   * are always present in the scrape output. These metrics back dashboards and alerts, so they must
+   * exist even before the first event -- otherwise a cluster that has not yet exercised the bloom
+   * read path would report "no data" instead of 0.
+   */
+  private static void registerBloomFilterCounters(MeterRegistry registry) {
+    FunctionCounter.builder(
+            BLOOM_FILTER_ID_LOOKUP_SKIPPED,
+            BLOOM_FILTER_ID_LOOKUP_SKIPPED_VALUE,
+            LongAdder::doubleValue)
+        .description(
+            "Counts _id lookups skipped because the bloom filter reported the term as absent")
+        .register(registry);
+    FunctionCounter.builder(
+            BLOOM_FILTER_ID_LOOKUP_PROBED,
+            BLOOM_FILTER_ID_LOOKUP_PROBED_VALUE,
+            LongAdder::doubleValue)
+        .description(
+            "Counts _id lookups the bloom filter admitted, requiring a delegate postings lookup")
+        .register(registry);
+    FunctionCounter.builder(
+            BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE,
+            BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE_VALUE,
+            LongAdder::doubleValue)
+        .description(
+            "Counts _id bloom filter false positives (admitted but no matching delegate term)")
+        .register(registry);
+    FunctionCounter.builder(
+            BLOOM_FILTER_SATURATED_DROPPED,
+            BLOOM_FILTER_SATURATED_DROPPED_VALUE,
+            LongAdder::doubleValue)
+        .description(
+            "Counts per-field bloom filters dropped at write time because the FuzzySet saturated")
+        .register(registry);
+  }
+
+  /**
+   * Eagerly registers the native scoring engaged counters (initialized to 0) so they are always
+   * present in the scrape output. These metrics back dashboards and alerts, so they must exist even
+   * before the first event -- otherwise a cluster that has not yet exercised the path would report
    * "no data" instead of 0.
    */
   private static void registerEagerCounters(MeterRegistry registry) {
@@ -323,6 +354,10 @@ public final class GlobalMetricFactory {
   @VisibleForTesting
   public static void resetForTest() {
     meterRegistry = Optional.empty();
+    BLOOM_FILTER_ID_LOOKUP_SKIPPED_VALUE.reset();
+    BLOOM_FILTER_ID_LOOKUP_PROBED_VALUE.reset();
+    BLOOM_FILTER_ID_LOOKUP_FALSE_POSITIVE_VALUE.reset();
+    BLOOM_FILTER_SATURATED_DROPPED_VALUE.reset();
     NATIVE_SCALAR_VECTOR_SCORING_QUERY_ACTIVE_VALUE.set(0);
     NATIVE_BYTE_VECTOR_SCORING_QUERY_ACTIVE_VALUE.set(0);
   }
