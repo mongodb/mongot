@@ -58,7 +58,8 @@
         "forceDisableCompatGate": false,
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
-        "aeResyncHashJoin": false
+        "aeResyncHashJoin": false,
+        "oidcAuth": false
       }
     },
     {
@@ -119,7 +120,8 @@
         "forceDisableCompatGate": false,
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
-        "aeResyncHashJoin": false
+        "aeResyncHashJoin": false,
+        "oidcAuth": false
       }
     },
     {
@@ -180,7 +182,8 @@
         "forceDisableCompatGate": true,
         "alwaysBootstrapSnapshotterResources": true,
         "aeResyncIdOrderTripwireFailFast": true,
-        "aeResyncHashJoin": true
+        "aeResyncHashJoin": true,
+        "oidcAuth": true
       }
     },
     {
@@ -241,7 +244,8 @@
         "forceDisableCompatGate": false,
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
-        "aeResyncHashJoin": false
+        "aeResyncHashJoin": false,
+        "oidcAuth": false
       }
     }
   ]

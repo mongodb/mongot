@@ -133,7 +133,11 @@ public enum Feature {
   // (no compareDocuments). When the two disagree, resyncMergeClassificationMismatches is
   // incremented
   // and the index id plus the first few differing _ids are logged.
-  AE_RESYNC_HASH_JOIN("aeResyncHashJoin", State.DISABLED);
+  AE_RESYNC_HASH_JOIN("aeResyncHashJoin", State.DISABLED),
+  // CLOUDP-445915: OIDC authentication to mongod via an enterprise-supplied OidcCallbackFactory.
+  // Enabled in FeatureFlags.enterpriseDefaults() (kill switch); community runtimes reject an
+  // `oidc` config block at parse time via the ENTERPRISE field edition.
+  OIDC_AUTH("oidcAuth", State.DISABLED);
 
   private final String name;
   private final State defaultState;

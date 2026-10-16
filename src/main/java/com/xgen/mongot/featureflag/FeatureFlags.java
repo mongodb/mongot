@@ -325,6 +325,7 @@ public class FeatureFlags implements DocumentEncodable {
         .enable(Feature.CACHE_WARMER)
         .enable(Feature.CONCURRENT_INDEX_PARTITION_SEARCH)
         .enable(Feature.CANCEL_MERGE)
+        .enable(Feature.OIDC_AUTH)
         .build();
   }
 
