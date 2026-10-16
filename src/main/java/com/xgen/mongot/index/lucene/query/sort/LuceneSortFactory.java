@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.query.sort;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Streams;
 import com.xgen.mongot.index.lucene.explain.explainers.SortFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
@@ -10,6 +11,7 @@ import com.xgen.mongot.index.lucene.query.sort.common.ExplainSortField;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.SequenceToken;
@@ -56,13 +58,18 @@ public class LuceneSortFactory {
     }
   }
 
+  private static Optional<FieldPath> scopedSortPath(MongotSortField field) {
+    return field.options() instanceof UserFieldSortOptions userOptions
+        ? userOptions.embeddedScope().map(EmbeddedSortScope::path)
+        : Optional.empty();
+  }
+
   private void validate(MongotSortField sortField, Optional<FieldPath> embeddedRoot)
       throws InvalidQueryException {
     // An embeddedDoc-scoped sort key is validated at the query layer against its own scope path
     // (see LuceneSearchQueryFactoryDistributor#buildScopedSortOverrides), not the query-level
     // embeddedRoot, so skip it here.
-    if (sortField.options() instanceof UserFieldSortOptions userOptions
-        && userOptions.embeddedScope().isPresent()) {
+    if (scopedSortPath(sortField).isPresent()) {
       return;
     }
     if (sortField.options() instanceof MetaSortOptions
@@ -181,8 +188,8 @@ public class LuceneSortFactory {
                         () ->
                             new SortFeatureExplainer(
                                 sortSpec,
-                                fieldsToSortableTypesMapping.getFieldToSortableTypes(
-                                    embeddedRoot))));
+                                sortableTypesIncludingScoped(
+                                    sortSpec, fieldsToSortableTypesMapping, embeddedRoot))));
 
     Optional<FieldDoc> after = sequenceToken.map(SequenceToken::fieldDoc);
 
@@ -224,6 +231,27 @@ public class LuceneSortFactory {
   }
 
   /**
+   * Sortable types for the explain {@code fieldInfos}, resolving each embeddedDoc-scoped sort key
+   * under its own scope path (rather than the query-level {@code embeddedRoot}, which would drop it
+   * from the map). Unscoped fields resolve under {@code embeddedRoot} as before.
+   */
+  private static ImmutableSetMultimap<FieldPath, FieldName.TypeField> sortableTypesIncludingScoped(
+      SortSpec sortSpec,
+      FieldToSortableTypesMapping fieldsToSortableTypesMapping,
+      Optional<FieldPath> embeddedRoot) {
+    ImmutableSetMultimap.Builder<FieldPath, FieldName.TypeField> builder =
+        ImmutableSetMultimap.builder();
+    for (MongotSortField field : sortSpec.getSortFields()) {
+      Optional<FieldPath> fieldRoot = scopedSortPath(field).or(() -> embeddedRoot);
+      // A scoped key replaces the root-level entry, even when its scope has no indexed values.
+      builder.putAll(
+          field.field(),
+          fieldsToSortableTypesMapping.getFieldToSortableTypes(fieldRoot).get(field.field()));
+    }
+    return builder.build();
+  }
+
+  /**
    * Expands the sort spec with $nullness MongotSortField entries for INT64/Date fields that need
    * correct null/missing ordering in a sorted index. Each nullness entry is inserted immediately
    * before its corresponding user sort field.
@@ -245,10 +273,7 @@ public class LuceneSortFactory {
     for (MongotSortField field : mongotFields) {
       // Scoped sort keys derive their value from matching children, not the root's own stored
       // value, so the $nullness companion field (read from the root's value) does not apply.
-      boolean isScoped =
-          field.options() instanceof UserFieldSortOptions userOptions
-              && userOptions.embeddedScope().isPresent();
-      if (!isScoped && needsNullnessField(indexSort, field)) {
+      if (scopedSortPath(field).isEmpty() && needsNullnessField(indexSort, field)) {
         FieldPath nullnessPath = FieldPath.newRoot(FieldName.getNullnessFieldName(field.field()));
         nullnessFieldIndexes.add((long) expanded.size());
         expanded.add(new MongotSortField(nullnessPath, field.options()));

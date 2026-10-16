@@ -9,6 +9,8 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.lucene.explain.explainers.SortFeatureExplainer;
+import com.xgen.mongot.index.lucene.explain.information.SearchExplainInformationBuilder;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
@@ -16,10 +18,13 @@ import com.xgen.mongot.index.lucene.query.sort.common.ExplainSortField;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
 import com.xgen.mongot.index.query.sort.MetaSortField;
+import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.SequenceToken;
 import com.xgen.mongot.index.query.sort.SortOrder;
+import com.xgen.mongot.index.query.sort.SortSelector;
 import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.FieldPath;
@@ -30,19 +35,183 @@ import com.xgen.testing.mongot.index.query.sort.SortOptionsBuilder;
 import com.xgen.testing.mongot.index.query.sort.SortSpecBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.FieldDoc;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.search.SortedNumericSortField;
+import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.join.QueryBitSetProducer;
+import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonValue;
 import org.junit.Test;
 
 public class LuceneSortFactoryTest {
+
+  @Test
+  public void explain_scopedAndRootTypesCollide_reportsOnlyScopedTypes()
+      throws InvalidQueryException {
+    FieldPath price = FieldPath.parse("variants.price");
+    FieldPath label = FieldPath.parse("label");
+    SortSpec spec =
+        SortSpecBuilder.builder()
+            .sortField(scopedField("variants.price", "variants"))
+            .sortField(new MongotSortField(label, UserFieldSortOptions.DEFAULT_ASC))
+            .buildSort();
+    var mapping =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(
+                price,
+                FieldName.TypeField.TOKEN,
+                label,
+                FieldName.TypeField.TOKEN,
+                FieldPath.parse("unrelated"),
+                FieldName.TypeField.BOOLEAN),
+            ImmutableMap.of(
+                FieldPath.parse("variants"),
+                ImmutableSetMultimap.of(price, FieldName.TypeField.NUMBER_INT64_V2)));
+
+    var fieldInfos =
+        explainFieldInfos(spec, mapping, Optional.empty(), Explain.Verbosity.EXECUTION_STATS);
+
+    Truth.assertThat(fieldInfos)
+        .isEqualTo(
+            Map.of(
+                "variants.price", List.of(FieldName.TypeField.NUMBER_INT64_V2),
+                "label", List.of(FieldName.TypeField.TOKEN)));
+  }
+
+  @Test
+  public void explain_emptyScopeWithRootValues_doesNotReportRootTypes()
+      throws InvalidQueryException {
+    SortSpec spec =
+        SortSpecBuilder.builder().sortField(scopedField("variants.price", "variants")).buildSort();
+    var mapping =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(FieldPath.parse("variants.price"), FieldName.TypeField.TOKEN),
+            ImmutableMap.of());
+
+    var fieldInfos =
+        explainFieldInfos(spec, mapping, Optional.empty(), Explain.Verbosity.QUERY_PLANNER);
+
+    Truth.assertThat(fieldInfos).isEmpty();
+  }
+
+  @Test
+  public void explain_multipleScopes_resolvesEachKeyIndependently() throws InvalidQueryException {
+    FieldPath price = FieldPath.parse("variants.price");
+    FieldPath nestedPrice = FieldPath.parse("variants.options.price");
+    SortSpec spec =
+        SortSpecBuilder.builder()
+            .sortField(scopedField("variants.price", "variants"))
+            .sortField(scopedField("variants.options.price", "variants.options"))
+            .buildSort();
+    var mapping =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(nestedPrice, FieldName.TypeField.BOOLEAN),
+            ImmutableMap.of(
+                FieldPath.parse("variants"),
+                    ImmutableSetMultimap.of(
+                        price,
+                        FieldName.TypeField.NUMBER_INT64_V2,
+                        nestedPrice,
+                        FieldName.TypeField.DATE_V2),
+                FieldPath.parse("variants.options"),
+                    ImmutableSetMultimap.of(
+                        nestedPrice,
+                        FieldName.TypeField.TOKEN,
+                        nestedPrice,
+                        FieldName.TypeField.NUMBER_DOUBLE_V2)));
+
+    var fieldInfos =
+        explainFieldInfos(spec, mapping, Optional.empty(), Explain.Verbosity.QUERY_PLANNER);
+
+    Truth.assertThat(fieldInfos)
+        .isEqualTo(
+            Map.of(
+                "variants.price", List.of(FieldName.TypeField.NUMBER_INT64_V2),
+                "variants.options.price",
+                    List.of(FieldName.TypeField.NUMBER_DOUBLE_V2, FieldName.TypeField.TOKEN)));
+  }
+
+  @Test
+  public void explain_unscopedKeyWithReturnScope_usesQueryScope() throws InvalidQueryException {
+    FieldPath price = FieldPath.parse("variants.price");
+    SortSpec spec =
+        SortSpecBuilder.builder()
+            .sortField(new MongotSortField(price, UserFieldSortOptions.DEFAULT_ASC))
+            .buildSort();
+    var mapping =
+        new FieldToSortableTypesMapping(
+            ImmutableSetMultimap.of(price, FieldName.TypeField.TOKEN),
+            ImmutableMap.of(
+                FieldPath.parse("variants"),
+                ImmutableSetMultimap.of(price, FieldName.TypeField.NUMBER_INT64_V2)));
+
+    var fieldInfos =
+        explainFieldInfos(
+            spec,
+            mapping,
+            Optional.of(FieldPath.parse("variants")),
+            Explain.Verbosity.EXECUTION_STATS);
+
+    Truth.assertThat(fieldInfos)
+        .isEqualTo(Map.of("variants.price", List.of(FieldName.TypeField.NUMBER_INT64_V2)));
+  }
+
+  private static MongotSortField scopedField(String path, String scope) {
+    return new MongotSortField(
+        FieldPath.parse(path),
+        new UserFieldSortOptions(
+            SortOrder.ASC,
+            SortSelector.MIN,
+            NullEmptySortPosition.LOWEST,
+            Optional.of(
+                new EmbeddedSortScope(
+                    FieldPath.parse(scope),
+                    new BsonDocument("exists", new BsonDocument("path", new BsonString(path)))))));
+  }
+
+  private Map<String, List<FieldName.TypeField>> explainFieldInfos(
+      SortSpec spec,
+      FieldToSortableTypesMapping mapping,
+      Optional<FieldPath> embeddedRoot,
+      Explain.Verbosity verbosity)
+      throws InvalidQueryException {
+    Map<FieldPath, SortField> overrides = new HashMap<>();
+    var parents = new QueryBitSetProducer(new TermQuery(new Term("docType", "root")));
+    var children = new QueryBitSetProducer(new TermQuery(new Term("docType", "child")));
+    for (MongotSortField field : spec.getSortFields()) {
+      if (field.options() instanceof UserFieldSortOptions options) {
+        options
+            .embeddedScope()
+            .ifPresent(
+                scope ->
+                    overrides.put(
+                        field.field(),
+                        MqlMixedSort.scoped(field, scope.path(), parents, children)));
+      }
+    }
+    try (var unused = Explain.setup(Optional.of(verbosity), Optional.of(1))) {
+      new LuceneSortFactory(newQueryFactoryContext())
+          .createLuceneSort(
+              spec, Optional.empty(), mapping, embeddedRoot, Optional.empty(), overrides);
+      var builder = SearchExplainInformationBuilder.newBuilder();
+      Explain.getQueryInfo()
+          .orElseThrow()
+          .getFeatureExplainer(SortFeatureExplainer.class)
+          .orElseThrow()
+          .emitExplanation(verbosity, builder);
+      return builder.build().collectStats().orElseThrow().sortStats().orElseThrow().fieldInfos();
+    }
+  }
 
   @Test
   public void testExplain() throws InvalidQueryException {
