@@ -146,20 +146,45 @@ public class PartitionedChangeStreamClient<E extends Exception>
     this.closed = new AtomicBoolean(false);
   }
 
-  /**
+  /*
    * Returns the next completed reader batch independently of other readers' progress. Calls to this
-   * method are serialized. {@link #close()} wakes a waiting call and closes in-flight reader
-   * clients.
+   * method are serialized. Each call follows these steps:
    *
-   * <p>A failed read preserves pending reads from other readers of the same index for subsequent
-   * calls. {@link #close()} requests cleanup of outstanding reads.
+   * 1. Reject the call if this client is closed.
+   *
+   * 2. Check allReadersFinished(). If every reader has reached a lifecycle boundary, delegate to
+   *    handleAllReadersFinished(). These are placeholders: readers currently report unfinished,
+   *    and the handler throws if reached.
+   *
+   * 3. Call submitFetchForReaders(). Each reader decides whether to submit a fetch, skipping if it
+   *    has reached a lifecycle boundary or already has a queued fetch, running fetch, or completed
+   *    result awaiting consumption. Eligible readers fetch concurrently.
+   *
+   * 4. Take the next reader from completedReaders, waiting if the queue is empty. Fetch completion
+   *    queues the reader on success or failure; this call does not wait for every reader.
+   *    A shutdown wakeup causes the call to throw.
+   *
+   * 5. Consume that reader's pendingFetch, freeing its slot and retrieving its batch or propagating
+   *    its failure. Other readers' pending results remain available for later calls.
+   *
+   * 6. Reject unsupported lifecycle events, then return the batch with its originating partition,
+   *    real resume token, and command operation time.
+   *
+   * Example: A has a ready batch, B is idle, and C is still fetching. This call submits B's fetch
+   * before returning A's queued batch. A can be scheduled for another fetch on the next call.
+   *
+   * close() wakes a waiting call and closes reader clients. Closure is checked again after waiting
+   * and after retrieving the result, before a batch is returned.
    */
   @Override
   public synchronized ChangeStreamBatch getNext() throws E {
     checkState(!this.closed.get(), "Change stream client is closed");
     return this.exceptionWrapper.wrapIfThrows(
         () -> {
-          submitFetchesForIdleReaders();
+          if (allReadersFinished()) {
+            return handleAllReadersFinished();
+          }
+          submitFetchForReaders();
           Reader<E> reader =
               this.completedReaders
                   .take()
@@ -192,12 +217,23 @@ public class PartitionedChangeStreamClient<E extends Exception>
     return SUPPORTED_OPERATION_TYPES.contains(event.getString("operationType").getValue());
   }
 
-  /** Asks each reader to fetch if idle and queues it when the fetch completes. */
-  private void submitFetchesForIdleReaders() {
+  /** Checks whether every reader has reached the lifecycle boundary. */
+  private boolean allReadersFinished() {
+    return this.readers.stream().allMatch(Reader::isFinished);
+  }
+
+  /** Placeholder for coordinating the lifecycle event after every reader has finished. */
+  private ChangeStreamBatch handleAllReadersFinished() {
+    // Lifecycle coordination will supply the batch to return here.
+    throw new IllegalStateException(
+        "Partitioned change stream lifecycle coordination is not implemented");
+  }
+
+  /** Lets each reader decide whether to fetch and queues it when the fetch completes. */
+  private void submitFetchForReaders() {
     for (Reader<E> reader : this.readers) {
       try {
-        reader.submitFetchIfIdle(
-            this.executor, () -> this.completedReaders.add(Optional.of(reader)));
+        reader.submitFetch(this.executor, () -> this.completedReaders.add(Optional.of(reader)));
       } catch (RejectedExecutionException failure) {
         if (this.closed.get()) {
           throw new IllegalStateException("Change stream client is closed", failure);
@@ -245,12 +281,19 @@ public class PartitionedChangeStreamClient<E extends Exception>
       this.pendingFetch = Optional.empty();
     }
 
+    /** Placeholder for reader-owned state indicating that a lifecycle boundary was reached. */
+    boolean isFinished() {
+      // Lifecycle detection will record completion here; until then this reader stays unfinished.
+      return false;
+    }
+
     /**
-     * Starts one fetch if the previous result has been consumed. Completion notifies the caller;
-     * the result remains pending until taken. A rejected submission leaves this reader idle.
+     * Starts one fetch if unfinished and the previous result has been consumed. Completion notifies
+     * the caller; the result remains pending until taken. A rejected submission leaves this reader
+     * idle.
      */
-    void submitFetchIfIdle(Executor executor, Runnable onCompletion) {
-      if (this.pendingFetch.isPresent()) {
+    void submitFetch(Executor executor, Runnable onCompletion) {
+      if (isFinished() || this.pendingFetch.isPresent()) {
         return;
       }
       var future =
