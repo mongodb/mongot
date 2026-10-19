@@ -8,6 +8,8 @@ import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.regex.RegexBudget;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +25,10 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
   // Either a constant holding the last staged blob or, for writers that assemble their position
   // from live state, a supplier read as the commit runs. Last write wins between the two.
   private final AtomicReference<Supplier<IndexCommitUserData>> commitUserDataSupplier;
+  // Analyzer instances are cached across indexes: latch failure on this generation's indexer
+  // instead.
+  private final AtomicReference<RegexLimitExceededException> analysisFailure =
+      new AtomicReference<>();
   // Present only for the derived index of an auto-embedding composite. When present, each commit
   // snapshots the auto-embedding metadata (e.g. the lease's per-definition-version queryable
   // ratchet) so a restart that cannot reach mongod can read it back to report STALE rather than
@@ -62,10 +68,15 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
 
   @Override
   public void indexDocumentEvent(DocumentEvent event) throws FieldExceededLimitsException {
-
-    try {
+    RegexLimitExceededException previousFailure = this.analysisFailure.get();
+    if (previousFailure != null) {
+      throw previousFailure;
+    }
+    try (var ignored = RegexBudget.openScope()) {
       this.index.getWriter().updateIndex(event);
-
+    } catch (RegexLimitExceededException e) {
+      this.analysisFailure.compareAndSet(null, e);
+      throw e;
     } catch (IOException e) {
       Crash.because(
               String.format(
@@ -93,12 +104,15 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
 
   @Override
   public void updateCommitUserData(IndexCommitUserData commitUserData) {
-    this.commitUserDataSupplier.set(() -> commitUserData);
+    updateCommitUserDataSupplier(() -> commitUserData);
   }
 
   @Override
   public void updateCommitUserDataSupplier(Supplier<IndexCommitUserData> commitUserDataSupplier) {
-    this.commitUserDataSupplier.set(commitUserDataSupplier);
+    // A previous batch may publish its checkpoint after a later batch failed. CAS with clearIndex's
+    // publication keeps such a delayed update from replacing the persisted failure marker.
+    this.commitUserDataSupplier.updateAndGet(
+        previous -> this.analysisFailure.get() == null ? commitUserDataSupplier : previous);
   }
 
   @Override
@@ -126,7 +140,8 @@ public class DefaultDocumentIndexer implements DocumentIndexer {
   @Override
   public synchronized void clearIndex(IndexCommitUserData commitUserData) {
     this.index.clear(commitUserData.toEncodedData());
-    updateCommitUserData(commitUserData);
+    // Terminal status publication must bypass the failed-analysis checkpoint guard.
+    this.commitUserDataSupplier.set(() -> commitUserData);
   }
 
   @Override

@@ -26,6 +26,8 @@ import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.concurrent.NamedExecutorService;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import java.io.IOException;
@@ -467,6 +469,10 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
       case IOException ioException -> throw ioException;
       case InvalidQueryException invalidQueryException -> throw invalidQueryException;
       case InterruptedException interruptedException -> throw interruptedException;
+      // Command handlers distinguish analyzer limits and cancellation from internal failures.
+      case RegexLimitExceededException regexLimitExceededException ->
+          throw regexLimitExceededException;
+      case RegexInterruptedException regexInterruptedException -> throw regexInterruptedException;
       default -> throw new RuntimeException(e);
     }
   }

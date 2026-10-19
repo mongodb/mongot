@@ -82,6 +82,8 @@ import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
 import com.xgen.mongot.util.mongodb.MongoDbVersion;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.QueryExplainInformationBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.information.TermQueryBuilder;
@@ -299,9 +301,10 @@ public class SearchCommandTest {
 
   @Test
   public void testValidIndex() throws Exception {
+    var metricsFactory = mockMetricsFactory();
     SearchCommand command =
         new SearchCommand(
-            new SearchCommand.Metrics(mockMetricsFactory()),
+            new SearchCommand.Metrics(metricsFactory),
             getCursorManager(),
             new DefaultIndexCatalog(),
             new InitializedIndexCatalog(),
@@ -320,6 +323,11 @@ public class SearchCommandTest {
     BsonDocument expected = mockInitialMongotCursorBatch().toBson();
     Assert.assertEquals(expected, result);
     Assert.assertEquals(List.of(MOCK_SEARCH_CURSOR_ID), command.getCreatedCursorIds());
+    Truth.assertThat(
+            metricsFactory
+                .counter("regexAnalysisLimitExceeded", Tags.of("command", "search"))
+                .count())
+        .isEqualTo(0.0);
   }
 
   @Test
@@ -1236,6 +1244,79 @@ public class SearchCommandTest {
   }
 
   @Test
+  public void run_regexLimit_returnsUserError() throws Exception {
+    var metricsFactory = mockMetricsFactory();
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(metricsFactory),
+            getThrowableCursorManager(RegexLimitExceededException::new),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(VALID_OPERATOR_QUERY)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Assert.assertEquals(
+        new RegexLimitExceededException().getMessage(), result.getString("errmsg").getValue());
+    Assert.assertEquals(1, (int) command.getSearchCommandInvalidQueries().count());
+    Truth.assertThat(
+            metricsFactory
+                .counter("regexAnalysisLimitExceeded", Tags.of("command", "search"))
+                .count())
+        .isEqualTo(1.0);
+    Truth.assertThat(
+            internalFailureCount(
+                metricsFactory,
+                RegexLimitExceededException.class.getSimpleName(),
+                ErrorType.INTERNAL_ERROR))
+        .isEqualTo(0.0);
+    Truth.assertThat(
+            internalFailureCount(
+                metricsFactory, RuntimeException.class.getSimpleName(), ErrorType.INTERNAL_ERROR))
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void run_regexInterruption_doesNotCountAsLimitFailure() throws Exception {
+    var metricsFactory = mockMetricsFactory();
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(metricsFactory),
+            getThrowableCursorManager(RegexInterruptedException::new),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(VALID_OPERATOR_QUERY)
+                .build(),
+            BOOTSTRAPPER_METADATA,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+
+    BsonDocument result = command.run();
+
+    Assert.assertEquals(0, result.getInt32("ok").getValue());
+    Truth.assertThat(
+            metricsFactory
+                .counter("regexAnalysisLimitExceeded", Tags.of("command", "search"))
+                .count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
   public void unreachableErrorThrown_internalMetricNotIncremented() throws Exception {
     var metricsFactory = mockMetricsFactory();
     SearchCommand command =
@@ -1316,6 +1397,11 @@ public class SearchCommandTest {
             internalFailureCount(
                 metricsFactory, IOException.class.getSimpleName(), ErrorType.INTERNAL_ERROR))
         .isEqualTo(1.0);
+    Truth.assertThat(
+            metricsFactory
+                .counter("regexAnalysisLimitExceeded", Tags.of("command", "search"))
+                .count())
+        .isEqualTo(0.0);
   }
 
   @Theory

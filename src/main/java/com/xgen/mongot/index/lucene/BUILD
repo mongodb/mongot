@@ -152,6 +152,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/util/bson",
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
+        "//src/main/java/com/xgen/mongot/util/regex",
         "//src/main/java/com/xgen/mongot/util/timers",
         "@maven//:com_github_oshi_oshi_core",
         "@maven//:com_google_errorprone_error_prone_annotations",

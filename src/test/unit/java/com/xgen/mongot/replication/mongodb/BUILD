@@ -34,6 +34,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/concurrent",
         "//src/main/java/com/xgen/mongot/util/mongodb",
+        "//src/main/java/com/xgen/mongot/util/regex",
         "//src/main/java/com/xgen/testing",
         "//src/main/java/com/xgen/testing/mongot/index",
         "//src/main/java/com/xgen/testing/mongot/index/definition",

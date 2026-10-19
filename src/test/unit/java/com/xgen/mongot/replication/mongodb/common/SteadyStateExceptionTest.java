@@ -13,12 +13,45 @@ import com.mongodb.connection.ClusterId;
 import com.mongodb.connection.ServerId;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException.Type;
 import com.xgen.mongot.util.mongodb.Errors;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class SteadyStateExceptionTest {
+
+  @Test
+  public void wrapIfThrows_regexLimit_isPersistentAnalysisFailure() {
+    var failure = new RegexLimitExceededException();
+
+    var translated =
+        Assert.assertThrows(
+            SteadyStateException.class,
+            () ->
+                SteadyStateException.wrapIfThrows(
+                    () -> {
+                      throw failure;
+                    }));
+
+    Assert.assertEquals(SteadyStateException.Type.ANALYSIS_LIMIT_EXCEEDED, translated.getType());
+    Assert.assertEquals(failure.getMessage(), translated.getMessage());
+  }
+
+  @Test
+  public void wrapIfThrows_regexInterrupted_isShutdown() {
+    var translated =
+        Assert.assertThrows(
+            SteadyStateException.class,
+            () ->
+                SteadyStateException.wrapIfThrows(
+                    () -> {
+                      throw new RegexInterruptedException();
+                    }));
+
+    Assert.assertTrue(translated.isShutdown());
+  }
 
   @Test
   public void testTransient() {

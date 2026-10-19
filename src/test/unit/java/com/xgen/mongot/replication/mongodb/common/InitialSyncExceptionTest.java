@@ -7,11 +7,44 @@ import com.mongodb.MongoInterruptedException;
 import com.mongodb.MongoSocketException;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.util.mongodb.Errors;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import java.util.concurrent.CompletableFuture;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class InitialSyncExceptionTest {
+
+  @Test
+  public void wrapIfThrows_regexLimit_isPersistentAnalysisFailure() {
+    var failure = new RegexLimitExceededException();
+
+    var translated =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () ->
+                InitialSyncException.wrapIfThrows(
+                    () -> {
+                      throw failure;
+                    }));
+
+    Assert.assertEquals(InitialSyncException.Type.ANALYSIS_LIMIT_EXCEEDED, translated.getType());
+    Assert.assertEquals(failure.getMessage(), translated.getMessage());
+  }
+
+  @Test
+  public void wrapIfThrows_regexInterrupted_isShutdown() {
+    var translated =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () ->
+                InitialSyncException.wrapIfThrows(
+                    () -> {
+                      throw new RegexInterruptedException();
+                    }));
+
+    Assert.assertTrue(translated.isShutdown());
+  }
 
   @Test
   public void testRequiresResync() {

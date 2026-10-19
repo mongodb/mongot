@@ -22,6 +22,7 @@ import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.registry.CommandRegistry;
 import com.xgen.mongot.server.command.search.GetMoreCommand;
@@ -188,10 +189,14 @@ public class ServerCallHandlerTest {
   }
 
   private static CommandRegistry registryWithCursorCommands(MongotCursorManagerImpl cursorManager) {
-    return CommandRegistry.create(new SimpleMeterRegistry())
+    var meterRegistry = new SimpleMeterRegistry();
+    return CommandRegistry.create(meterRegistry)
         .registerCommand(
             "getMore",
-            new GetMoreCommand.Factory(cursorManager, CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT),
+            new GetMoreCommand.Factory(
+                cursorManager,
+                CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+                new MetricsFactory("search_metrics", meterRegistry)),
             true)
         .registerCommand("killCursors", new KillCursorsCommand.Factory(cursorManager), true);
   }

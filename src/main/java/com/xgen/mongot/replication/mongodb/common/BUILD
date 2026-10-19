@@ -124,6 +124,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
+        "//src/main/java/com/xgen/mongot/util/regex",
         "@maven//:com_github_luben_zstd_jni",  # keep: required at runtime
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_flogger_flogger",

@@ -4,6 +4,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.index.synonym.SynonymDocument;
 import com.xgen.mongot.index.synonym.SynonymMapping;
 import com.xgen.mongot.index.synonym.SynonymMappingException;
+import com.xgen.mongot.util.regex.RegexBudget;
 import java.io.IOException;
 import java.io.Reader;
 import java.util.ArrayList;
@@ -55,14 +56,16 @@ public class LuceneSynonymMapBuilder implements SynonymMapping.Builder {
   @Override
   public SynonymMapping.Builder addDocument(SynonymDocument document)
       throws SynonymMappingException {
-    return switch (document.getMappingType()) {
-      case EQUIVALENT -> this.addEquivalent(document.getSynonyms(), document.getRawDocId());
-      case EXPLICIT ->
-          // Explicit documents checked to have input in SynonymDocument construction.
-          //noinspection OptionalGetWithoutIsPresent
-          this.addExplicit(
-              document.getInput().get(), document.getSynonyms(), document.getRawDocId());
-    };
+    try (var ignored = RegexBudget.openScope()) {
+      return switch (document.getMappingType()) {
+        case EQUIVALENT -> this.addEquivalent(document.getSynonyms(), document.getRawDocId());
+        case EXPLICIT ->
+            // Explicit documents checked to have input in SynonymDocument construction.
+            //noinspection OptionalGetWithoutIsPresent
+            this.addExplicit(
+                document.getInput().get(), document.getSynonyms(), document.getRawDocId());
+      };
+    }
   }
 
   /**

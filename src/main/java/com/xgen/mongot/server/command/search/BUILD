@@ -72,6 +72,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
+        "//src/main/java/com/xgen/mongot/util/regex",
         "//src/main/java/com/xgen/mongot/util/retry",
         "//src/proto/searchenvoy:searchenvoy_java_proto",
         "@maven//:com_google_errorprone_error_prone_annotations",

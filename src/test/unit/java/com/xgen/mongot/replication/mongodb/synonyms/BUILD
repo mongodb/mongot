@@ -22,6 +22,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/mongot/util/functionalinterfaces",
         "//src/main/java/com/xgen/mongot/util/mongodb",
+        "//src/main/java/com/xgen/mongot/util/regex",
         "//src/main/java/com/xgen/testing",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/index/synonym",

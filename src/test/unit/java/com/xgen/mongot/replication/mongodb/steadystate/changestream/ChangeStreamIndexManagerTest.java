@@ -56,6 +56,8 @@ import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStream
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamIndexManager.DocumentMetricsUpdater;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.FutureUtils;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.version.GenerationIdBuilder;
 import com.xgen.testing.mongot.mock.index.IndexMetricsSupplier;
@@ -117,6 +119,61 @@ public class ChangeStreamIndexManagerTest {
 
   @RunWith(Parameterized.class)
   public static class SharedTests {
+
+    @Test
+    public void indexBatch_regexLimit_translatesWithoutAdvancingResumeInfo() throws Exception {
+      assertRegexFailureTranslation(
+          new RegexLimitExceededException(), Type.ANALYSIS_LIMIT_EXCEEDED);
+    }
+
+    @Test
+    public void indexBatch_regexInterrupted_translatesToShutdown() throws Exception {
+      assertRegexFailureTranslation(new RegexInterruptedException(), Type.SHUT_DOWN);
+    }
+
+    private void assertRegexFailureTranslation(RuntimeException failure, Type expectedType)
+        throws Exception {
+      IndexingWorkScheduler scheduler = mock(IndexingWorkScheduler.class);
+      when(scheduler.schedule(any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(CompletableFuture.failedFuture(failure));
+      AtomicReference<ChangeStreamResumeInfo> resumeInfo = new AtomicReference<>();
+      // Shutdown must interrupt the real Thread, not a Mockito spy with copied Thread state.
+      var decodingScheduler = DecodingWorkScheduler.create(2, new SimpleMeterRegistry());
+      ChangeStreamIndexManager manager =
+          ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(decodingScheduler)
+              .create(
+                  MOCK_INDEX_DEFINITION,
+                  scheduler,
+                  indexer(),
+                  ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getNamespace(),
+                  resumeInfo::set,
+                  IGNORE_METRICS,
+                  new CompletableFuture<>(),
+                  GenerationIdBuilder.create(),
+                  Optional.empty());
+      try {
+        var future =
+            manager.indexBatch(
+                    new ChangeStreamBatch(
+                        List.of(), POST_BATCH_RESUME_TOKEN, Optional.of(new BsonTimestamp())),
+                    NOOP_DOCUMENT_METRICS_UPDATER,
+                    NOOP_TIMER)
+                .indexingFuture;
+
+        var exception =
+            Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+
+        assertThat(exception.getCause()).isInstanceOf(SteadyStateException.class);
+        assertThat(((SteadyStateException) exception.getCause()).getType()).isEqualTo(expectedType);
+        assertThat(resumeInfo.get()).isNull();
+      } finally {
+        try {
+          manager.shutdown().get(5, TimeUnit.SECONDS);
+        } finally {
+          decodingScheduler.shutdown().get(5, TimeUnit.SECONDS);
+        }
+      }
+    }
 
     @Parameters(name = "{0}")
     public static List<TestParameter> params() {

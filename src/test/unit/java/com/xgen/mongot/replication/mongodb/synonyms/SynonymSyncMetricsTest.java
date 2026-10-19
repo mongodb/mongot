@@ -5,6 +5,7 @@ import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockIndexGenera
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_INDEX_DEFINITION_GENERATION;
 import static com.xgen.testing.mongot.mock.index.SearchIndex.MOCK_SINGLE_SYNONYM_MAPPING_DEFINITION;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
@@ -15,6 +16,8 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
 import com.xgen.mongot.replication.mongodb.common.SynonymSyncException;
 import com.xgen.mongot.util.BsonUtils;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import com.xgen.testing.ControlledBlockingQueue;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
@@ -23,7 +26,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -39,6 +44,77 @@ public class SynonymSyncMetricsTest {
   private SynonymSyncMongoClient mockMongoClient;
   private SynonymDocumentIndexer mockDocumentIndexer;
   private SynonymManager synonymManager;
+
+  @Test
+  public void collectionScan_regexLimit_countsOnceAfterTranslation() throws Exception {
+    var cause = new RegexLimitExceededException();
+    var failure =
+        assertThrows(
+            SynonymSyncException.class,
+            () ->
+                SynonymSyncException.wrapIfThrows(
+                    () -> {
+                      throw cause;
+                    }));
+    this.synonymManager = createSynonymManagerWithFailingScanner(this.metricsFactory, failure);
+
+    var future =
+        this.synonymManager.enqueueCollectionScan(
+            this.mockDocumentIndexer,
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION),
+            MOCK_SINGLE_SYNONYM_MAPPING_DEFINITION,
+            () -> {});
+    assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+
+    assertThat(this.metricsFactory.get("regexAnalysisLimitExceeded").counter().count())
+        .isEqualTo(1.0);
+    assertThat(this.metricsFactory.get("exceptions").counter().count()).isEqualTo(1.0);
+  }
+
+  @Test
+  public void collectionScan_regexInterruption_doesNotCountAsLimitFailure() throws Exception {
+    var failure =
+        assertThrows(
+            SynonymSyncException.class,
+            () ->
+                SynonymSyncException.wrapIfThrows(
+                    () -> {
+                      throw new RegexInterruptedException();
+                    }));
+    this.synonymManager = createSynonymManagerWithFailingScanner(this.metricsFactory, failure);
+
+    var future =
+        this.synonymManager.enqueueCollectionScan(
+            this.mockDocumentIndexer,
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION),
+            MOCK_SINGLE_SYNONYM_MAPPING_DEFINITION,
+            () -> {});
+    assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
+
+    assertThat(this.metricsFactory.get("regexAnalysisLimitExceeded").counter().count())
+        .isEqualTo(0.0);
+  }
+
+  @Test
+  public void recordException_directAndTimestampWrappedLimits_countsBoth() {
+    var metrics = new SynonymSyncMetrics(this.metricsFactory);
+    var failure =
+        assertThrows(
+            SynonymSyncException.class,
+            () ->
+                SynonymSyncException.wrapIfThrows(
+                    () -> {
+                      throw new RegexLimitExceededException();
+                    }));
+
+    metrics.recordException(new RegexLimitExceededException());
+    metrics.recordException(
+        SynonymSyncException.withOpTime(failure, Optional.of(SCAN_OPERATION_TIME)));
+
+    assertThat(this.metricsFactory.get("regexAnalysisLimitExceeded").counter().count())
+        .isEqualTo(2.0);
+    assertThat(this.metricsFactory.get("exceptions").counter().count()).isEqualTo(2.0);
+  }
 
   @Before
   public void setUp() throws SynonymSyncException {
@@ -85,6 +161,8 @@ public class SynonymSyncMetricsTest {
     }
 
     assertEquals(3.0, this.metricsFactory.get("collScans").counter().count(), 0.01);
+    assertThat(this.metricsFactory.get("regexAnalysisLimitExceeded").counter().count())
+        .isEqualTo(0.0);
   }
 
   @Test
@@ -156,13 +234,20 @@ public class SynonymSyncMetricsTest {
     // Verify exception counter was incremented
     Counter exceptionCounter = this.metricsFactory.get("exceptions").counter();
     assertEquals(1.0, exceptionCounter.count(), 0.01);
+    assertThat(this.metricsFactory.get("regexAnalysisLimitExceeded").counter().count())
+        .isEqualTo(0.0);
   }
 
   private SynonymManager createSynonymManagerWithFailingScanner(MetricsFactory metricsFactory)
       throws SynonymSyncException {
+    return createSynonymManagerWithFailingScanner(
+        metricsFactory, SynonymSyncException.createTransient(new RuntimeException()));
+  }
+
+  private SynonymManager createSynonymManagerWithFailingScanner(
+      MetricsFactory metricsFactory, SynonymSyncException failure) throws SynonymSyncException {
     SynonymCollectionScanner mockScanner = mock(SynonymCollectionScanner.class);
-    when(mockScanner.scan())
-        .thenThrow(SynonymSyncException.createTransient(new RuntimeException()));
+    when(mockScanner.scan()).thenThrow(failure);
     SynonymCollectionScanner.Factory mockFactory = (mongoClient, request) -> mockScanner;
     doNothing().when(this.mockDocumentIndexer).completeExceptionally(any());
 

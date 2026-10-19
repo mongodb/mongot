@@ -10,6 +10,8 @@ import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
+import com.xgen.mongot.index.query.InvalidQueryException;
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.search.definition.request.BatchOptionsDefinition;
@@ -18,6 +20,11 @@ import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import com.xgen.mongot.util.regex.RegexBudget;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import io.opentelemetry.context.Scope;
 import java.util.List;
@@ -33,14 +40,17 @@ public class GetMoreCommand implements Command {
   private final GetMoreCommandDefinition definition;
   private final MongotCursorManager cursorManager;
   private final Bytes bsonSizeSoftLimit;
+  private final Counter regexAnalysisLimitExceeded;
 
   private GetMoreCommand(
       GetMoreCommandDefinition definition,
       MongotCursorManager cursorManager,
-      Bytes bsonSizeSoftLimit) {
+      Bytes bsonSizeSoftLimit,
+      Counter regexAnalysisLimitExceeded) {
     this.definition = definition;
     this.cursorManager = cursorManager;
     this.bsonSizeSoftLimit = bsonSizeSoftLimit;
+    this.regexAnalysisLimitExceeded = regexAnalysisLimitExceeded;
   }
 
   @Override
@@ -52,7 +62,7 @@ public class GetMoreCommand implements Command {
   public BsonDocument run() {
     LOG.atTrace().addKeyValue("command", GetMoreCommandDefinition.NAME).log("Received command");
 
-    try {
+    try (var regexScope = RegexBudget.openScope()) {
       Optional<ExplainQueryState> prevExplainState =
           this.cursorManager.getExplainQueryState(this.definition.cursorId());
 
@@ -83,6 +93,13 @@ public class GetMoreCommand implements Command {
         queryBatchTimerRecorder.recordSample(sample);
         return batch.toBson();
       }
+    } catch (RegexLimitExceededException e) {
+      this.regexAnalysisLimitExceeded.increment();
+      this.cursorManager.killCursor(this.definition.cursorId());
+      return MessageUtils.createErrorBody(new InvalidQueryException(e.getMessage()));
+    } catch (RegexInterruptedException e) {
+      this.cursorManager.killCursor(this.definition.cursorId());
+      return MessageUtils.createErrorBody(e);
     } catch (MongotCursorNotFoundException | IndexUnavailableException e) {
       return MessageUtils.createErrorBody(e);
     } catch (Exception e) {
@@ -116,17 +133,25 @@ public class GetMoreCommand implements Command {
 
     private final MongotCursorManager cursorManager;
     private final Bytes bsonSizeSoftLimit;
+    private final Counter regexAnalysisLimitExceeded;
 
-    public Factory(MongotCursorManager cursorManager, Bytes bsonSizeSoftLimit) {
+    public Factory(
+        MongotCursorManager cursorManager, Bytes bsonSizeSoftLimit, MetricsFactory metricsFactory) {
       this.cursorManager = cursorManager;
       this.bsonSizeSoftLimit = bsonSizeSoftLimit;
+      this.regexAnalysisLimitExceeded =
+          metricsFactory.counter("regexAnalysisLimitExceeded", Tags.of("command", "getMore"));
     }
 
     @Override
     public Command create(BsonDocument args) {
       try (var parser = BsonDocumentParser.fromRoot(args).allowUnknownFields(true).build()) {
         GetMoreCommandDefinition definition = GetMoreCommandDefinition.fromBson(parser);
-        return new GetMoreCommand(definition, this.cursorManager, this.bsonSizeSoftLimit);
+        return new GetMoreCommand(
+            definition,
+            this.cursorManager,
+            this.bsonSizeSoftLimit,
+            this.regexAnalysisLimitExceeded);
       } catch (BsonParseException e) {
         // we have no way of throwing checked exceptions beyond this method
         // (called directly by opmsg)

@@ -38,6 +38,8 @@ import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.LoggableIdUtils;
 import com.xgen.mongot.util.concurrent.LockGuard;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.util.HashMap;
@@ -603,10 +605,20 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
       try {
         this.luceneWriter.updateDocuments(
             LuceneDocumentIdEncoder.documentIdTerm(encodedDocumentId), documentBlock);
+      } catch (RegexLimitExceededException | RegexInterruptedException e) {
+        throw e;
       } catch (Exception e) {
         recordIndexingFailure(e, event.getEventType().name());
         throw e;
       }
+    } catch (RegexLimitExceededException e) {
+      this.indexingMetricsUpdater
+          .getMetricsFactory()
+          .counter("regexAnalysisLimitExceeded")
+          .increment();
+      throw e;
+    } catch (RegexInterruptedException e) {
+      throw e;
     } catch (Throwable e) {
       // Rate limiting the exception logging with `_id` inside the log message to help debugging.
       logIndexingFailureWithRateLimited(e, event.getEventType().name(), encodedDocumentId);

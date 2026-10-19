@@ -404,7 +404,7 @@ public class SynonymManager {
 
         completeFuture = Optional.of(() -> request.getFuture().complete(highWaterMark));
       } catch (Throwable e) {
-        this.metrics.getExceptionCounter().increment();
+        this.metrics.recordException(e);
         completeFuture = Optional.of(() -> request.getFuture().completeExceptionally(e));
       } finally {
         //noinspection ConstantConditions

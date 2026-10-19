@@ -24,6 +24,8 @@ import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.time.Instant;
@@ -393,6 +395,12 @@ abstract class ChangeStreamIndexManager {
             ? throwable.getCause()
             : throwable;
 
+    if (unwrapped instanceof RegexLimitExceededException e) {
+      return SteadyStateException.createAnalysisLimitExceeded(e.getMessage());
+    }
+    if (unwrapped instanceof RegexInterruptedException) {
+      return SteadyStateException.createShutDown();
+    }
     if (unwrapped instanceof FieldExceededLimitsException f) {
       return SteadyStateException.createFieldExceeded(f.getMessage());
     }

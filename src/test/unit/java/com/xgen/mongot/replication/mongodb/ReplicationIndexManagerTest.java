@@ -76,6 +76,7 @@ import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingHighWaterMark;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManager;
 import com.xgen.mongot.replication.mongodb.synonyms.SynonymMappingManagerFactory;
 import com.xgen.mongot.util.Crash;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
@@ -982,6 +983,47 @@ public class ReplicationIndexManagerTest {
       inOrder.verify(mocks.documentIndexer, timeout(1000)).clearIndex(indexCommitUserData);
       mocks.assertStateTransitions(
           IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED_EXCEEDED);
+    }
+  }
+
+  @Test
+  public void initialSync_analysisLimit_persistsFailedGeneration() throws Exception {
+    var failure = new RegexLimitExceededException();
+    var translated =
+        Assert.assertThrows(
+            InitialSyncException.class,
+            () ->
+                InitialSyncException.wrapIfThrows(
+                    () -> {
+                      throw failure;
+                    }));
+    try (Mocks mocks = Mocks.exceptionalInitialSync(translated)) {
+      verify(mocks.documentIndexer, timeout(5000))
+          .clearIndex(IndexCommitUserData.createExceeded(failure.getMessage()));
+      verify(mocks.index, timeout(1000))
+          .setStatus(
+              indexStatusWithMessage(IndexStatus.StatusCode.FAILED, EXCEEDED_LIMIT_REASON_PREFIX));
+      mocks.assertStateTransitions(
+          IndexManager.State.INITIAL_SYNC, IndexManager.State.FAILED_EXCEEDED);
+    }
+  }
+
+  @Test
+  public void steadyState_analysisLimit_persistsFailedGeneration() throws Exception {
+    var failure = new RegexLimitExceededException();
+    try (Mocks mocks =
+        Mocks.exceptionalSteadyState(
+            SteadyStateException.createAnalysisLimitExceeded(failure.getMessage()))) {
+      verify(mocks.documentIndexer, timeout(5000))
+          .clearIndex(IndexCommitUserData.createExceeded(failure.getMessage()));
+      verify(mocks.index, timeout(1000))
+          .setStatus(
+              indexStatusWithMessage(IndexStatus.StatusCode.FAILED, EXCEEDED_LIMIT_REASON_PREFIX));
+      mocks.assertMetric(
+          SteadyStateException.class,
+          SteadyStateException.Type.ANALYSIS_LIMIT_EXCEEDED.name(),
+          "None",
+          "None");
     }
   }
 

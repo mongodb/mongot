@@ -13,6 +13,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
@@ -34,6 +36,7 @@ import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.lucene.analyzer.CustomAnalyzer;
 import com.xgen.mongot.index.lucene.codec.bloom.BloomCodecPolicy;
 import com.xgen.mongot.index.lucene.config.LuceneConfig;
 import com.xgen.mongot.index.lucene.field.FieldName;
@@ -53,6 +56,8 @@ import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.FloatVector;
 import com.xgen.mongot.util.bson.Vector;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import com.xgen.testing.ConcurrencyTestUtils;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.index.analyzer.AnalyzerRegistryBuilder;
@@ -62,6 +67,7 @@ import com.xgen.testing.mongot.index.definition.StringFacetFieldDefinitionBuilde
 import com.xgen.testing.mongot.index.definition.TokenFieldDefinitionBuilder;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
+import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.File;
 import java.io.IOException;
@@ -74,6 +80,8 @@ import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import org.apache.lucene.analysis.TokenFilter;
+import org.apache.lucene.analysis.core.KeywordTokenizer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.facet.DrillDownQuery;
@@ -283,6 +291,67 @@ public class SingleLuceneIndexWriterTest {
 
   @RunWith(Theories.class)
   public static class MainTests {
+
+    @Test
+    public void updateIndex_regexLimit_countsOnceWithoutInternalFailure() throws Exception {
+      assertRegexFailureMetrics(new RegexLimitExceededException(), 1.0);
+    }
+
+    @Test
+    public void updateIndex_regexInterrupted_doesNotCountAsLimitFailure() throws Exception {
+      assertRegexFailureMetrics(new RegexInterruptedException(), 0.0);
+    }
+
+    private static void assertRegexFailureMetrics(RuntimeException failure, double expectedCount)
+        throws Exception {
+      var metrics = SearchIndex.mockIndexingMetricsUpdater(IndexDefinition.Type.SEARCH);
+      var registry = spy(AnalyzerRegistryBuilder.empty());
+      try (var analyzer =
+              CustomAnalyzer.builder(KeywordTokenizer::new)
+                  .tokenFilter(
+                      input ->
+                          new TokenFilter(input) {
+                            @Override
+                            public boolean incrementToken() {
+                              throw failure;
+                            }
+                          })
+                  .build();
+          Directory directory = new MMapDirectory(TestUtils.getTempFolderPath())) {
+        doReturn(analyzer).when(registry).getAnalyzer(anyString());
+        try (var writer =
+            getWriter(
+                directory, MOCK_INDEX_DEFINITION, IndexFormatVersion.CURRENT, registry, metrics)) {
+          var document =
+              BsonUtils.documentToRaw(
+                  new BsonDocument("_id", new BsonInt32(1))
+                      .append("text", new BsonString("hello"))
+                      .append(
+                          MOCK_INDEX_ID.toHexString(), new BsonDocument("_id", new BsonInt32(1))));
+          var event =
+              DocumentEvent.createInsert(
+                  DocumentMetadata.fromMetadataNamespace(Optional.of(document), MOCK_INDEX_ID),
+                  document);
+
+          assertThrows(failure.getClass(), () -> writer.updateIndex(event));
+
+          assertThat(metrics.getMetricsFactory().counter("regexAnalysisLimitExceeded").count())
+              .isEqualTo(expectedCount);
+          assertThat(
+                  metrics
+                      .getMetricsFactory()
+                      .counter(
+                          "IndexingInternalFailures",
+                          Tags.of(
+                              "exceptionName",
+                              failure.getClass().getSimpleName(),
+                              "operation",
+                              "INSERT"))
+                      .count())
+              .isEqualTo(0.0);
+        }
+      }
+    }
 
     @DataPoints
     public static IndexFormatVersion[] indexFormatVersions() {

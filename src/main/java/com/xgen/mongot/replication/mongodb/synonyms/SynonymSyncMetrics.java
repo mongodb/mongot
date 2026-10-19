@@ -1,6 +1,8 @@
 package com.xgen.mongot.replication.mongodb.synonyms;
 
 import com.xgen.mongot.metrics.MetricsFactory;
+import com.xgen.mongot.replication.mongodb.common.SynonymSyncException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Timer;
 
@@ -12,6 +14,7 @@ public class SynonymSyncMetrics {
   private final Timer syncDurationTimer;
   private final Timer collScanDurationTimer;
   private final Counter exceptionCounter;
+  private final Counter regexAnalysisLimitExceeded;
   private final Counter collScansTriggeredByChangeStreamCounter;
   private final Counter collScansCounter;
 
@@ -19,6 +22,7 @@ public class SynonymSyncMetrics {
     this.syncDurationTimer = metricsFactory.timerSec("syncDurations");
     this.collScanDurationTimer = metricsFactory.timerSec("collScanDurations");
     this.exceptionCounter = metricsFactory.counter("exceptions");
+    this.regexAnalysisLimitExceeded = metricsFactory.counter("regexAnalysisLimitExceeded");
     this.collScansTriggeredByChangeStreamCounter =
         metricsFactory.counter("collScansTriggeredByChangeStream");
     this.collScansCounter = metricsFactory.counter("collScans");
@@ -41,6 +45,16 @@ public class SynonymSyncMetrics {
   /** Returns the counter for tracking exceptions during synonym syncs. */
   public Counter getExceptionCounter() {
     return this.exceptionCounter;
+  }
+
+  /** Records once per failed sync request, after any exception translation. */
+  public void recordException(Throwable exception) {
+    this.exceptionCounter.increment();
+    if (exception instanceof RegexLimitExceededException
+        || (exception instanceof SynonymSyncException
+            && exception.getCause() instanceof RegexLimitExceededException)) {
+      this.regexAnalysisLimitExceeded.increment();
+    }
   }
 
   /**

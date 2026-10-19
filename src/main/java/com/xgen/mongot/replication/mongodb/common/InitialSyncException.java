@@ -12,6 +12,8 @@ import com.xgen.mongot.index.DocsExceededLimitsException;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
 import com.xgen.mongot.util.mongodb.Errors;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -179,8 +181,10 @@ public class InitialSyncException extends Exception {
   public static <T> T wrapIfThrows(Callable<T> callable, Phase phase) throws InitialSyncException {
     try {
       return callable.call();
-    } catch (MongoInterruptedException | InterruptedException e) {
+    } catch (MongoInterruptedException | InterruptedException | RegexInterruptedException e) {
       throw createShutDown();
+    } catch (RegexLimitExceededException e) {
+      throw new InitialSyncException(Type.ANALYSIS_LIMIT_EXCEEDED, e.getMessage());
     } catch (MongoException e) {
       if (MongoExceptionUtils.isRetryable(e)) {
         throw createResumableTransient(e);
@@ -377,6 +381,9 @@ public class InitialSyncException extends Exception {
 
     /** Index has exceeded a usage field limit. */
     FIELD_EXCEEDED,
+
+    /** Custom analyzer regex matching exhausted its resource budget. */
+    ANALYSIS_LIMIT_EXCEEDED,
 
     /** Index has exceeded docs limit */
     DOCS_EXCEEDED,

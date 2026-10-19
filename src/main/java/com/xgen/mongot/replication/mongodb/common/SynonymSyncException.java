@@ -8,6 +8,8 @@ import com.xgen.mongot.index.synonym.SynonymMappingException;
 import com.xgen.mongot.util.LoggableException;
 import com.xgen.mongot.util.functionalinterfaces.CheckedRunnable;
 import com.xgen.mongot.util.mongodb.Errors;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -174,8 +176,11 @@ public class SynonymSyncException extends LoggableException {
       throws SynonymSyncException {
     try {
       return callable.call();
-    } catch (MongoInterruptedException | InterruptedException e) {
+    } catch (MongoInterruptedException | InterruptedException | RegexInterruptedException e) {
       throw createShutDown();
+    } catch (RegexLimitExceededException e) {
+      // INVALID may repeatedly rescan the same document when no high-water mark is available.
+      throw new SynonymSyncException(e.getMessage(), e, Type.FAILED, operationTime);
     } catch (MongoException e) {
       int code = e.getCode();
       if (COLLECTION_DROPPED_ERROR_CODES.contains(code)) {

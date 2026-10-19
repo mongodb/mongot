@@ -749,7 +749,7 @@ public class ReplicationIndexManager implements IndexManager {
         handleInitialSyncFailed(initialSyncException);
         return;
       }
-      case FIELD_EXCEEDED, DOCS_EXCEEDED ->
+      case FIELD_EXCEEDED, DOCS_EXCEEDED, ANALYSIS_LIMIT_EXCEEDED ->
           exceededIndex(String.valueOf(initialSyncException.getMessage()));
       case SHUT_DOWN -> {
         // If the initial sync was shut down, there are 3 possible reasons:
@@ -1119,7 +1119,8 @@ public class ReplicationIndexManager implements IndexManager {
         handleSteadyStateNonInvalidatingResync(steadyStateException);
         return;
       }
-      case FIELD_EXCEEDED -> exceededIndex(String.valueOf(steadyStateException.getMessage()));
+      case FIELD_EXCEEDED, ANALYSIS_LIMIT_EXCEEDED ->
+          exceededIndex(String.valueOf(steadyStateException.getMessage()));
       case DOCS_EXCEEDED -> staleIndex(StaleStatusReason.DOCS_EXCEEDED, Optional.empty());
       case RENAMED -> {
         this.logger.info("Witnessed rename event. Resuming immediately.");

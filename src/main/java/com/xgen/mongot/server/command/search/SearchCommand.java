@@ -62,6 +62,9 @@ import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.MongoDbVersion;
+import com.xgen.mongot.util.regex.RegexBudget;
+import com.xgen.mongot.util.regex.RegexInterruptedException;
+import com.xgen.mongot.util.regex.RegexLimitExceededException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
@@ -145,7 +148,8 @@ public class SearchCommand implements Command {
   public BsonDocument run() {
     LOG.atTrace().addKeyValue("command", SearchCommandDefinition.NAME).log("Received command");
 
-    try (var guard = Tracing.searchSpanGuard("SearchCommand.run")) {
+    try (var guard = Tracing.searchSpanGuard("SearchCommand.run");
+        var regexScope = RegexBudget.openScope()) {
       this.metrics.searchCommandsTotalCount.increment();
       QueryOptimizationFlags queryOptimizationFlags =
           this.definition
@@ -229,6 +233,11 @@ public class SearchCommand implements Command {
           return batch;
         }
       }
+    } catch (RegexLimitExceededException e) {
+      this.metrics.regexAnalysisLimitExceeded.increment();
+      return handleInvalidQueryException(new InvalidQueryException(e.getMessage()));
+    } catch (RegexInterruptedException e) {
+      return MessageUtils.createErrorBody(e);
     } catch (BsonParseException | InvalidQueryException e) {
       return handleInvalidQueryException(e);
     } catch (Exception e) {
@@ -686,6 +695,7 @@ public class SearchCommand implements Command {
     // a
     // required field, or having an unrecognized field).
     private final Counter searchCommandInvalidQueries;
+    private final Counter regexAnalysisLimitExceeded;
     // Tracks instances where a RuntimeException wrapping an InvalidQueryException was caught and
     // unwrapped.
     private final Counter searchCommandUnwrappedExceptions;
@@ -697,6 +707,8 @@ public class SearchCommand implements Command {
       this.metricsFactory = metricsFactory;
       this.searchCommandsTotalCount = metricsFactory.counter("searchCommandTotalCount");
       this.searchCommandInvalidQueries = metricsFactory.counter("searchCommandInvalidQueries");
+      this.regexAnalysisLimitExceeded =
+          metricsFactory.counter("regexAnalysisLimitExceeded", Tags.of("command", "search"));
       this.searchCommandUnwrappedExceptions =
           metricsFactory.counter("searchCommandWrappedInvalidQueryException");
       this.nonexistentIndexQueries = metricsFactory.counter("searchCommandNonexistentIndex");

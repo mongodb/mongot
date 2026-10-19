@@ -83,7 +83,7 @@ public class SearchCommandsRegister {
             metadata,
             searchMetrics,
             embeddingServiceManagerSupplier);
-    var getMore = new GetMoreCommand.Factory(cursorManager, bsonSizeSoftLimit);
+    var getMore = new GetMoreCommand.Factory(cursorManager, bsonSizeSoftLimit, searchMetrics);
     var planShardedSearch = new PlanShardedSearchCommand.Factory(metadata);
     var killCursors = new KillCursorsCommand.Factory(cursorManager);
     var vectorSearch =
