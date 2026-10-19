@@ -2,6 +2,7 @@ package com.xgen.mongot.embedding.utils;
 
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX;
 
+import com.google.common.collect.ImmutableSet;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.SearchIndexAutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.VectorAutoEmbedFieldMapping;
@@ -28,10 +29,12 @@ import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -552,6 +555,156 @@ public class AutoEmbedFieldMappingCreatorTest {
 
     Assert.assertTrue(mapping.isEmbed(FieldPath.parse("text")));
     Assert.assertTrue(mapping.isPassthrough(FieldPath.parse("title")));
+  }
+
+  @Test
+  public void
+      createAutoEmbedMapping_search_embedPathAlsoDeclaredScalar_isBothEmbedAndPassthrough() {
+    // Dual role: a declared scalar field shares the embed source path, so the mapping must treat
+    // the path as both an embed input and a passthrough copy for the MV.
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "desc_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+
+    Assert.assertTrue(mapping.isEmbed(FieldPath.parse("description")));
+    Assert.assertTrue(mapping.isPassthrough(FieldPath.parse("description")));
+  }
+
+  @Test
+  public void collectAutoEmbedSourcePaths_nestedDocuments_collectsFullDottedPaths() {
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "content_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .field(
+                "top_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("title")))
+                    .build())
+            .build();
+
+    ImmutableSet<FieldPath> sourcePaths =
+        AutoEmbedFieldMappingCreator.collectAutoEmbedSourcePaths(mappings.fields());
+
+    Assert.assertEquals(
+        Set.of(FieldPath.parse("parent.content"), FieldPath.parse("title")), sourcePaths);
+  }
+
+  @Test
+  public void collectDualRoleSourcePaths_insideWholesaleSubtree_addsOnlyAutoEmbedSources() {
+    // A dynamic document is copied wholesale; its explicitly declared scalar child is only
+    // enumerated when it is also an auto-embed source, so the embed-path carve-out does not drop
+    // its raw value while unrelated children stay covered by the wholesale root.
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "active",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .field(
+                "content_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .build();
+    ImmutableSet<FieldPath> autoEmbedSourcePaths =
+        AutoEmbedFieldMappingCreator.collectAutoEmbedSourcePaths(mappings.fields());
+    ImmutableSet.Builder<FieldPath> passthroughBuilder = ImmutableSet.builder();
+
+    AutoEmbedFieldMappingCreator.collectDualRoleSourcePaths(
+        mappings.fields(), Optional.empty(), autoEmbedSourcePaths, passthroughBuilder);
+
+    Assert.assertEquals(Set.of(FieldPath.parse("parent.content")), passthroughBuilder.build());
+  }
+
+  @Test
+  public void producesSameMatViewContent_dynamicDualRoleDeclaration_returnsFalse() {
+    // A dual-role declaration changes MV content even in dynamic mode: the raw value is copied for
+    // the explicitly declared source path, so the mapping diff must not reuse the old MV.
+    SearchIndexAutoEmbedFieldMapping plain =
+        (SearchIndexAutoEmbedFieldMapping)
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(dynamicParentSearchDef(false));
+    SearchIndexAutoEmbedFieldMapping dualRole =
+        (SearchIndexAutoEmbedFieldMapping)
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(dynamicParentSearchDef(true));
+
+    Assert.assertFalse(plain.producesSameMatViewContent(dualRole));
+    Assert.assertFalse(dualRole.producesSameMatViewContent(plain));
+  }
+
+  /** Top-level dynamic mapping with a dynamic parent document containing an auto-embed. */
+  private static SearchIndexDefinition dynamicParentSearchDef(boolean declareDualRoleScalar) {
+    DocumentFieldDefinitionBuilder parentBuilder =
+        DocumentFieldDefinitionBuilder.builder().dynamic(true);
+    DocumentFieldDefinition parent =
+        (declareDualRoleScalar
+                ? parentBuilder.field(
+                    "content",
+                    FieldDefinitionBuilder.builder()
+                        .string(StringFieldDefinitionBuilder.builder().build())
+                        .build())
+                : parentBuilder)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
   }
 
   @Test

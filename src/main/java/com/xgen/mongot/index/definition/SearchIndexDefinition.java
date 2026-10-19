@@ -805,51 +805,87 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   /**
-   * Returns auto-embed {@code path}s that coincide with an explicitly declared non-embed mapping
-   * path (scalar, {@code document}, or {@code embeddedDocuments}, at any nesting depth). A source
-   * field is consumed by the embedding pipeline and never copied to the materialized view, so such
-   * a declaration would silently index nothing.
+   * Returns auto-embed {@code path}s that conflict with a document-shaped mapping: a path declared
+   * inside an {@code embeddedDocuments} subtree, a {@code geo} field path (GeoJSON values cannot be
+   * copied alongside a generated vector), or a field that also declares {@code document} or {@code
+   * embeddedDocuments}.
    */
   public static ImmutableSet<FieldPath> autoEmbedPathMappingConflicts(
       DocumentFieldDefinition mappings) {
-    Set<FieldPath> declaredNonEmbedPaths = new HashSet<>();
-    Set<FieldPath> paths = new LinkedHashSet<>();
+    Set<FieldPath> conflictingPaths = new HashSet<>();
+    Set<FieldPath> autoEmbedPaths = new LinkedHashSet<>();
     collectDeclaredPathsAndAutoEmbedPaths(
-        mappings.fields(), Optional.empty(), declaredNonEmbedPaths, paths);
-    return paths.stream()
-        .filter(declaredNonEmbedPaths::contains)
+        mappings.fields(), Optional.empty(), conflictingPaths, autoEmbedPaths);
+    return autoEmbedPaths.stream()
+        .filter(conflictingPaths::contains)
         .collect(ImmutableSet.toImmutableSet());
+  }
+
+  @VisibleForTesting
+  static void collectDeclaredPathsAndAutoEmbedPaths(
+      Map<String, FieldDefinition> fields,
+      Optional<FieldPath> prefix,
+      Set<FieldPath> conflictingPaths,
+      Set<FieldPath> autoEmbedPaths) {
+    collectDeclaredPathsAndAutoEmbedPaths(
+        fields, prefix, /* underEmbeddedDocuments= */ false, conflictingPaths, autoEmbedPaths);
   }
 
   private static void collectDeclaredPathsAndAutoEmbedPaths(
       Map<String, FieldDefinition> fields,
       Optional<FieldPath> prefix,
-      Set<FieldPath> declaredNonEmbedPaths,
-      Set<FieldPath> paths) {
+      boolean underEmbeddedDocuments,
+      Set<FieldPath> conflictingPaths,
+      Set<FieldPath> autoEmbedPaths) {
     for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
       FieldPath path =
           prefix
               .map(p -> p.newChild(entry.getKey()))
               .orElseGet(() -> FieldPath.newRoot(entry.getKey()));
       FieldDefinition fieldDefinition = entry.getValue();
-      fieldDefinition
-          .searchAutoEmbedFieldDefinition()
-          .ifPresent(autoEmbed -> paths.add(autoEmbed.path()));
-      if (fieldDefinition.hasFieldDefinitionsOtherThan(FieldTypeDefinition.Type.AUTO_EMBED)) {
-        declaredNonEmbedPaths.add(path);
+      Optional<SearchAutoEmbedFieldDefinition> autoEmbed =
+          fieldDefinition.searchAutoEmbedFieldDefinition();
+      autoEmbed.ifPresent(definition -> autoEmbedPaths.add(definition.path()));
+      // Auto-embed beneath embeddedDocuments is unsupported (AUTO_EMBED is an illegal
+      // embeddedDocuments subfield type), so every declared path inside such a subtree conflicts
+      // with an auto-embed source path.
+      if (underEmbeddedDocuments) {
+        conflictingPaths.add(path);
       }
+      // Geo values are GeoJSON documents with no declared children to enumerate, so they cannot
+      // be copied into the materialized view alongside a generated vector at the same path.
+      fieldDefinition.geoFieldDefinition().ifPresent(geo -> conflictingPaths.add(path));
+      // A document or embeddedDocuments alternative cannot share its field with autoEmbed: the
+      // raw document value and the generated vector cannot both live at the source path. Scalar
+      // alternatives are fine (dual role).
+      autoEmbed.ifPresent(
+          definition -> {
+            if (definition.path().equals(path)
+                && (fieldDefinition.documentFieldDefinition().isPresent()
+                    || fieldDefinition.embeddedDocumentsFieldDefinition().isPresent())) {
+              conflictingPaths.add(path);
+            }
+          });
       fieldDefinition
           .documentFieldDefinition()
           .ifPresent(
               document ->
                   collectDeclaredPathsAndAutoEmbedPaths(
-                      document.fields(), Optional.of(path), declaredNonEmbedPaths, paths));
+                      document.fields(),
+                      Optional.of(path),
+                      underEmbeddedDocuments,
+                      conflictingPaths,
+                      autoEmbedPaths));
       fieldDefinition
           .embeddedDocumentsFieldDefinition()
           .ifPresent(
               embedded ->
                   collectDeclaredPathsAndAutoEmbedPaths(
-                      embedded.fields(), Optional.of(path), declaredNonEmbedPaths, paths));
+                      embedded.fields(),
+                      Optional.of(path),
+                      /* underEmbeddedDocuments= */ true,
+                      conflictingPaths,
+                      autoEmbedPaths));
     }
   }
 
@@ -859,8 +895,9 @@ public final class SearchIndexDefinition implements IndexDefinition {
     if (!conflicts.isEmpty()) {
       throw new BsonParseException(
           String.format(
-              "autoEmbed path(s) %s are consumed by the embedding pipeline and"
-                  + " cannot also be mapped as another type",
+              "autoEmbed path(s) %s conflict with a document-shaped mapping: document,"
+                  + " embeddedDocuments, and geo fields cannot be autoEmbed sources, and autoEmbed"
+                  + " is not supported under embeddedDocuments",
               conflicts),
           Optional.empty());
     }

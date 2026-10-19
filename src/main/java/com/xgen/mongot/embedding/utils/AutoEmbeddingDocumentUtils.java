@@ -234,6 +234,9 @@ public class AutoEmbeddingDocumentUtils {
   // keyed by MV path (sections.section_name -> _autoEmbed.sections.section_name). Value comes from
   // the same child element as the embedded vector (else nested $vectorSearch colocates unrelated
   // elements), mirroring buildEmbeddingsPerMatViewPath's first-non-empty-with-vector choice.
+  // No-op for search indexes: their schema mapping holds only embed sources, all skipped below.
+  // Applies to vector nestedRoot filters.
+  // TODO(CLOUDP-441374): search autoEmbed under embeddedDocuments would reach this path.
   private static ImmutableMap<FieldPath, BsonValue> buildRemappedFilterValuesPerMatViewPath(
       RawBsonDocument rawBsonDocument,
       AutoEmbedFieldMapping mappings,
@@ -275,6 +278,9 @@ public class AutoEmbeddingDocumentUtils {
         BsonValue v = values.get(i);
         if (v.isString()
             && !v.asString().getValue().isEmpty()
+            // A dual-role source is collected as passthrough even when its embedding failed, so
+            // the map entry can be absent; skip instead of dereferencing a missing vector map.
+            && vectors != null
             && vectors.containsKey(v.asString().getValue())) {
           chosenIndexPerEmbedSource.put(sourcePath, i);
           break;
@@ -285,7 +291,11 @@ public class AutoEmbeddingDocumentUtils {
     ImmutableMap.Builder<FieldPath, BsonValue> resultBuilder = ImmutableMap.builder();
     for (var entry : collected.entrySet()) {
       FieldPath sourcePath = entry.getKey();
-      if (!mappings.isPassthrough(sourcePath)) {
+      // Only plain filter fields are copied here. An auto-embed source keeps its generated vector
+      // at the MV path (_autoEmbed.<path>), and a dual-role field is an embed source and a filter
+      // at the same time, so copying its raw value here would overwrite that vector with the raw
+      // text.
+      if (mappings.isEmbed(sourcePath) || !mappings.isPassthrough(sourcePath)) {
         continue;
       }
       List<BsonValue> values = entry.getValue();

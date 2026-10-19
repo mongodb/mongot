@@ -41,6 +41,7 @@ import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import java.io.IOException;
 import java.util.AbstractMap;
@@ -546,6 +547,445 @@ public class AutoEmbeddingDocumentUtilsTest {
                             new BsonDocument(
                                 "content", new BsonString(computeTextHash("embed me")))))),
         mvDoc);
+  }
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_embedPathAlsoDeclaredScalar_copiesTextAndVector()
+      throws IOException {
+    // Dual role: the raw value stays in the MV at the embed source path so the declared scalar
+    // mapping is populated, alongside the generated vector and hash.
+    SearchIndexDefinition searchDef = dualRoleAutoEmbedSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument bsonDoc = BsonDocument.parse("{\"_id\": \"anId\", \"description\": \"embed me\"}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            mapping,
+            ImmutableMap.of(FieldPath.parse("description"), ImmutableMap.of("embed me", vector)),
+            DUAL_ROLE_SCHEMA_METADATA);
+
+    BsonDocument mvDoc = result.getDocument().get().clone();
+    assertEquals(
+        new BsonDocument("description", new BsonString("embed me"))
+            .append(
+                "_autoEmbed",
+                new BsonDocument("description", BsonVectorParser.encode(vector))
+                    .append(
+                        "_hash",
+                        new BsonDocument(
+                            "description", new BsonString(computeTextHash("embed me"))))),
+        mvDoc);
+  }
+
+  /** Static root; {@code description} is both the auto-embed source and a declared string field. */
+  private static SearchIndexDefinition dualRoleAutoEmbedSearchDef() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "desc_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  private static final MaterializedViewSchemaMetadata DUAL_ROLE_SCHEMA_METADATA =
+      new MaterializedViewSchemaMetadata(
+          1, Map.of(FieldPath.parse("description"), FieldPath.parse("_autoEmbed.description")));
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_dualRoleUnderDynamicDocument_copiesTextAndVector()
+      throws IOException {
+    // A dual-role source inside a wholesale-passthrough (dynamic) document must keep the raw value
+    // next to the generated vector and hash.
+    SearchIndexDefinition searchDef = dualRoleUnderDynamicDocumentSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument bsonDoc =
+        BsonDocument.parse("{\"_id\": \"anId\", \"parent\": {\"content\": \"embed me\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            mapping,
+            ImmutableMap.of(FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+            DYNAMIC_PARENT_SCHEMA_METADATA);
+
+    BsonDocument mvDoc = result.getDocument().get().clone();
+    assertEquals(
+        new BsonDocument("parent", new BsonDocument("content", new BsonString("embed me")))
+            .append(
+                "_autoEmbed",
+                new BsonDocument(
+                        "parent", new BsonDocument("content", BsonVectorParser.encode(vector)))
+                    .append(
+                        "_hash",
+                        new BsonDocument(
+                            "parent",
+                            new BsonDocument(
+                                "content", new BsonString(computeTextHash("embed me")))))),
+        mvDoc);
+  }
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_dualRoleDeclaredOutsideDynamicDocument_copiesText()
+      throws IOException {
+    // The dual-role scalar sits inside a dynamic document while the autoEmbed declaration lives at
+    // the root; the raw value must still be copied.
+    SearchIndexDefinition searchDef = dualRoleDeclaredOutsideDynamicDocumentSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument bsonDoc =
+        BsonDocument.parse("{\"_id\": \"anId\", \"parent\": {\"content\": \"embed me\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            mapping,
+            ImmutableMap.of(FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+            DYNAMIC_PARENT_SCHEMA_METADATA);
+
+    assertEquals(
+        "embed me",
+        result.getDocument().get().getDocument("parent").getString("content").getValue());
+  }
+
+  /** Dynamic parent document with a dual-role scalar; the autoEmbed is declared at the root. */
+  private static SearchIndexDefinition dualRoleDeclaredOutsideDynamicDocumentSearchDef() {
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_dualRoleUnderStaticDocument_keepsVectorAtMvPath()
+      throws IOException {
+    // Static document with a dual-role source: the nested-filter remap must not overwrite the
+    // vector at _autoEmbed.parent.content with the raw value.
+    SearchIndexDefinition searchDef = dualRoleUnderStaticDocumentSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    BsonDocument bsonDoc =
+        BsonDocument.parse("{\"_id\": \"anId\", \"parent\": {\"content\": \"embed me\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent,
+            mapping,
+            ImmutableMap.of(FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
+            DYNAMIC_PARENT_SCHEMA_METADATA);
+
+    BsonDocument mvDoc = result.getDocument().get().clone();
+    assertEquals(
+        new BsonDocument("parent", new BsonDocument("content", new BsonString("embed me")))
+            .append(
+                "_autoEmbed",
+                new BsonDocument(
+                        "parent", new BsonDocument("content", BsonVectorParser.encode(vector)))
+                    .append(
+                        "_hash",
+                        new BsonDocument(
+                            "parent",
+                            new BsonDocument(
+                                "content", new BsonString(computeTextHash("embed me")))))),
+        mvDoc);
+  }
+
+  @Test
+  public void
+      buildMaterializedViewDocumentEvent_dualRoleWithFailedEmbedding_copiesTextWithoutVector()
+          throws IOException {
+    // A dual-role source whose embedding failed has no entry in the consolidated embedding map:
+    // materialization must copy the raw value and omit the vector instead of failing.
+    SearchIndexDefinition searchDef = dualRoleAutoEmbedSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument bsonDoc = BsonDocument.parse("{\"_id\": \"anId\", \"description\": \"embed me\"}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
+
+    assertEquals(
+        new BsonDocument("description", new BsonString("embed me")),
+        result.getDocument().get().clone());
+  }
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_documentSourceWithDeclaredChild_copiesChild()
+      throws IOException {
+    // Mixed-shape source: "description" is a document whose declared string child must reach the
+    // MV even though the parent is the embed source (object-shaped documents embed nothing).
+    SearchIndexDefinition searchDef = documentSourceWithDeclaredChildSearchDef();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument bsonDoc =
+        BsonDocument.parse("{\"_id\": \"anId\", \"description\": {\"text\": \"lexical me\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
+
+    assertEquals(
+        new BsonDocument("description", new BsonDocument("text", new BsonString("lexical me"))),
+        result.getDocument().get().clone());
+  }
+
+  /**
+   * Static root; {@code description} is a document with a declared string child and is also the
+   * auto-embed source (mixed-shape source).
+   */
+  private static SearchIndexDefinition documentSourceWithDeclaredChildSearchDef() {
+    DocumentFieldDefinition description =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "text",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("description", FieldDefinitionBuilder.builder().document(description).build())
+            .field(
+                "desc_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  /** Static parent document containing a dual-role source path. */
+  @Test
+  public void deepDeclaredChildUnderDynamicRootCopiesChild() throws IOException {
+    // Dynamic root; description = static document{details{text}}; autoEmbed sources description.
+    DocumentFieldDefinition details =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "text",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    DocumentFieldDefinition description =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("details", FieldDefinitionBuilder.builder().document(details).build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field("description", FieldDefinitionBuilder.builder().document(description).build())
+            .field(
+                "desc_embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument bsonDoc =
+        BsonDocument.parse(
+            "{\"_id\": \"anId\", \"description\": {\"details\": {\"text\": \"lexical me\"}}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
+
+    assertEquals(
+        new BsonDocument(
+            "description",
+            new BsonDocument("details", new BsonDocument("text", new BsonString("lexical me")))),
+        result.getDocument().get().clone());
+  }
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_dynamicSourceWithObjectValue_noEmptyContainer()
+      throws IOException {
+    // Dynamic root; the embed source holds an object and has no declared children. Nothing under
+    // the source is copied, and the walk must not leave an empty container for it in the MV.
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument bsonDoc =
+        BsonDocument.parse("{\"_id\": \"anId\", \"description\": {\"note\": \"hi\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
+
+    assertEquals(new BsonDocument(), result.getDocument().get().clone());
+  }
+
+  @Test
+  public void buildMaterializedViewDocumentEvent_literalDottedChildUnderEmbedSource_copiesChild()
+      throws IOException {
+    // A root literal dotted key ("description.text") resolves to the nested path; its declared
+    // value must reach the MV even though the parent is the undeclared embed source.
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build())
+            .field(
+                "description.text",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument bsonDoc =
+        BsonDocument.parse("{\"_id\": \"anId\", \"description\": {\"text\": \"lexical me\"}}");
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent rawEvent =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
+
+    assertEquals(
+        new BsonDocument("description", new BsonDocument("text", new BsonString("lexical me"))),
+        result.getDocument().get().clone());
+  }
+
+  private static SearchIndexDefinition dualRoleUnderStaticDocumentSearchDef() {
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+  }
+
+  /** Dynamic parent document containing a dual-role source path. */
+  private static SearchIndexDefinition dualRoleUnderDynamicDocumentSearchDef() {
+    DocumentFieldDefinition parent =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "content",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
+            .build();
+    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
   }
 
   @Test

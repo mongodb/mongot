@@ -51,7 +51,7 @@ public class AutoEmbeddingIndexValidator {
         validateSearchReservedAutoEmbedNamespace(searchIndex);
         validateSearchNoMixedVectorTypes(searchIndex);
         validateSearchUniqueAutoEmbedPaths(searchIndex);
-        validateSearchPathsDoNotOverlapMappings(searchIndex);
+        validateNoConflictingAutoEmbedSourcePaths(searchIndex);
       }
     }
   }
@@ -249,19 +249,21 @@ public class AutoEmbeddingIndexValidator {
   }
 
   /**
-   * Rejects auto-embed {@code path}s that coincide with an explicitly declared non-embed mapping
-   * path: the source value is consumed by the embedding pipeline and never reaches the materialized
-   * view, so the overlapping declaration would silently index nothing.
+   * Rejects auto-embed {@code path}s that conflict with a document-shaped mapping: {@code geo}
+   * paths, document-shaped alternatives on the same field, or an autoEmbed declared under {@code
+   * embeddedDocuments}. A text-valued or scalar declaration on the same field is allowed (dual
+   * role): the materialized view copies the raw value alongside the generated vector.
    */
-  private static void validateSearchPathsDoNotOverlapMappings(SearchIndexDefinition searchIndex)
+  private static void validateNoConflictingAutoEmbedSourcePaths(SearchIndexDefinition searchIndex)
       throws InvalidIndexDefinitionException {
     ImmutableSet<FieldPath> conflicts =
         SearchIndexDefinition.autoEmbedPathMappingConflicts(searchIndex.getMappings());
     if (!conflicts.isEmpty()) {
       throw new InvalidIndexDefinitionException(
           String.format(
-              "autoEmbed path(s) %s are consumed by the embedding pipeline and"
-                  + " cannot also be mapped as another type",
+              "autoEmbed path(s) %s conflict with a document-shaped mapping: document,"
+                  + " embeddedDocuments, and geo fields cannot be autoEmbed sources, and autoEmbed"
+                  + " is not supported under embeddedDocuments",
               conflicts));
     }
   }

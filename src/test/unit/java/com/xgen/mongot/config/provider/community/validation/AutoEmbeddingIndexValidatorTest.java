@@ -32,8 +32,11 @@ import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.GeoFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.KnnVectorFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorDataFieldDefinitionBuilder;
 import java.time.Instant;
 import java.util.List;
@@ -750,15 +753,18 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateSearchIndexWithPathOverlappingDeclaredField_throwsException() {
-    // An embed path coinciding with a declared non-embed path: the source is consumed by
-    // the embedding pipeline, so the overlapping declaration would silently index nothing.
+  public void validateSearchIndexWithPathOverlappingDeclaredTextField_isAccepted()
+      throws InvalidIndexDefinitionException {
+    // Dual role: a text declaration sharing an autoEmbed source path is allowed; the MV copies the
+    // raw value alongside the generated vector.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
                 "content",
-                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
             .field(
                 "content_embed",
                 FieldDefinitionBuilder.builder()
@@ -770,13 +776,160 @@ public class AutoEmbeddingIndexValidatorTest {
     SearchIndexDefinition searchIndex =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
 
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+  }
+
+  @Test
+  public void validateSearchIndexWithAutoEmbedSourceUnderEmbeddedDocuments_throwsException() {
+    // Auto-embed beneath embeddedDocuments is unsupported: the source path is declared inside the
+    // embeddedDocuments subtree.
+    var embeddedDocs =
+        EmbeddedDocumentsFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "comment",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "reviews", FieldDefinitionBuilder.builder().embeddedDocuments(embeddedDocs).build())
+            .field(
+                "reviews_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("reviews.comment")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
     InvalidIndexDefinitionException exception =
         assertThrows(
             InvalidIndexDefinitionException.class,
             () -> AutoEmbeddingIndexValidator.validate(searchIndex));
 
-    assertThat(exception.getMessage()).contains("consumed by the embedding pipeline");
-    assertThat(exception.getMessage()).contains("content");
+    assertThat(exception.getMessage())
+        .contains("autoEmbed is not supported under embeddedDocuments");
+    assertThat(exception.getMessage()).contains("reviews.comment");
+  }
+
+  @Test
+  public void validateSearchIndexWithDocumentAlternativeOnAutoEmbedField_throwsException() {
+    // A document alternative cannot share its field with autoEmbed: the raw document value and
+    // the generated vector cannot both live at the source path.
+    var docField =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "text",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .document(docField)
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("description")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("document-shaped mapping");
+    assertThat(exception.getMessage()).contains("description");
+  }
+
+  @Test
+  public void validateSearchIndexWithGeoAutoEmbedSource_throwsException() {
+    // Geo values are GeoJSON documents with no declared children to enumerate, so they cannot be
+    // copied into the materialized view alongside a generated vector.
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "location",
+                FieldDefinitionBuilder.builder()
+                    .geo(GeoFieldDefinitionBuilder.builder().build())
+                    .build())
+            .field(
+                "location_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("location")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("document-shaped mapping");
+    assertThat(exception.getMessage()).contains("location");
+  }
+
+  @Test
+  public void validateSearchIndexWithPathOverlappingOwnScalarAlternative_succeeds()
+      throws InvalidIndexDefinitionException {
+    // Dual role: a text alternative on the auto-embed source key is allowed; the scalar and the
+    // generated vector share the field key as their query path.
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "title",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("title")))
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+  }
+
+  @Test
+  public void validate_searchAutoEmbeddingWithNumberAndAutoEmbedOnSameField_isAllowed()
+      throws InvalidIndexDefinitionException {
+    // Scalar alternatives may share the path: numeric values are not embedded, string values are.
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            REGISTERED_MODEL, FieldPath.parse("description")))
+                    .number(NumericFieldDefinitionBuilder.builder().buildNumberField())
+                    .build())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+
+    AutoEmbeddingIndexValidator.validate(searchIndex);
   }
 
   private SearchIndexDefinition createSearchIndexWithAutoEmbed(String modelName) {

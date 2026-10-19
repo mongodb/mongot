@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
@@ -1230,6 +1231,78 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 = searchDefWithMultiTypeDocumentFields(true);
     assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
     assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_deepDeclaredChildUnderEmbedSource_resyncs() {
+    // A declared child beneath an embed source is new MV content even under a dynamic root: the
+    // embed-source carve-out means the value is only copied once explicitly declared.
+    DocumentFieldDefinition details =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "text",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    DocumentFieldDefinition description =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("details", FieldDefinitionBuilder.builder().document(details).build())
+            .build();
+    DocumentFieldDefinitionBuilder mappingsBuilder =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "desc_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build());
+    SearchIndexDefinition def1 = baseSearchBuilder(1L).mappings(mappingsBuilder.build()).build();
+    SearchIndexDefinition def2 =
+        baseSearchBuilder(2L)
+            .mappings(
+                mappingsBuilder
+                    .field(
+                        "description",
+                        FieldDefinitionBuilder.builder().document(description).build())
+                    .build())
+            .build();
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
+  }
+
+  @Test
+  public void skipInitialSync_search_literalDottedChildUnderEmbedSource_resyncs() {
+    // A root literal dotted key ("description.text") resolves to a nested path under the embed
+    // source; declaring it is new MV content and requires a resync even in dynamic mode.
+    DocumentFieldDefinitionBuilder mappingsBuilder =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "description_embed",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("description")))
+                    .build());
+    SearchIndexDefinition def1 = baseSearchBuilder(1L).mappings(mappingsBuilder.build()).build();
+    SearchIndexDefinition def2 =
+        baseSearchBuilder(2L)
+            .mappings(
+                mappingsBuilder
+                    .field(
+                        "description.text",
+                        FieldDefinitionBuilder.builder()
+                            .string(StringFieldDefinitionBuilder.builder().build())
+                            .build())
+                    .build())
+            .build();
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
+    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
   }
 
   @Test

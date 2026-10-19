@@ -52,14 +52,16 @@ public class SearchIndexAutoEmbedFieldMappingTest {
   }
 
   @Test
-  public void dynamic_descendPredicate_returnsTrueForAnyPath() {
+  public void dynamic_descendPredicate_returnsTrueForNonEmbedPaths() {
     var mapping =
         new SearchIndexAutoEmbedFieldMapping(
             DYNAMIC_ENABLED, ImmutableMap.of(EMBED_PATH, EMBED_FIELD), ImmutableSet.of());
 
     assertThat(mapping.passthroughDescendPredicate().test(FieldPath.parse("x"))).isTrue();
     assertThat(mapping.passthroughDescendPredicate().test(FieldPath.parse("x.y.z"))).isTrue();
-    assertThat(mapping.passthroughDescendPredicate().test(EMBED_PATH)).isTrue();
+    // The source itself is skipped: nothing under it is copied, and entering it would leave an
+    // empty container in the MV.
+    assertThat(mapping.passthroughDescendPredicate().test(EMBED_PATH)).isFalse();
   }
 
   @Test

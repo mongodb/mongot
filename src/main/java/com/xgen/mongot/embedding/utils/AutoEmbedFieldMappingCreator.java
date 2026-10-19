@@ -3,6 +3,7 @@ package com.xgen.mongot.embedding.utils;
 import static com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata;
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.HASH_FIELD_SUFFIX;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Var;
@@ -93,9 +94,12 @@ public class AutoEmbedFieldMappingCreator {
     ImmutableMap.Builder<FieldPath, AutoEmbedField.EmbedField> embedBuilder =
         ImmutableMap.builder();
     ImmutableSet.Builder<FieldPath> passthroughBuilder = ImmutableSet.builder();
+    ImmutableSet<FieldPath> autoEmbedSourcePaths =
+        collectAutoEmbedSourcePaths(searchDef.getMappings().fields());
     collectSearchAutoEmbedFields(
         searchDef.getMappings().fields(),
         Optional.empty(),
+        autoEmbedSourcePaths,
         autoEmbedDef -> {
           FieldPath source = autoEmbedDef.path();
           embedBuilder.put(
@@ -120,24 +124,24 @@ public class AutoEmbedFieldMappingCreator {
    * the containing document in the MV. The whole field is passed through at its own path when its
    * dynamic mapping or any other type alternative needs the raw source value in the materialized
    * view: a dynamic {@code document}'s undeclared children and a scalar alternative's value must
-   * both reach the MV. The embed-path carve-out in {@code isPassthrough} keeps embed sources out of
-   * wholesale copies: an auto-embed source field is consumed by the embedding pipeline and is never
-   * copied to the MV — and therefore never lexically indexed — in every mode, dynamic mappings
-   * included. Explicit declarations overlapping a source field are rejected at validation; dynamic
-   * coverage of a source path silently yields no lexical data for it by design. {@code
-   * embeddedDocuments} fields cannot contain auto-embed fields (rejected at validation), so they
-   * are passed through as a whole.
+   * both reach the MV. An auto-embed source field is consumed by the embedding pipeline and is
+   * copied to the MV only when it is also explicitly declared as a scalar field (dual role): {@code
+   * isPassthrough} reports the explicit declaration while the embed pipeline still owns the
+   * generated vector. Dynamic coverage of a source path (no explicit declaration) still yields no
+   * lexical data for it by design. {@code embeddedDocuments} fields cannot contain auto-embed
+   * fields (rejected at validation), so they are passed through as a whole.
    */
   private static void collectSearchAutoEmbedFields(
       Map<String, FieldDefinition> fields,
       Optional<FieldPath> prefix,
+      ImmutableSet<FieldPath> autoEmbedSourcePaths,
       Consumer<SearchAutoEmbedFieldDefinition> onAutoEmbed,
       ImmutableSet.Builder<FieldPath> passthroughBuilder) {
     for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
       FieldPath path =
           prefix
               .map(p -> p.newChild(entry.getKey()))
-              .orElseGet(() -> FieldPath.newRoot(entry.getKey()));
+              .orElseGet(() -> FieldPath.parse(entry.getKey()));
       FieldDefinition fieldDef = entry.getValue();
       var autoEmbed = fieldDef.searchAutoEmbedFieldDefinition();
       var document = fieldDef.documentFieldDefinition();
@@ -151,9 +155,15 @@ public class AutoEmbedFieldMappingCreator {
         if (document.get().dynamic().isEnabled() || hasOtherTypes) {
           passthroughBuilder.add(path);
           collectAutoEmbedFieldsOnly(document.get().fields(), onAutoEmbed);
+          collectDualRoleSourcePaths(
+              document.get().fields(), Optional.of(path), autoEmbedSourcePaths, passthroughBuilder);
         } else {
           collectSearchAutoEmbedFields(
-              document.get().fields(), Optional.of(path), onAutoEmbed, passthroughBuilder);
+              document.get().fields(),
+              Optional.of(path),
+              autoEmbedSourcePaths,
+              onAutoEmbed,
+              passthroughBuilder);
         }
       } else if (document.isPresent()
           && autoEmbed.isEmpty()
@@ -162,9 +172,17 @@ public class AutoEmbedFieldMappingCreator {
         // A purely static document is descended into so declared child additions/removals are
         // visible to mapping diffs and trigger the required MV resync.
         collectSearchAutoEmbedFields(
-            document.get().fields(), Optional.of(path), onAutoEmbed, passthroughBuilder);
+            document.get().fields(),
+            Optional.of(path),
+            autoEmbedSourcePaths,
+            onAutoEmbed,
+            passthroughBuilder);
       } else if (hasOtherTypes || document.isPresent() || autoEmbed.isEmpty()) {
         passthroughBuilder.add(path);
+        document.ifPresent(
+            doc ->
+                collectDualRoleSourcePaths(
+                    doc.fields(), Optional.of(path), autoEmbedSourcePaths, passthroughBuilder));
       }
     }
   }
@@ -181,6 +199,65 @@ public class AutoEmbedFieldMappingCreator {
       fieldDef
           .documentFieldDefinition()
           .ifPresent(document -> collectAutoEmbedFieldsOnly(document.fields(), onAutoEmbed));
+    }
+  }
+
+  /** Collects every auto-embed source path declared in the mapping, at any nesting depth. */
+  @VisibleForTesting
+  static ImmutableSet<FieldPath> collectAutoEmbedSourcePaths(Map<String, FieldDefinition> fields) {
+    ImmutableSet.Builder<FieldPath> builder = ImmutableSet.builder();
+    collectAutoEmbedSourcePaths(fields, builder);
+    return builder.build();
+  }
+
+  private static void collectAutoEmbedSourcePaths(
+      Map<String, FieldDefinition> fields, ImmutableSet.Builder<FieldPath> builder) {
+    for (FieldDefinition fieldDef : fields.values()) {
+      fieldDef.searchAutoEmbedFieldDefinition().ifPresent(def -> builder.add(def.path()));
+      fieldDef
+          .documentFieldDefinition()
+          .ifPresent(document -> collectAutoEmbedSourcePaths(document.fields(), builder));
+      fieldDef
+          .embeddedDocumentsFieldDefinition()
+          .ifPresent(embedded -> collectAutoEmbedSourcePaths(embedded.fields(), builder));
+    }
+  }
+
+  /**
+   * Collects explicitly declared scalar paths that are also auto-embed sources inside a
+   * wholesale-passthrough subtree. {@code isPassthrough} carves embed sources out of the wholesale
+   * copy, so a dual-role source path must be listed explicitly to keep its raw value in the
+   * materialized view. Unrelated declared children stay covered by the wholesale root and are
+   * deliberately not enumerated.
+   */
+  @VisibleForTesting
+  static void collectDualRoleSourcePaths(
+      Map<String, FieldDefinition> fields,
+      Optional<FieldPath> prefix,
+      ImmutableSet<FieldPath> autoEmbedSourcePaths,
+      ImmutableSet.Builder<FieldPath> passthroughBuilder) {
+    for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
+      FieldPath path =
+          prefix
+              .map(p -> p.newChild(entry.getKey()))
+              .orElseGet(() -> FieldPath.parse(entry.getKey()));
+      FieldDefinition fieldDefinition = entry.getValue();
+      if (autoEmbedSourcePaths.contains(path)
+          && fieldDefinition.hasFieldDefinitionsOtherThan(
+              FieldTypeDefinition.Type.AUTO_EMBED,
+              FieldTypeDefinition.Type.DOCUMENT,
+              FieldTypeDefinition.Type.EMBEDDED_DOCUMENTS)) {
+        passthroughBuilder.add(path);
+      }
+      fieldDefinition
+          .documentFieldDefinition()
+          .ifPresent(
+              document ->
+                  collectDualRoleSourcePaths(
+                      document.fields(),
+                      Optional.of(path),
+                      autoEmbedSourcePaths,
+                      passthroughBuilder));
     }
   }
 
@@ -270,9 +347,12 @@ public class AutoEmbedFieldMappingCreator {
     ImmutableMap.Builder<FieldPath, AutoEmbedField.EmbedField> embedBuilder =
         ImmutableMap.builder();
     ImmutableSet.Builder<FieldPath> passthroughBuilder = ImmutableSet.builder();
+    ImmutableSet<FieldPath> autoEmbedSourcePaths =
+        collectAutoEmbedSourcePaths(searchDef.getMappings().fields());
     collectSearchAutoEmbedFields(
         searchDef.getMappings().fields(),
         Optional.empty(),
+        autoEmbedSourcePaths,
         autoEmbedDef -> {
           FieldPath sourcePath = autoEmbedDef.path();
           FieldPath matViewPath =
