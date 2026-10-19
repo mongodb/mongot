@@ -7,6 +7,7 @@ import static com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig
 import static com.xgen.mongot.util.Check.checkState;
 import static com.xgen.mongot.util.FutureUtils.COMPLETED_FUTURE;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.config.MaterializedViewCollectionMetadataCatalog;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
@@ -206,7 +207,8 @@ class MaterializedViewGeneratorFactory {
                 syncMongoClient,
                 this.syncBatchMongoClient.get(),
                 this.decodingWorkScheduler,
-                getAutoEmbeddingSteadyStateReplicationConfig(this.materializedViewConfig),
+                getAutoEmbeddingSteadyStateReplicationConfig(
+                    this.materializedViewConfig, this.featureFlags),
                 this.featureFlags.isEnabled(Feature.LIFECYCLE_ATTRIBUTION_METRICS),
                 this.featureFlags.isEnabled(Feature.CHANGE_STREAM_PRIORITY_SCHEDULING),
                 // The change-stream activity observer covers DEFAULT replication only.
@@ -288,9 +290,12 @@ class MaterializedViewGeneratorFactory {
    * enforced. Auto-embedding indexes always have well-defined field mappings, so projection is
    * always applicable. This eliminates unnecessary IO from non-indexed field updates.
    */
-  private static SteadyStateReplicationConfig getAutoEmbeddingSteadyStateReplicationConfig(
-      AutoEmbeddingMaterializedViewConfig materializedViewConfig) {
+  @VisibleForTesting
+  static SteadyStateReplicationConfig getAutoEmbeddingSteadyStateReplicationConfig(
+      AutoEmbeddingMaterializedViewConfig materializedViewConfig, FeatureFlags featureFlags) {
     return SteadyStateReplicationConfig.builder()
+        .setRetryThrottledGetMoreOnSameCursor(
+            featureFlags.isEnabled(Feature.RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR))
         .setNumConcurrentChangeStreams(materializedViewConfig.numConcurrentChangeStreams)
         .setChangeStreamQueryMaxTimeMs(materializedViewConfig.changeStreamMaxTimeMs)
         .setChangeStreamCursorMaxTimeSec(materializedViewConfig.changeStreamCursorMaxTimeSec)

@@ -13,14 +13,17 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoException;
 import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.embedding.exceptions.MaterializedViewNonTransientException;
+import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.autoembedding.InitializedMaterializedViewIndex;
 import com.xgen.mongot.index.autoembedding.MaterializedViewIndexGeneration;
 import com.xgen.mongot.replication.mongodb.IndexManager;
+import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.PeriodicIndexCommitter;
@@ -64,6 +67,31 @@ public class MaterializedViewGeneratorTest {
     if (this.executorService != null) {
       this.executorService.shutdown();
     }
+  }
+
+  @Test
+  public void getAutoEmbeddingSteadyStateReplicationConfig_retryFlagOn_enablesRetry() {
+    var config =
+        MaterializedViewGeneratorFactory.getAutoEmbeddingSteadyStateReplicationConfig(
+            AutoEmbeddingMaterializedViewConfig.getDefault(), retryFlag(true));
+
+    assertTrue(config.getRetryThrottledGetMoreOnSameCursor());
+  }
+
+  @Test
+  public void getAutoEmbeddingSteadyStateReplicationConfig_retryFlagOff_disablesRetry() {
+    var config =
+        MaterializedViewGeneratorFactory.getAutoEmbeddingSteadyStateReplicationConfig(
+            AutoEmbeddingMaterializedViewConfig.getDefault(), retryFlag(false));
+
+    assertFalse(config.getRetryThrottledGetMoreOnSameCursor());
+  }
+
+  private static FeatureFlags retryFlag(boolean enabled) {
+    FeatureFlags featureFlags = mock(FeatureFlags.class);
+    when(featureFlags.isEnabled(Feature.RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR))
+        .thenReturn(enabled);
+    return featureFlags;
   }
 
   @Test

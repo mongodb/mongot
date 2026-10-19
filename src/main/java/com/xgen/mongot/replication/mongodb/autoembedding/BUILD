@@ -16,6 +16,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index",
         "//src/main/java/com/xgen/mongot/index/autoembedding",
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/replication/mongodb/steadystate/changestream",
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "@maven//:org_slf4j_slf4j_api",
     ],
