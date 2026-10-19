@@ -78,6 +78,11 @@ public class SearchIndexCapabilities implements IndexCapabilities {
   }
 
   @Override
+  public boolean usesReducedAutocompleteIndexOptions() {
+    return this.effectiveVersion >= 5;
+  }
+
+  @Override
   public boolean equals(Object o) {
     if (this == o) {
       return true;

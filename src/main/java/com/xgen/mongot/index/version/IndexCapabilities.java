@@ -55,4 +55,17 @@ public interface IndexCapabilities {
    * embedded documents.
    */
   boolean supportsEmbeddedNumericAndDateV2();
+
+  /**
+   * True if the autocomplete field is indexed with reduced Lucene IndexOptions ({@code
+   * DOCS_AND_FREQS}) that omit the positions and offsets never consulted by the autocomplete query
+   * path. Older indexes index it with {@code DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS}.
+   *
+   * <p>Lucene forbids changing a field's IndexOptions within an existing index (it throws {@code
+   * IllegalArgumentException} on the first inconsistent write), so this can only differ for indexes
+   * (re)built at the newer feature version. Highlighting of an autocomplete-only field falls back
+   * from the postings offset source to the UnifiedHighlighter's re-analysis offset source when the
+   * offsets are absent.
+   */
+  boolean usesReducedAutocompleteIndexOptions();
 }

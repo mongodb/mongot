@@ -77,9 +77,25 @@ public class IndexableFieldFactory {
           .stored(true)
           .build();
 
-  private static final FieldType AUTOCOMPLETE_FIELD_TYPE =
+  // Legacy autocomplete field type. Autocomplete matching is done via TermQuery/AutomatonQuery over
+  // pre-computed edge/n-gram tokens, so positions and offsets are never consulted by the query
+  // path; they are retained here only for indexes built before the reduced field type was
+  // introduced (Lucene forbids changing a field's IndexOptions within an existing index).
+  private static final FieldType AUTOCOMPLETE_FIELD_TYPE_WITH_OFFSETS =
       new FieldTypeBuilder()
           .withIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS)
+          .tokenized(true)
+          .stored(true)
+          .build();
+
+  // Reduced autocomplete field type used at newer feature versions. Positions and offsets are
+  // dropped since the autocomplete query path never reads them; freqs are retained so BM25 scoring
+  // of the gram terms is unchanged. Highlighting of an autocomplete-only field falls back to the
+  // UnifiedHighlighter's re-analysis offset source, which reproduces the same offsets the postings
+  // previously stored. See IndexCapabilities#usesReducedAutocompleteIndexOptions.
+  private static final FieldType AUTOCOMPLETE_FIELD_TYPE_REDUCED =
+      new FieldTypeBuilder()
+          .withIndexOptions(IndexOptions.DOCS_AND_FREQS)
           .tokenized(true)
           .stored(true)
           .build();
@@ -372,7 +388,11 @@ public class IndexableFieldFactory {
   static void addAutocompleteField(AbstractDocumentWrapper document, FieldPath path, String value) {
     String luceneFieldName =
         FieldName.TypeField.AUTOCOMPLETE.getLuceneFieldName(path, document.getEmbeddedRoot());
-    document.put(new Field(luceneFieldName, value, AUTOCOMPLETE_FIELD_TYPE));
+    FieldType fieldType =
+        document.getIndexCapabilities().usesReducedAutocompleteIndexOptions()
+            ? AUTOCOMPLETE_FIELD_TYPE_REDUCED
+            : AUTOCOMPLETE_FIELD_TYPE_WITH_OFFSETS;
+    document.put(new Field(luceneFieldName, value, fieldType));
   }
 
   static void addDateField(

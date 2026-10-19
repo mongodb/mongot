@@ -61,6 +61,13 @@ public final class VectorIndexCapabilities implements IndexCapabilities {
   }
 
   @Override
+  public boolean usesReducedAutocompleteIndexOptions() {
+    // Vector indexes never index autocomplete fields, so the choice is moot; report the legacy
+    // behavior for consistency with existing vector indexes.
+    return false;
+  }
+
+  @Override
   public String toString() {
     return "VectorIndexCapabilities(" + this.effectiveVersion + ")";
   }
