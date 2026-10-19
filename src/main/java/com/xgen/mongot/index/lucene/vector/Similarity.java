@@ -25,6 +25,15 @@ public class Similarity {
   private static final @Nullable MethodHandle DOT_I8;
   private static final @Nullable MethodHandle L2_I8;
   private static final @Nullable MethodHandle COS_I8;
+  private static final @Nullable MethodHandle DOT_I8_BULK4;
+  private static final @Nullable MethodHandle L2_I8_BULK4;
+
+  /**
+   * Number of data vectors scored per call by {@link #dotI8Bulk4} and {@link #l2I8Bulk4}. Mirrors
+   * {@code VECSIM_BULK_FANOUT} in {@code mongot_vecsim.c}; the two must agree or the native side
+   * writes past the end of the output segment.
+   */
+  public static final int BULK_FANOUT = 4;
 
   /**
    * Set to true if the underlying native implementations are hardware accelerated.
@@ -38,6 +47,16 @@ public class Similarity {
    */
   public static final boolean I8_ACCELERATION;
 
+  /**
+   * Set to true if the loaded library exports the 4-wide bulk int8 entry points.
+   *
+   * <p>Tracked separately from {@link #I8_ACCELERATION} because it is a question of symbol
+   * availability, not hardware support: a library predating the bulk entry points loads and scores
+   * correctly, it just cannot batch. Callers must check this before invoking {@link #dotI8Bulk4} or
+   * {@link #l2I8Bulk4} and fall back to per-vector scoring when it is false.
+   */
+  public static final boolean I8_BULK_AVAILABLE;
+
   /** Load native dependencies of this library. */
   public static void load() {
     // noop, handled by static block.
@@ -47,6 +66,8 @@ public class Similarity {
     @Var MethodHandle dotI8 = null;
     @Var MethodHandle l2I8 = null;
     @Var MethodHandle cosI8 = null;
+    @Var MethodHandle dotI8Bulk4 = null;
+    @Var MethodHandle l2I8Bulk4 = null;
     @Var boolean accel = false;
     try {
       loadNativeLibrary();
@@ -75,6 +96,41 @@ public class Similarity {
               lookup.find("mongot_vecsim_i8_accelerated").orElseThrow(),
               FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN));
       accel = (boolean) i8Accelerated.invokeExact();
+
+      // Bulk forms: (queryBase, queryByteOffset, base, out, d0, d1, d2, d3, vectorByteLength).
+      // Every offset and length here is a byte count -- for int8 one element is one byte, so
+      // there is none of the byte-offset/element-count asymmetry the float32 bulk ABI carries.
+      FunctionDescriptor i8Bulk4Desc =
+          FunctionDescriptor.ofVoid(
+              ValueLayout.ADDRESS,
+              ValueLayout.JAVA_LONG,
+              ValueLayout.ADDRESS,
+              ValueLayout.ADDRESS,
+              ValueLayout.JAVA_LONG,
+              ValueLayout.JAVA_LONG,
+              ValueLayout.JAVA_LONG,
+              ValueLayout.JAVA_LONG,
+              ValueLayout.JAVA_LONG);
+
+      // Resolved leniently, unlike the calls above: a library predating these symbols must still
+      // load and score. orElseThrow() here would surface as ExceptionInInitializerError and take
+      // mongot's startup down with it, because load() runs early in Mongot#run. A null handle
+      // instead leaves I8_BULK_AVAILABLE false and callers on the per-vector path.
+      dotI8Bulk4 =
+          lookup
+              .find("mongot_vecsim_dot_i8_bulk4")
+              .map(symbol -> linker.downcallHandle(symbol, i8Bulk4Desc))
+              .orElse(null);
+      l2I8Bulk4 =
+          lookup
+              .find("mongot_vecsim_l2_i8_bulk4")
+              .map(symbol -> linker.downcallHandle(symbol, i8Bulk4Desc))
+              .orElse(null);
+      if (dotI8Bulk4 == null || l2I8Bulk4 == null) {
+        LOG.atInfo().log(
+            "mongot_vecsim library does not export the bulk int8 entry points; vector scoring will"
+                + " use the per-vector path");
+      }
     } catch (UnsatisfiedLinkError e) {
       LOG.atWarn()
           .setCause(e)
@@ -87,7 +143,10 @@ public class Similarity {
     DOT_I8 = dotI8;
     L2_I8 = l2I8;
     COS_I8 = cosI8;
+    DOT_I8_BULK4 = dotI8Bulk4;
+    L2_I8_BULK4 = l2I8Bulk4;
     I8_ACCELERATION = accel;
+    I8_BULK_AVAILABLE = dotI8Bulk4 != null && l2I8Bulk4 != null;
   }
 
   static final String LIB_NAME = "mongot_vecsim";
@@ -203,6 +262,77 @@ public class Similarity {
     MethodHandle handle = Objects.requireNonNull(COS_I8, NATIVE_UNAVAILABLE_MESSAGE);
     try {
       return (float) handle.invokeExact(a, b, a.byteSize());
+    } catch (Throwable t) {
+      throw new AssertionError(t);
+    }
+  }
+
+  private static final String BULK_UNAVAILABLE_MESSAGE =
+      "mongot_vecsim bulk int8 entry points unavailable; check Similarity.I8_BULK_AVAILABLE before"
+          + " calling";
+
+  /**
+   * Guards the one mistake here that corrupts memory rather than throwing: an output segment too
+   * small for the fan-out. Off the inner loop -- once per batch of {@link #BULK_FANOUT}.
+   */
+  private static void checkBulkOut(MemorySegment out) {
+    if (out.byteSize() < (long) BULK_FANOUT * Integer.BYTES) {
+      throw new IllegalArgumentException(
+          "bulk output segment must hold at least "
+              + BULK_FANOUT
+              + " ints; byteSize="
+              + out.byteSize());
+    }
+  }
+
+  /**
+   * Dot product of one query against {@link #BULK_FANOUT} data vectors, writing that many raw
+   * {@code int} results to {@code out}.
+   *
+   * <p>All of {@code queryByteOffset}, {@code d0}-{@code d3} and {@code vectorByteLength} are byte
+   * counts. The {@code d*} values are not required to be distinct. Bounds validation of the offsets
+   * is the caller's responsibility: unlike a sliced {@link MemorySegment}, a raw offset into {@code
+   * base} is not range-checked here.
+   */
+  public static void dotI8Bulk4(
+      MemorySegment queryBase,
+      long queryByteOffset,
+      MemorySegment base,
+      MemorySegment out,
+      long d0,
+      long d1,
+      long d2,
+      long d3,
+      int vectorByteLength) {
+    checkBulkOut(out);
+    MethodHandle handle = Objects.requireNonNull(DOT_I8_BULK4, BULK_UNAVAILABLE_MESSAGE);
+    try {
+      handle.invokeExact(
+          queryBase, queryByteOffset, base, out, d0, d1, d2, d3, (long) vectorByteLength);
+    } catch (Throwable t) {
+      throw new AssertionError(t);
+    }
+  }
+
+  /**
+   * Squared L2 distance of one query against {@link #BULK_FANOUT} data vectors. Same offset and
+   * bounds contract as {@link #dotI8Bulk4}.
+   */
+  public static void l2I8Bulk4(
+      MemorySegment queryBase,
+      long queryByteOffset,
+      MemorySegment base,
+      MemorySegment out,
+      long d0,
+      long d1,
+      long d2,
+      long d3,
+      int vectorByteLength) {
+    checkBulkOut(out);
+    MethodHandle handle = Objects.requireNonNull(L2_I8_BULK4, BULK_UNAVAILABLE_MESSAGE);
+    try {
+      handle.invokeExact(
+          queryBase, queryByteOffset, base, out, d0, d1, d2, d3, (long) vectorByteLength);
     } catch (Throwable t) {
       throw new AssertionError(t);
     }

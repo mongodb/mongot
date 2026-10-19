@@ -30,9 +30,18 @@
 typedef int32_t (*i8_fn)(const int8_t*, const int8_t*, size_t);
 typedef float (*cos_i8_fn)(const int8_t*, const int8_t*, size_t);
 
-static i8_fn dot_i8_impl;
-static i8_fn l2_i8_impl;
+// Fused 4-wide dot / L2 (CLOUDP-435168). NULL on tiers without a fused kernel; the bulk exports
+// then fall back to four calls to dot_i8_impl/l2_i8_impl, which keeps bulk results bit-identical
+// to the single-vector path either way. Which tiers bind what, and why, is documented at the
+// binding sites in mongot_vecsim_init.
+typedef void (*i8_bulk4_fn)(const int8_t*, const int8_t*, const int8_t*, const int8_t*,
+                            const int8_t*, int32_t*, size_t);
+
+static i8_fn    dot_i8_impl;
+static i8_fn    l2_i8_impl;
 static cos_i8_fn cos_i8_impl;
+static i8_bulk4_fn dot_i8_bulk4_impl;
+static i8_bulk4_fn l2_i8_bulk4_impl;
 
 // --- Execution probe ---
 //
@@ -225,12 +234,22 @@ EXPORT int mongot_vecsim_test_probe_force_sigill_forked(void) {
 // touches the caller's SIGILL handler; the constructor below is what makes this run
 // automatically in production.
 EXPORT void mongot_vecsim_init(void) {
+  // Set before the tier dispatch below, which returns early on the first tier that probes clean.
+  // NEON-dotprod and SVE bind real fused kernels below; every other tier (including AVX-512VNNI,
+  // deliberately -- see below) leaves both NULL, so the bulk exports use their four-call fallback.
+  dot_i8_bulk4_impl = NULL;
+  l2_i8_bulk4_impl = NULL;
 #if defined(MONGOT_VECSIM_HAVE_AVX512)
   int has_vnni = vecsim_has_avx512vnni();
   if (has_vnni && sim_probe_i8(sim_dot_i8_avx512vnni)) {
     dot_i8_impl = sim_dot_i8_avx512vnni;
     l2_i8_impl  = sim_l2_i8_avx512vnni;
     cos_i8_impl = sim_cos_i8_avx512vnni;
+    // CLOUDP-435168: no fused AVX-512VNNI bulk kernels here. A first attempt measured ~3%
+    // slower than this four-call fallback on X86_64 M40-S60 (DSI, voyage 129GB Q7 initial sync),
+    // the same under-unroll failure the NEON/SVE kernels hit on their first attempt. Re-add
+    // retuned to the reference kernel's unroll depth, and only with a DSI result that beats
+    // this fallback.
     return;
   }
   if (has_vnni) {
@@ -246,6 +265,10 @@ EXPORT void mongot_vecsim_init(void) {
       dot_i8_impl = sim_dot_i8_sve;
       l2_i8_impl  = sim_l2_i8_sve;
       cos_i8_impl = sim_cos_i8_sve;
+      // CLOUDP-435168: sim_{dot,l2}_i8_bulk4_sve use the same svdot_s32/svdot_u32
+      // instructions already probed above, so no separate probe is needed for them.
+      dot_i8_bulk4_impl = sim_dot_i8_bulk4_sve;
+      l2_i8_bulk4_impl  = sim_l2_i8_bulk4_sve;
       return;
     }
     sim_log_fallback("sve");
@@ -257,6 +280,10 @@ EXPORT void mongot_vecsim_init(void) {
       dot_i8_impl = sim_dot_i8_dotprod;
       l2_i8_impl  = sim_l2_i8_dotprod;
       cos_i8_impl = sim_cos_i8_dotprod;
+      // CLOUDP-435168: sim_{dot,l2}_i8_bulk4_dotprod use the same vdotq_s32/vdotq_u32
+      // instructions already probed above, so no separate probe is needed for them.
+      dot_i8_bulk4_impl = sim_dot_i8_bulk4_dotprod;
+      l2_i8_bulk4_impl  = sim_l2_i8_bulk4_dotprod;
       return;
     }
     sim_log_fallback("dotprod");
@@ -292,6 +319,64 @@ EXPORT int32_t mongot_vecsim_l2_i8(const int8_t* a, const int8_t* b, size_t n) {
 /// Compute the cosine similarity of two int8 vectors of length n.
 EXPORT float mongot_vecsim_cos_i8(const int8_t* a, const int8_t* b, size_t n) {
   return cos_i8_impl(a, b, n);
+}
+
+// --- Fused 4-wide int8 forms ---
+//
+// One query scored against VECSIM_BULK_FANOUT data vectors per call: a base pointer plus byte
+// offsets instead of four separate vector pointers, so a batch costs one FFM downcall and no
+// per-node MemorySegment slicing on the Java side. Unlike the float32 bulk ABI there is no unit
+// asymmetry here: q_off, d0..d3 and n are all byte counts.
+//
+// Returns the raw integer dot product / squared distance; Q7's score correction (constMultiplier
+// and the per-vector correction constants) is applied by the caller in Java, so there are no float
+// parameters and no per-similarity-function variants.
+//
+// `out` must not alias `base`. The d* offsets need not be distinct, so no v* pointer may be
+// marked `restrict`.
+
+/// Fan-out of the bulk int8 kernels. Mirrored by BULK_FANOUT in Similarity.java -- changing one
+/// without the other overruns `out`.
+#define VECSIM_BULK_FANOUT 4
+
+#define VECSIM_I8_AT(base, off) ((const int8_t*)((const unsigned char*)(base) + (off)))
+
+/// Dot product of one query against VECSIM_BULK_FANOUT data vectors; writes that many int32s to out.
+EXPORT void mongot_vecsim_dot_i8_bulk4(const void* q_base, size_t q_off, const void* base,
+                                       int32_t* out, size_t d0, size_t d1, size_t d2, size_t d3,
+                                       size_t n) {
+  const int8_t* q = VECSIM_I8_AT(q_base, q_off);
+  const int8_t* v0 = VECSIM_I8_AT(base, d0);
+  const int8_t* v1 = VECSIM_I8_AT(base, d1);
+  const int8_t* v2 = VECSIM_I8_AT(base, d2);
+  const int8_t* v3 = VECSIM_I8_AT(base, d3);
+  if (dot_i8_bulk4_impl != NULL) {
+    dot_i8_bulk4_impl(q, v0, v1, v2, v3, out, n);
+    return;
+  }
+  out[0] = dot_i8_impl(q, v0, n);
+  out[1] = dot_i8_impl(q, v1, n);
+  out[2] = dot_i8_impl(q, v2, n);
+  out[3] = dot_i8_impl(q, v3, n);
+}
+
+/// Squared L2 distance of one query against VECSIM_BULK_FANOUT data vectors.
+EXPORT void mongot_vecsim_l2_i8_bulk4(const void* q_base, size_t q_off, const void* base,
+                                      int32_t* out, size_t d0, size_t d1, size_t d2, size_t d3,
+                                      size_t n) {
+  const int8_t* q = VECSIM_I8_AT(q_base, q_off);
+  const int8_t* v0 = VECSIM_I8_AT(base, d0);
+  const int8_t* v1 = VECSIM_I8_AT(base, d1);
+  const int8_t* v2 = VECSIM_I8_AT(base, d2);
+  const int8_t* v3 = VECSIM_I8_AT(base, d3);
+  if (l2_i8_bulk4_impl != NULL) {
+    l2_i8_bulk4_impl(q, v0, v1, v2, v3, out, n);
+    return;
+  }
+  out[0] = l2_i8_impl(q, v0, n);
+  out[1] = l2_i8_impl(q, v1, n);
+  out[2] = l2_i8_impl(q, v2, n);
+  out[3] = l2_i8_impl(q, v3, n);
 }
 
 /// Return true if all i8 similarity functions are using an accelerated (non-scalar) implementation.

@@ -31,6 +31,15 @@ extern bool mongot_vecsim_i8_accelerated(void);
 // Fork-based execution probe: 1 if the kernel actually ran without trapping.
 extern int mongot_vecsim_probe_i8_kernel(int32_t (*fn)(const int8_t*, const int8_t*, size_t));
 
+// Exported bulk4 dispatch: offset-based ABI (see mongot_vecsim.c) rather than separate pointers,
+// so it can be exercised bound to either a real fused kernel or the NULL-fallback four-call path.
+extern void mongot_vecsim_dot_i8_bulk4(const void* q_base, size_t q_off, const void* base,
+                                       int32_t* out, size_t d0, size_t d1, size_t d2, size_t d3,
+                                       size_t n);
+extern void mongot_vecsim_l2_i8_bulk4(const void* q_base, size_t q_off, const void* base,
+                                      int32_t* out, size_t d0, size_t d1, size_t d2, size_t d3,
+                                      size_t n);
+
 // Deterministic xorshift32 PRNG so failures are reproducible without pulling in
 // <random> or seeding from the environment.
 static uint32_t g_rng = 0x9e3779b9u;
@@ -114,6 +123,50 @@ static void cross_check(const char* name, i8_fn dot, i8_fn l2, cos_fn cos) {
   }
 }
 
+// --- Layer 3: cross-check a fused 4-wide bulk kernel against 4 scalar calls ---
+
+typedef void (*i8_bulk4_fn)(const int8_t*, const int8_t*, const int8_t*, const int8_t*,
+                            const int8_t*, int32_t*, size_t);
+
+// Lengths for the bulk kernels: same set as cross_check, since every fused kernel's unroll/tail
+// structure matches its single-vector counterpart's chunk sizes.
+static void cross_check_bulk4(const char* name, i8_bulk4_fn bulk_dot, i8_bulk4_fn bulk_l2) {
+  static int8_t q[MAX_LEN];
+  static int8_t v0[MAX_LEN], v1[MAX_LEN], v2[MAX_LEN], v3[MAX_LEN];
+  for (size_t i = 0; i < MAX_LEN; ++i) {
+    q[i] = next_i8();
+    v0[i] = next_i8();
+    v1[i] = next_i8();
+    v2[i] = next_i8();
+    v3[i] = next_i8();
+  }
+  for (size_t li = 0; li < NUM_LENGTHS; ++li) {
+    size_t n = kLengths[li];
+    int32_t want_dot[4] = {
+        sim_dot_i8_scalar(q, v0, n),
+        sim_dot_i8_scalar(q, v1, n),
+        sim_dot_i8_scalar(q, v2, n),
+        sim_dot_i8_scalar(q, v3, n),
+    };
+    int32_t want_l2[4] = {
+        sim_l2_i8_scalar(q, v0, n),
+        sim_l2_i8_scalar(q, v1, n),
+        sim_l2_i8_scalar(q, v2, n),
+        sim_l2_i8_scalar(q, v3, n),
+    };
+    int32_t got_dot[4] = {0};
+    int32_t got_l2[4] = {0};
+    bulk_dot(q, v0, v1, v2, v3, got_dot, n);
+    bulk_l2(q, v0, v1, v2, v3, got_l2, n);
+    for (int lane = 0; lane < 4; ++lane) {
+      CHECK(got_dot[lane] == want_dot[lane], "%s bulk4 dot n=%zu lane=%d: got %d want %d\n", name,
+            n, lane, got_dot[lane], want_dot[lane]);
+      CHECK(got_l2[lane] == want_l2[lane], "%s bulk4 l2 n=%zu lane=%d: got %d want %d\n", name, n,
+            lane, got_l2[lane], want_l2[lane]);
+    }
+  }
+}
+
 // True if a kernel tier is safe to call directly here: the CPU reports the feature and
 // the dispatcher's forked probe confirmed the instructions really execute.  Skipping on a
 // failed probe matters -- a lying CPUID/HWCAP would otherwise SIGILL this process rather
@@ -142,11 +195,15 @@ int main(void) {
 #if defined(MONGOT_VECSIM_HAVE_NEON_DOTPROD)
   if (kernel_runnable("FEAT_DotProd", vecsim_has_dotprod(), sim_dot_i8_dotprod)) {
     cross_check("neon_dotprod", sim_dot_i8_dotprod, sim_l2_i8_dotprod, sim_cos_i8_dotprod);
+    // sim_{dot,l2}_i8_bulk4_dotprod use the same vdotq_s32/vdotq_u32 instructions already probed
+    // above via the single-vector kernel, so no separate probe is needed for them.
+    cross_check_bulk4("neon_dotprod", sim_dot_i8_bulk4_dotprod, sim_l2_i8_bulk4_dotprod);
   }
 #endif
 #if defined(MONGOT_VECSIM_HAVE_SVE)
   if (kernel_runnable("SVE", vecsim_has_sve(), sim_dot_i8_sve)) {
     cross_check("sve", sim_dot_i8_sve, sim_l2_i8_sve, sim_cos_i8_sve);
+    cross_check_bulk4("sve", sim_dot_i8_bulk4_sve, sim_l2_i8_bulk4_sve);
   }
 #endif
 #if defined(MONGOT_VECSIM_HAVE_AVX512)
@@ -172,6 +229,46 @@ int main(void) {
             "dispatch l2 n=%zu mismatch\n", n);
       CHECK(mongot_vecsim_cos_i8(a, b, n) == sim_cos_i8_scalar(a, b, n),
             "dispatch cos n=%zu mismatch\n", n);
+    }
+  }
+
+  // The exported bulk4 dispatch must agree with 4 scalar calls whether the bound tier has a real
+  // fused kernel or is falling back to 4 sequential dot_i8_impl/l2_i8_impl calls -- bit-identical
+  // output between the fused and fallback paths is the point of the ABI.
+  {
+    // One contiguous "base" buffer: q, v0, v1, v2, v3 each get their own MAX_LEN-byte slot,
+    // addressed by byte offset the way the real ABI is (see mongot_vecsim.c).
+    static int8_t base[5 * MAX_LEN];
+    for (size_t i = 0; i < 5 * MAX_LEN; ++i) {
+      base[i] = next_i8();
+    }
+    const size_t q_off = 0;
+    const size_t d0 = 1 * MAX_LEN, d1 = 2 * MAX_LEN, d2 = 3 * MAX_LEN, d3 = 4 * MAX_LEN;
+    for (size_t li = 0; li < NUM_LENGTHS; ++li) {
+      size_t n = kLengths[li];
+      const int8_t* q = base + q_off;
+      int32_t want_dot[4] = {
+          sim_dot_i8_scalar(q, base + d0, n),
+          sim_dot_i8_scalar(q, base + d1, n),
+          sim_dot_i8_scalar(q, base + d2, n),
+          sim_dot_i8_scalar(q, base + d3, n),
+      };
+      int32_t want_l2[4] = {
+          sim_l2_i8_scalar(q, base + d0, n),
+          sim_l2_i8_scalar(q, base + d1, n),
+          sim_l2_i8_scalar(q, base + d2, n),
+          sim_l2_i8_scalar(q, base + d3, n),
+      };
+      int32_t got_dot[4] = {0};
+      int32_t got_l2[4] = {0};
+      mongot_vecsim_dot_i8_bulk4(base, q_off, base, got_dot, d0, d1, d2, d3, n);
+      mongot_vecsim_l2_i8_bulk4(base, q_off, base, got_l2, d0, d1, d2, d3, n);
+      for (int lane = 0; lane < 4; ++lane) {
+        CHECK(got_dot[lane] == want_dot[lane], "dispatch bulk4 dot n=%zu lane=%d: got %d want %d\n",
+              n, lane, got_dot[lane], want_dot[lane]);
+        CHECK(got_l2[lane] == want_l2[lane], "dispatch bulk4 l2 n=%zu lane=%d: got %d want %d\n", n,
+              lane, got_l2[lane], want_l2[lane]);
+      }
     }
   }
 
