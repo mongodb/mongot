@@ -25,8 +25,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Reads partitioned change streams concurrently through the {@link ChangeStreamMongoClient}
- * interface.
+ * PartitionedChangeStreamClient reads one collection's change stream as N separate partitions, all
+ * at the same time, and exposes them through the same getNext() interface as an ordinary change
+ * stream. Each call returns one batch from whichever partition has finished fetching. The batch is
+ * tagged with that partition and carries that partition's own resume token. Partitions move forward
+ * independently: a slow partition does not hold up the others.
  *
  * <p>Each document belongs to exactly one reader. Batches retain that reader's order, while readers
  * advance independently. Reader creation must apply the partition filter and reassemble split
@@ -57,7 +60,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
 
   private final List<Reader<E>> readers;
 
-  /** Completed readers, or an empty entry to wake getNext() when shutdown starts. */
+  /** Completed readers in completion order, or an empty entry to wake getNext() on closure. */
   private final BlockingQueue<Optional<Reader<E>>> completedReaders;
 
   /** Dedicated to this client, with one worker available for every partition. */
@@ -135,6 +138,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
       List<ChangeStreamMongoClient<E>> clients,
       ExecutorService executor,
       WrapIfThrows<E> exceptionWrapper) {
+    checkArg(!clients.isEmpty(), "clients must contain at least one reader");
     var readers = new ArrayList<Reader<E>>();
     for (int id = 0; id < clients.size(); id++) {
       readers.add(new Reader<>(clients.get(id), new ChangeStreamPartition(id, clients.size())));
@@ -147,34 +151,21 @@ public class PartitionedChangeStreamClient<E extends Exception>
   }
 
   /*
-   * Returns the next completed reader batch independently of other readers' progress. Calls to this
-   * method are serialized. Each call follows these steps:
+   * Each getNext() call follows these steps:
    *
-   * 1. Reject the call if this client is closed.
+   * 1. Check closure and whether all readers finished. Lifecycle completion is a placeholder.
+   * 2. Call submitFetchForReaders(). Each reader checks its lifecycle and pacing eligibility
+   *    hooks and pending fetch. Lifecycle and optime pacing are not implemented yet.
+   *    A completed, unread result still occupies the pending slot.
+   * 3. Take the next completed reader, waiting if necessary. A shutdown marker wakes this wait
+   *    and causes the call to throw.
+   * 4. Take the result, freeing its reader's slot, or propagate the fetch failure.
+   * 5. Reject unsupported lifecycle events and return the batch with its original partition
+   *    metadata. Other readers' results remain available for later calls.
    *
-   * 2. Check allReadersFinished(). If every reader has reached a lifecycle boundary, delegate to
-   *    handleAllReadersFinished(). These are placeholders: readers currently report unfinished,
-   *    and the handler throws if reached.
-   *
-   * 3. Call submitFetchForReaders(). Each reader decides whether to submit a fetch, skipping if it
-   *    has reached a lifecycle boundary or already has a queued fetch, running fetch, or completed
-   *    result awaiting consumption. Eligible readers fetch concurrently.
-   *
-   * 4. Take the next reader from completedReaders, waiting if the queue is empty. Fetch completion
-   *    queues the reader on success or failure; this call does not wait for every reader.
-   *    A shutdown wakeup causes the call to throw.
-   *
-   * 5. Consume that reader's pendingFetch, freeing its slot and retrieving its batch or propagating
-   *    its failure. Other readers' pending results remain available for later calls.
-   *
-   * 6. Reject unsupported lifecycle events, then return the batch with its originating partition,
-   *    real resume token, and command operation time.
-   *
-   * Example: A has a ready batch, B is idle, and C is still fetching. This call submits B's fetch
-   * before returning A's queued batch. A can be scheduled for another fetch on the next call.
-   *
-   * close() wakes a waiting call and closes reader clients. Closure is checked again after waiting
-   * and after retrieving the result, before a batch is returned.
+   * Example: A has a ready batch, B is idle, and C is still fetching. Submit B's fetch before
+   * returning A's batch. A can fetch again on the next call. Completed results remain deliverable
+   * regardless of future fetch eligibility. close() wakes a waiting call and closes the readers.
    */
   @Override
   public synchronized ChangeStreamBatch getNext() throws E {
@@ -185,11 +176,13 @@ public class PartitionedChangeStreamClient<E extends Exception>
             return handleAllReadersFinished();
           }
           submitFetchForReaders();
+
           Reader<E> reader =
               this.completedReaders
                   .take()
                   .orElseThrow(() -> new IllegalStateException("Change stream client is closed"));
           checkState(!this.closed.get(), "Change stream client is closed");
+          // Taking the result frees the slot, including on failure. Refill happens on a later call.
           ChangeStreamBatch batch = reader.takeFetchResult();
 
           checkState(!this.closed.get(), "Change stream client is closed");
@@ -255,6 +248,8 @@ public class PartitionedChangeStreamClient<E extends Exception>
       return;
     }
     this.completedReaders.clear();
+    // Optional.empty() is a shutdown marker. Wake getNext() blocked in completedReaders.take(),
+    // even if every in-flight fetch is stalled and cannot signal completion.
     this.completedReaders.add(Optional.empty());
     this.executor.shutdown();
     this.readers.forEach(Reader::close);
@@ -287,13 +282,24 @@ public class PartitionedChangeStreamClient<E extends Exception>
       return false;
     }
 
+    /** Placeholder for deriving pacing eligibility from optime progress on each submission. */
+    private boolean shouldPauseForPacing() {
+      // The optime policy will go here. It must leave the slowest unfinished reader eligible
+      // so completions can advance progress without an external resume signal.
+      return false;
+    }
+
     /**
-     * Starts one fetch if unfinished and the previous result has been consumed. Completion notifies
+     * Starts one fetch if eligible and the previous result has been consumed. Completion notifies
      * the caller; the result remains pending until taken. A rejected submission leaves this reader
      * idle.
      */
     void submitFetch(Executor executor, Runnable onCompletion) {
-      if (isFinished() || this.pendingFetch.isPresent()) {
+      // There are three conditions that prevent a new fetch from being submitted:
+      // 1. The reader is finished because it received a lifecycle event
+      // 2. The reader has a pending fetch
+      // 3. The reader should pause for pacing
+      if (isFinished() || this.pendingFetch.isPresent() || shouldPauseForPacing()) {
         return;
       }
       var future =

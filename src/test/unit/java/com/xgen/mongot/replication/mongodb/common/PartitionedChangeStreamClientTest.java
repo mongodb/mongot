@@ -34,6 +34,8 @@ import org.junit.After;
 import org.junit.Test;
 
 public class PartitionedChangeStreamClientTest {
+  private static final ChangeStreamPartition FIRST = new ChangeStreamPartition(0, 2);
+
   private final BatchMongoClient mongoClient = mock(BatchMongoClient.class);
   private final ExecutorService fetchExecutor = mock(ExecutorService.class);
   private final ExecutorService caller = Executors.newSingleThreadExecutor();
@@ -49,6 +51,15 @@ public class PartitionedChangeStreamClientTest {
     assertThat(this.caller.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
     assertThat(this.closer.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
     assertThat(this.executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+  }
+
+  @Test
+  public void constructor_noReaders_throws() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new PartitionedChangeStreamClient<>(
+                List.of(), this.fetchExecutor, SteadyStateException::wrapIfThrows));
   }
 
   @Test
@@ -78,6 +89,58 @@ public class PartitionedChangeStreamClientTest {
         // Complete the queued fetch before leaving the test.
         slowFetch.run();
       }
+    }
+  }
+
+  @Test
+  public void getNext_readyBatchAndStalledReader_refillsIdleReaderBeforeReturning()
+      throws Exception {
+    var first = reader(batch(10), batch(40));
+    var second = reader(batch(20));
+    var slow = reader(batch(30));
+    try (var client = client(List.of(first, second, slow), this.fetches::add)) {
+      var initial = this.caller.submit(client::getNext);
+      var firstFetch = nextFetch();
+      var secondFetch = nextFetch();
+      var slowFetch = nextFetch();
+      try {
+        firstFetch.run();
+        assertThat(initial.get(10, TimeUnit.SECONDS).getPostBatchResumeToken())
+            .isEqualTo(token(10));
+        secondFetch.run();
+
+        var readyBatch = client.getNext();
+
+        assertThat(readyBatch.getPostBatchResumeToken()).isEqualTo(token(20));
+        // The first reader's next fetch is already submitted while the caller handles this batch.
+        assertThat(this.fetches).hasSize(1);
+        nextFetch().run();
+        verify(first, times(2)).getNext();
+        verify(second).getNext();
+        verify(slow, never()).getNext();
+      } finally {
+        slowFetch.run();
+      }
+    }
+  }
+
+  @Test
+  public void getNext_multipleReadyReaders_refillsWithoutReorderingOrOverwritingBatches()
+      throws Exception {
+    var first = reader(batch(10), batch(40));
+    var second = reader(batch(20));
+    var third = reader(batch(30));
+    try (var client = client(List.of(first, second, third), Runnable::run)) {
+      assertThat(client.getNext().getPostBatchResumeToken()).isEqualTo(token(10));
+
+      assertThat(client.getNext().getPostBatchResumeToken()).isEqualTo(token(20));
+
+      verify(first, times(2)).getNext();
+      verify(second).getNext();
+      verify(third).getNext();
+      assertThat(client.getNext().getPostBatchResumeToken()).isEqualTo(token(30));
+      assertThat(client.getNext().getPostBatchResumeToken()).isEqualTo(token(40));
+      verify(first, times(2)).getNext();
     }
   }
 
@@ -198,6 +261,53 @@ public class PartitionedChangeStreamClientTest {
       assertThat(retried.getRawEvents()).containsExactly(event(19));
       assertThat(retried.getPostBatchResumeToken()).isEqualTo(token(20));
       verify(second).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_refillRejected_retainsReadyBatchForRetry() throws Exception {
+    var first = reader(batch(10), batch(30));
+    var second = reader(batch(20));
+    var rejection = new RejectedExecutionException();
+    try (var client = client(first, second)) {
+      assertThat(client.getNext().getPostBatchResumeToken()).isEqualTo(token(10));
+      doThrow(rejection)
+          .doAnswer(
+              invocation -> {
+                invocation.getArgument(0, Runnable.class).run();
+                return null;
+              })
+          .when(this.fetchExecutor)
+          .execute(any(Runnable.class));
+
+      assertThat(assertThrows(RejectedExecutionException.class, client::getNext))
+          .isSameInstanceAs(rejection);
+      var retained = client.getNext();
+      var refetched = client.getNext();
+
+      assertThat(retained.getPostBatchResumeToken()).isEqualTo(token(20));
+      assertThat(refetched.getPostBatchResumeToken()).isEqualTo(token(30));
+      verify(first, times(2)).getNext();
+    }
+  }
+
+  @Test
+  public void close_completedBatch_discardsBufferedResult() throws Exception {
+    var first = reader(batch(10));
+    var second = reader(batch(20));
+    var client = client(first, second);
+    try {
+      assertThat(client.getNext().getPartition()).hasValue(FIRST);
+
+      client.close();
+
+      assertThat(assertThrows(IllegalStateException.class, client::getNext))
+          .hasMessageThat()
+          .isEqualTo("Change stream client is closed");
+      verify(first).getNext();
+      verify(second).getNext();
+    } finally {
+      client.close();
     }
   }
 
