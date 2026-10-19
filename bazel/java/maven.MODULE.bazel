@@ -20,7 +20,7 @@ maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 maven.install(
     name = "maven",
     artifacts = [
-        "com.google.guava:guava:33.5.0-jre",
+        "com.google.guava:guava:33.7.2-jre",
         # Jackson
         "com.fasterxml.jackson.core:jackson-databind:2.18.11",
         "com.fasterxml.jackson.core:jackson-annotations:2.18.11",
@@ -49,7 +49,7 @@ maven.install(
         "io.opentelemetry:opentelemetry-sdk-extension-resources:1.19.0",
         # MISC_ARTIFACTS
         "com.uber.nullaway:nullaway:0.12.15",
-        "ch.qos.logback:logback-classic:1.5.36",
+        "ch.qos.logback:logback-classic:1.6.5",
         "net.logstash.logback:logstash-logback-encoder:8.1",
         "org.slf4j:slf4j-api:2.0.17",
         "org.slf4j:jul-to-slf4j:2.0.17",
@@ -119,10 +119,9 @@ maven.install(
         # httpclient5; keep both core5 artifacts aligned.
         "org.apache.httpcomponents.core5:httpcore5:5.4.3",
         "org.apache.httpcomponents.core5:httpcore5-h2:5.4.3",
-        # Force httpclient5 to 5.6.3 to address CVE-2026-64607 / GHSA-hjcp-jmpx-g3qm
+        # Force httpclient5 to 5.6.5 to address CVE-2026-64607 / GHSA-hjcp-jmpx-g3qm
         # (classic i/o HttpClient fails to release the connection on an invalid
-        # Content-Encoding response header). Pulled transitively via docker-java.
-        "org.apache.httpcomponents.client5:httpclient5:5.6.3",
+        "org.apache.httpcomponents.client5:httpclient5:5.6.5",
         # Force reactor-netty to 1.3.7 to address CVE-2026-47848 (open redirect leaking
         # credentials when a WebSocket handshake is redirected to a different origin with
         # follow-redirects enabled); supersedes the earlier 1.2.18 pin for CVE-2026-41715.
@@ -201,7 +200,7 @@ maven.install(
     for (group, artifact, version) in [
         ("org.openjdk.jmh", "jmh-core", "1.37"),
         ("org.openjdk.jmh", "jmh-generator-annprocess", "1.37"),
-        ("com.google.guava", "guava-testlib", "33.5.0-jre"),
+        ("com.google.guava", "guava-testlib", "33.7.2-jre"),
         ("com.pholser", "junit-quickcheck-core", "1.0"),
         ("com.pholser", "junit-quickcheck-generators", "1.0"),
         ("com.github.docker-java", "docker-java-core", "3.7.1"),
