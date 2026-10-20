@@ -36,8 +36,10 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query/points",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
+        "//src/main/java/com/xgen/mongot/util/bson/parser",
         "//src/main/java/com/xgen/testing/mongot/index/lucene/explain/timing",
         "@maven//:org_apache_commons_commons_collections4",
         "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_mongodb_bson",
     ],
 )

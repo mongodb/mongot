@@ -37,7 +37,9 @@ java_test_suite(
         "//src/main/java/com/xgen/testing/mongot/index/lucene/explain/information",
         "//src/main/java/com/xgen/testing/mongot/server/command/search/definition/request",
         "@maven//:com_google_guava_guava",
+        "@maven//:com_google_truth_truth",
         "@maven//:junit_junit",
         "@maven//:org_apache_lucene_lucene_core",
+        "@maven//:org_mongodb_bson",
     ],
 )

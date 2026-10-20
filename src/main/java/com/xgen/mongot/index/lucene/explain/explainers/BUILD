@@ -25,6 +25,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/explain/information",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/information/creator",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/profiler",
+        "//src/main/java/com/xgen/mongot/index/lucene/explain/query",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/timing",
         "//src/main/java/com/xgen/mongot/index/lucene/explain/tracing",
         "//src/main/java/com/xgen/mongot/index/lucene/field",
@@ -39,5 +40,6 @@ java_library(
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_apache_lucene_lucene_facet",
         "@maven//:org_apache_lucene_lucene_highlighter",
+        "@maven//:org_mongodb_bson",
     ],
 )

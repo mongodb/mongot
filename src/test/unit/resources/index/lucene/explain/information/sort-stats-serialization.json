@@ -5,11 +5,11 @@
       "json": {
         "stats": {
           "prunedResultIterator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           },
           "comparator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           }
         },
@@ -48,11 +48,11 @@
       "json": {
         "stats": {
           "prunedResultIterator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           },
           "comparator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           }
         },
@@ -86,6 +86,73 @@
           ]
         },
         "usesIndexSort": true
+      }
+    },
+    {
+      "description": "full-with-embedded-documents",
+      "json": {
+        "stats": {
+          "prunedResultIterator": {
+            "millisElapsed": 1e-05,
+            "invocationCounts": {}
+          },
+          "comparator": {
+            "millisElapsed": 1e-05,
+            "invocationCounts": {}
+          }
+        },
+        "fieldInfos": {
+          "foo": [
+            "date",
+            "token"
+          ]
+        },
+        "embeddedDocuments": {
+          "foo": {
+            "path": "variants",
+            "query": {
+              "type": "TermQuery",
+              "args": {
+                "path": "variants.inStock",
+                "value": "T"
+              }
+            }
+          }
+        }
+      },
+      "bson": {
+        "stats": {
+          "prunedResultIterator": {
+            "millisElapsed": {
+              "$numberDouble": "1e-5"
+            },
+            "invocationCounts": {}
+          },
+          "comparator": {
+            "millisElapsed": {
+              "$numberDouble": "1e-5"
+            },
+            "invocationCounts": {}
+          }
+        },
+        "fieldInfos": {
+          "foo": [
+            "date",
+            "token"
+          ]
+        },
+        "embeddedDocuments": {
+          "foo": {
+            "path": "variants",
+            "query": {
+              "type": "TermQuery",
+              "args": {
+                "path": "variants.inStock",
+                "value": "T"
+              }
+            }
+          }
+        }
       }
     }
   ]

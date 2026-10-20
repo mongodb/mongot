@@ -5,11 +5,11 @@
       "value": {
         "stats": {
           "prunedResultIterator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           },
           "comparator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           }
         },
@@ -26,11 +26,11 @@
       "value": {
         "stats": {
           "prunedResultIterator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           },
           "comparator": {
-            "millisElapsed": 1.0E-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           }
         },
@@ -42,6 +42,39 @@
         },
         "usesIndexSort": true
       }
+    },
+    {
+      "description": "full-with-embedded-documents",
+      "value": {
+        "stats": {
+          "prunedResultIterator": {
+            "millisElapsed": 1e-05,
+            "invocationCounts": {}
+          },
+          "comparator": {
+            "millisElapsed": 1e-05,
+            "invocationCounts": {}
+          }
+        },
+        "fieldInfos": {
+          "foo": [
+            "date",
+            "token"
+          ]
+        },
+        "embeddedDocuments": {
+          "foo": {
+            "path": "variants",
+            "query": {
+              "type": "TermQuery",
+              "args": {
+                "path": "variants.inStock",
+                "value": "T"
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "invalid": [
@@ -51,7 +84,7 @@
         "description": "full",
         "value": {
           "stats": {
-            "millisElapsed": 1e-5,
+            "millisElapsed": 1e-05,
             "invocationCounts": {}
           },
           "fieldInfos": {

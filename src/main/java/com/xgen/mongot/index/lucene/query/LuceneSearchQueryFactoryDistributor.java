@@ -13,6 +13,8 @@ import com.xgen.mongot.index.analyzer.wrapper.LuceneAnalyzer;
 import com.xgen.mongot.index.analyzer.wrapper.QueryAnalyzerWrapper;
 import com.xgen.mongot.index.definition.EmbeddedDocumentsFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.lucene.explain.explainers.SortFeatureExplainer;
+import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.custom.WrappedKnnQuery;
@@ -343,6 +345,14 @@ public class LuceneSearchQueryFactoryDistributor {
         operator, SingleQueryContext.createQueryRoot(indexReader).withEmbeddedRoot(embeddedPath));
   }
 
+  /** Builds the same child-only query with the standard explain operator-path instrumentation. */
+  public Query createEmbeddedChildExplainQuery(
+      Operator operator, FieldPath embeddedPath, IndexReader indexReader)
+      throws InvalidQueryException, IOException {
+    return createSearchExplainQuery(
+        operator, SingleQueryContext.createExplainRoot(indexReader).withEmbeddedRoot(embeddedPath));
+  }
+
   /**
    * Returns a {@link BitSetProducer} identifying root (top-level) documents, used to group an
    * embedded-scoped facet's matching child docs up to their root for per-root deduplication.
@@ -452,22 +462,30 @@ public class LuceneSearchQueryFactoryDistributor {
     }
 
     Optional<FieldPath> embeddedRoot = returnScope.map(ReturnScope::path);
-    Map<FieldPath, SortField> scopedOverrides =
+    ScopedSortOverrides scopedOverrides =
         buildScopedSortOverrides(
             sortSpec.get(), reader, fieldsToSortableTypesMapping, scopedSortEnabled, embeddedRoot);
     if (queryOptimizationFlags.omitSearchDocumentResults() && !sortDrivesAggregation) {
       return Optional.empty();
     }
     this.luceneSortFactory.validateSortSpec(sortSpec.get(), embeddedRoot);
-    return Optional.of(
+    Sort sort =
         this.luceneSortFactory.createLuceneSort(
             sortSpec.get(),
             sequenceToken,
             fieldsToSortableTypesMapping,
             embeddedRoot,
             indexSort,
-            scopedOverrides));
+            scopedOverrides.sortFields());
+    Explain.getQueryInfo()
+        .flatMap(queryInfo -> queryInfo.getFeatureExplainer(SortFeatureExplainer.class))
+        .ifPresent(
+            explainer -> scopedOverrides.childQueries().forEach(explainer::setScopedChildQuery));
+    return Optional.of(sort);
   }
+
+  private record ScopedSortOverrides(
+      Map<FieldPath, SortField> sortFields, Map<FieldPath, Query> childQueries) {}
 
   /**
    * Builds the block-join sort field for each embeddedDoc-scoped sort key, keyed by field path. The
@@ -476,7 +494,7 @@ public class LuceneSearchQueryFactoryDistributor {
    * combined with the root parent bitset. Scoped sort is gated behind {@code
    * ENABLE_EMBEDDED_SCOPED_SORT} and supports the mixed engine's sortable BSON types.
    */
-  private Map<FieldPath, SortField> buildScopedSortOverrides(
+  private ScopedSortOverrides buildScopedSortOverrides(
       SortSpec sortSpec,
       IndexReader reader,
       FieldToSortableTypesMapping fieldsToSortableTypesMapping,
@@ -484,6 +502,7 @@ public class LuceneSearchQueryFactoryDistributor {
       Optional<FieldPath> returnScope)
       throws InvalidQueryException, IOException {
     Map<FieldPath, SortField> overrides = new HashMap<>();
+    Map<FieldPath, Query> childQueries = new HashMap<>();
     for (MongotSortField field : sortSpec.getSortFields()) {
       if (!(field.options() instanceof UserFieldSortOptions userOptions)
           || userOptions.embeddedScope().isEmpty()) {
@@ -583,7 +602,13 @@ public class LuceneSearchQueryFactoryDistributor {
       // {path, operator} block the operators-layer scope parser expects.
       EmbeddedSortScope sortScope = userOptions.embeddedScope().orElseThrow();
       EmbeddedDocumentScope scope = parseSortScope(field.field(), sortScope.toBson());
-      Query childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
+      Query childQuery;
+      if (Explain.isEnabled()) {
+        childQuery = createEmbeddedChildExplainQuery(scope.operator(), scope.path(), reader);
+        childQueries.put(field.field(), childQuery);
+      } else {
+        childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
+      }
       BitSetProducer childFilter = new QueryBitSetProducer(childQuery);
       BitSetProducer parentFilter = rootParentBitSetProducer();
       ScopeFilters scopeFilters = new ScopeFilters(parentFilter, childFilter);
@@ -601,7 +626,7 @@ public class LuceneSearchQueryFactoryDistributor {
       }
       overrides.put(field.field(), scopedSort);
     }
-    return overrides;
+    return new ScopedSortOverrides(overrides, childQueries);
   }
 
   /** Parses a scoped sort key and validates its operator against the scope's embedded root. */

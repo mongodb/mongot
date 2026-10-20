@@ -8,12 +8,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
+import org.bson.BsonDocument;
 
 public class SortStatsBuilder {
   private Optional<QueryExecutionArea> profilingIteratorExecutionArea;
   private Optional<QueryExecutionArea> sortExecutionArea;
   private Optional<Map<String, List<FieldName.TypeField>>> fieldInfos;
   private Optional<Boolean> usesIndexSort = Optional.empty();
+  private Optional<BsonDocument> embeddedDocuments = Optional.empty();
 
   public static SortStatsBuilder builder() {
     return new SortStatsBuilder();
@@ -40,6 +42,11 @@ public class SortStatsBuilder {
     return this;
   }
 
+  public SortStatsBuilder embeddedDocuments(BsonDocument embeddedDocuments) {
+    this.embeddedDocuments = Optional.of(embeddedDocuments);
+    return this;
+  }
+
   public SortStats build() {
     var infos = Check.isPresent(this.fieldInfos, "fieldInfos");
     Optional<SortStats.SortExplainTimingBreakdown> sortExplainTimingBreakdown =
@@ -50,6 +57,7 @@ public class SortStatsBuilder {
                     this.profilingIteratorExecutionArea.get(), this.sortExecutionArea.get()))
             : Optional.empty();
 
-    return new SortStats(sortExplainTimingBreakdown, infos, this.usesIndexSort);
+    return new SortStats(
+        sortExplainTimingBreakdown, infos, this.usesIndexSort, this.embeddedDocuments);
   }
 }

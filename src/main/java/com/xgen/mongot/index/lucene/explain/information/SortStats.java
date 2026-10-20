@@ -24,7 +24,8 @@ import org.bson.BsonDocument;
 public record SortStats(
     Optional<SortExplainTimingBreakdown> stats,
     Map<String, List<FieldName.TypeField>> fieldInfos,
-    Optional<Boolean> usesIndexSort)
+    Optional<Boolean> usesIndexSort,
+    Optional<BsonDocument> embeddedDocuments)
     implements DocumentEncodable, Comparable<SortStats> {
   static class Fields {
     static final Field.Optional<SortExplainTimingBreakdown> STATS =
@@ -33,6 +34,13 @@ public record SortStats(
             .disallowUnknownFields()
             .optional()
             .noDefault();
+
+    /**
+     * Maps each scoped sort field to {@code {path, query}}, where query is the standard structural
+     * child-query explain tree. Absent when no sort key is scoped.
+     */
+    static final Field.Optional<BsonDocument> EMBEDDED_DOCUMENTS =
+        Field.builder("embeddedDocuments").documentField().optional().noDefault();
 
     static final Field.Required<Map<String, List<FieldName.TypeField>>> FIELD_INFOS =
         Field.builder("fieldInfos")
@@ -52,15 +60,18 @@ public record SortStats(
 
   public static SortStats create(
       ImmutableSetMultimap<FieldPath, FieldName.TypeField> fieldToTypeField,
-      Optional<Boolean> usesIndexSort) {
-    return SortStats.create(Optional.empty(), Optional.empty(), fieldToTypeField, usesIndexSort);
+      Optional<Boolean> usesIndexSort,
+      Optional<BsonDocument> embeddedDocuments) {
+    return SortStats.create(
+        Optional.empty(), Optional.empty(), fieldToTypeField, usesIndexSort, embeddedDocuments);
   }
 
   public static SortStats create(
       Optional<QueryExecutionArea> prunedResultIterator,
       Optional<QueryExecutionArea> comparator,
       ImmutableSetMultimap<FieldPath, FieldName.TypeField> fieldToTypeField,
-      Optional<Boolean> usesIndexSort) {
+      Optional<Boolean> usesIndexSort,
+      Optional<BsonDocument> embeddedDocuments) {
 
     Optional<SortExplainTimingBreakdown> sortExplainTimingBreakdown =
         Stream.of(prunedResultIterator, comparator).allMatch(Optional::isPresent)
@@ -80,14 +91,15 @@ public record SortStats(
                             .sorted()
                             .collect(Collectors.toList())));
 
-    return new SortStats(sortExplainTimingBreakdown, fieldInfos, usesIndexSort);
+    return new SortStats(sortExplainTimingBreakdown, fieldInfos, usesIndexSort, embeddedDocuments);
   }
 
   public static SortStats fromBson(DocumentParser parser) throws BsonParseException {
     return new SortStats(
         parser.getField(Fields.STATS).unwrap(),
         parser.getField(Fields.FIELD_INFOS).unwrap(),
-        parser.getField(Fields.USES_INDEX_SORT).unwrap());
+        parser.getField(Fields.USES_INDEX_SORT).unwrap(),
+        parser.getField(Fields.EMBEDDED_DOCUMENTS).unwrap());
   }
 
   public boolean equals(SortStats other, Equator<QueryExecutionArea> timingEquator) {
@@ -98,7 +110,8 @@ public record SortStats(
             .orElse(true)
         // both stats are either present or absent
         && Objects.equals(this.fieldInfos, other.fieldInfos)
-        && Objects.equals(this.usesIndexSort, other.usesIndexSort);
+        && Objects.equals(this.usesIndexSort, other.usesIndexSort)
+        && Objects.equals(this.embeddedDocuments, other.embeddedDocuments);
   }
 
   @Override
@@ -107,6 +120,7 @@ public record SortStats(
         .field(Fields.FIELD_INFOS, this.fieldInfos)
         .field(Fields.STATS, this.stats)
         .field(Fields.USES_INDEX_SORT, this.usesIndexSort)
+        .field(Fields.EMBEDDED_DOCUMENTS, this.embeddedDocuments)
         .build();
   }
 

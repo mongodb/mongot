@@ -1,19 +1,25 @@
 package com.xgen.testing.mongot.index.lucene.explain.information;
 
+import com.xgen.mongot.index.lucene.explain.information.CollectorExplainInformation;
 import com.xgen.mongot.index.lucene.explain.information.EqualsWithTimingEquator;
 import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
 import com.xgen.mongot.index.lucene.explain.information.QueryExplainInformation;
+import com.xgen.mongot.index.lucene.explain.information.SortStats;
 import com.xgen.mongot.index.lucene.explain.timing.ExplainTimingBreakdown;
 import com.xgen.mongot.index.lucene.explain.timing.QueryExecutionArea;
 import com.xgen.mongot.util.Equality;
 import com.xgen.mongot.util.bson.JsonCodec;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.mongot.index.lucene.explain.timing.ExplainTimingBreakdownBuilder;
 import com.xgen.testing.mongot.index.lucene.explain.timing.QueryExecutionAreaBuilder;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.apache.commons.collections4.Equator;
+import org.bson.BsonDocument;
 
 public class ExplainInformationTestUtil {
   public static final QueryExecutionArea QUERY_EXECUTION_AREA =
@@ -98,12 +104,68 @@ public class ExplainInformationTestUtil {
       implements Equator<T> {
     @Override
     public boolean equate(T o1, T o2) {
+      if (o1 instanceof CollectorExplainInformation first
+          && o2 instanceof CollectorExplainInformation second) {
+        // Scoped plans are stored as BSON, but their Boolean/dismax clauses have the same
+        // unordered semantics as the top-level query. Compare those with the query equator.
+        return withoutScopedPlans(first)
+                .equals(withoutScopedPlans(second), Equality.alwaysEqualEquator())
+            && scopedPlansEqual(
+                first.sortStats().flatMap(SortStats::embeddedDocuments),
+                second.sortStats().flatMap(SortStats::embeddedDocuments));
+      }
       return o1.equals(o2, Equality.alwaysEqualEquator());
     }
 
     @Override
     public int hash(T o) {
       return o.hashCode();
+    }
+  }
+
+  private static CollectorExplainInformation withoutScopedPlans(CollectorExplainInformation info) {
+    return new CollectorExplainInformation(
+        info.allCollectorStats(),
+        info.facetStats(),
+        info.sortStats()
+            .map(
+                stats ->
+                    new SortStats(
+                        stats.stats(),
+                        stats.fieldInfos(),
+                        stats.usesIndexSort(),
+                        Optional.empty())));
+  }
+
+  private static boolean scopedPlansEqual(
+      Optional<BsonDocument> first, Optional<BsonDocument> second) {
+    if (first.isEmpty() || second.isEmpty()) {
+      return first.isEmpty() && second.isEmpty();
+    }
+    if (!first.get().keySet().equals(second.get().keySet())) {
+      return false;
+    }
+    for (String field : first.get().keySet()) {
+      BsonDocument firstScope = first.get().getDocument(field).clone();
+      BsonDocument secondScope = second.get().getDocument(field).clone();
+      BsonDocument firstQuery = firstScope.getDocument("query");
+      BsonDocument secondQuery = secondScope.getDocument("query");
+      firstScope.remove("query");
+      secondScope.remove("query");
+      if (!firstScope.equals(secondScope)
+          || !QueryExplainInformationEquator.equator()
+              .equate(parseScopedQuery(firstQuery), parseScopedQuery(secondQuery))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static QueryExplainInformation parseScopedQuery(BsonDocument query) {
+    try (var parser = BsonDocumentParser.fromRoot(query).build()) {
+      return QueryExplainInformation.fromBson(parser);
+    } catch (BsonParseException e) {
+      throw new IllegalArgumentException("Invalid scoped-sort child-query explain", e);
     }
   }
 

@@ -13,6 +13,7 @@ import com.xgen.testing.mongot.index.lucene.explain.information.SortStatsBuilder
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonDocument;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -27,6 +28,17 @@ import org.junit.runners.Suite;
       SortStatsTest.SerializationTest.class,
     })
 public class SortStatsTest {
+
+  /** A structural child-query explain tree of a scoped sort key, keyed by field. */
+  private static BsonDocument fooEmbeddedDocuments() {
+    return BsonDocument.parse(
+        """
+        {"foo": {"path": "variants", "query": {
+          "type": "TermQuery", "args": {"path": "variants.inStock", "value": "T"}
+        }}}
+        """);
+  }
+
   public static class ClassTest {
     @Test
     public void testCreate() {
@@ -48,7 +60,8 @@ public class SortStatsTest {
                   FieldName.TypeField.DATE,
                   FieldPath.parse("foo"),
                   FieldName.TypeField.TOKEN),
-              Optional.of(true));
+              Optional.of(true),
+              Optional.empty());
 
       Assert.assertEquals(expected, result);
     }
@@ -75,7 +88,7 @@ public class SortStatsTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonDeserializationTestSuite.TestSpecWrapper<SortStats>> data() {
-      return TEST_SUITE.withExamples(full(), fullWithUsesIndexSort());
+      return TEST_SUITE.withExamples(full(), fullWithUsesIndexSort(), fullWithEmbeddedDocuments());
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<SortStats> full() {
@@ -100,6 +113,18 @@ public class SortStatsTest {
               .usesIndexSort(true)
               .build());
     }
+
+    private static BsonDeserializationTestSuite.ValidSpec<SortStats> fullWithEmbeddedDocuments() {
+      return BsonDeserializationTestSuite.TestSpec.valid(
+          "full-with-embedded-documents",
+          SortStatsBuilder.builder()
+              .profilingIteratorExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
+              .sortExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
+              .fieldInfos(
+                  Map.of("foo", List.of(FieldName.TypeField.DATE, FieldName.TypeField.TOKEN)))
+              .embeddedDocuments(fooEmbeddedDocuments())
+              .build());
+    }
   }
 
   @RunWith(Parameterized.class)
@@ -118,7 +143,7 @@ public class SortStatsTest {
     /** Test data. */
     @Parameterized.Parameters(name = "{0}")
     public static Iterable<BsonSerializationTestSuite.TestSpec<SortStats>> data() {
-      return List.of(full(), fullWithUsesIndexSort());
+      return List.of(full(), fullWithUsesIndexSort(), fullWithEmbeddedDocuments());
     }
 
     @Test
@@ -146,6 +171,18 @@ public class SortStatsTest {
               .fieldInfos(
                   Map.of("foo", List.of(FieldName.TypeField.DATE, FieldName.TypeField.TOKEN)))
               .usesIndexSort(true)
+              .build());
+    }
+
+    private static BsonSerializationTestSuite.TestSpec<SortStats> fullWithEmbeddedDocuments() {
+      return BsonSerializationTestSuite.TestSpec.create(
+          "full-with-embedded-documents",
+          SortStatsBuilder.builder()
+              .profilingIteratorExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
+              .sortExecutionArea(ExplainInformationTestUtil.QUERY_EXECUTION_AREA)
+              .fieldInfos(
+                  Map.of("foo", List.of(FieldName.TypeField.DATE, FieldName.TypeField.TOKEN)))
+              .embeddedDocuments(fooEmbeddedDocuments())
               .build());
     }
   }
