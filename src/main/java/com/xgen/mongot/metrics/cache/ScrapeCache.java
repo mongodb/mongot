@@ -225,6 +225,7 @@ public class ScrapeCache {
       return;
     }
     this.cachedModeExpiresAtMs.set(LIVE_MODE);
+    LOG.atInfo().log("Sticky window expired; returning to live metrics");
     cancelRefreshFuture();
   }
 
@@ -240,8 +241,17 @@ public class ScrapeCache {
         System.currentTimeMillis()
             + TimeUnit.SECONDS.toMillis(this.config.slowModeStickyDurationSec());
     if (!this.cachedModeExpiresAtMs.compareAndSet(LIVE_MODE, expires)) {
+      // Another caller already entered cached mode and scheduled the refresh.
+      LOG.atInfo()
+          .addKeyValue("expiresAtMs", this.cachedModeExpiresAtMs.get())
+          .log("Background metrics refresh already scheduled; skipping");
       return;
     }
+
+    LOG.atInfo()
+        .addKeyValue("refreshIntervalSec", this.config.backgroundRefreshIntervalSec())
+        .addKeyValue("stickyDurationSec", this.config.slowModeStickyDurationSec())
+        .log("Starting background metrics refresh");
     ScheduledFuture<?> f =
         this.backgroundComputeExecutor.scheduleWithFixedDelay(
             this::refreshCachedMetrics,
@@ -252,11 +262,17 @@ public class ScrapeCache {
   }
 
   private void refreshCachedMetrics() {
+    // A "starting" log with no "completed" means the scrape hung (a hung source never throws).
+    long startedAtMs = System.currentTimeMillis();
+    LOG.atInfo().log("Background metrics scrape starting");
     try {
       this.cachedMetrics.set(this.scrapeSource.get());
     } catch (Throwable t) {
-      LOG.error("Background scrape cache refresh failed; switching to live mode", t);
+      LOG.error("Background metrics scrape failed", t);
     }
+    LOG.atInfo()
+        .addKeyValue("durationMs", System.currentTimeMillis() - startedAtMs)
+        .log("Background metrics scrape completed");
   }
 
   private String getCachedMetrics() {
