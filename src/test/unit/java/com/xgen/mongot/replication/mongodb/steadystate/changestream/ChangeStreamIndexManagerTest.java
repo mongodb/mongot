@@ -282,6 +282,23 @@ public class ChangeStreamIndexManagerTest {
       return scheduler;
     }
 
+    /**
+     * Waits for {@link #capturingScheduler} to record a scheduled batch. Mockito registers an
+     * invocation before running its stubbing answer, so a {@code timeout()} verification can return
+     * before the answer has captured the commit data; reading the captured list directly races
+     * (CLOUDP-460171).
+     */
+    private static Optional<IndexCommitUserData> awaitCapturedCommitData(
+        List<Optional<IndexCommitUserData>> committed) throws InterruptedException {
+      long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+      while (committed.isEmpty() && System.nanoTime() < deadline) {
+        Thread.sleep(10);
+      }
+      return committed.stream()
+          .findFirst()
+          .orElseThrow(() -> new AssertionError("timed out waiting for the batch to be scheduled"));
+    }
+
     private ChangeStreamIndexManager partitionedManager(
         IndexingWorkScheduler scheduler,
         AtomicReference<ChangeStreamResumeInfo> resumeInfoReference,
@@ -321,7 +338,7 @@ public class ChangeStreamIndexManagerTest {
       // Scheduled but not yet indexed: nothing is confirmed past the seed positions.
       Assert.assertEquals(
           Map.of(PARTITION_0, SEED_TOKEN, PARTITION_1, SEED_TOKEN), tracker.snapshot());
-      IndexCommitUserData commitData = committed.get(0).orElseThrow();
+      IndexCommitUserData commitData = awaitCapturedCommitData(committed).orElseThrow();
       Assert.assertEquals(SEED_TOKEN, commitData.resumeInfo().orElseThrow().getResumeToken());
 
       schedulerFuture.complete(null);
