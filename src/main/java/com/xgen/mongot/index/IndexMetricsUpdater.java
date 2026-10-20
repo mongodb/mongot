@@ -1229,6 +1229,7 @@ public class IndexMetricsUpdater implements Closeable {
       private static final String RETURN_STORED_SOURCE_COUNTER_NAME = "returnStoredSource";
       private static final String RETURN_SCOPE_COUNTER_NAME = "returnScope";
       private static final String SCOPED_FACET_COUNTER_NAME = "embeddedScopedFacet";
+      private static final String SCOPED_SORT_COUNTER_NAME = "embeddedScopedSort";
       private static final String VECTOR_SEARCH_FILTER_COUNTER_NAME = "vectorSearch_filter";
       private static final String EXPLAIN_COUNTER_NAME = "explain";
       private static final String FACET_DRILL_SIDEWAYS_COUNTER_NAME =
@@ -1268,6 +1269,7 @@ public class IndexMetricsUpdater implements Closeable {
       private final Counter returnStoredSourceCounter;
       private final Counter returnScopeCounter;
       private final Counter scopedFacetCounter;
+      private final Counter scopedSortCounter;
       private final Counter explainCounter;
       private final Map<QueryOptimizationStatus, Counter> facetDrillSidewaysCounterMap;
 
@@ -1310,6 +1312,7 @@ public class IndexMetricsUpdater implements Closeable {
             createCounter(metricsFactory, RETURN_STORED_SOURCE_COUNTER_NAME);
         this.returnScopeCounter = createCounter(metricsFactory, RETURN_SCOPE_COUNTER_NAME);
         this.scopedFacetCounter = createCounter(metricsFactory, SCOPED_FACET_COUNTER_NAME);
+        this.scopedSortCounter = createCounter(metricsFactory, SCOPED_SORT_COUNTER_NAME);
         this.explainCounter = createCounter(metricsFactory, EXPLAIN_COUNTER_NAME);
         // Encode the optimization status in the "name" tag value rather than a separate "type" tag,
         // so every registration of the "feature" metric shares the single [name] tag-key set that
@@ -1453,6 +1456,10 @@ public class IndexMetricsUpdater implements Closeable {
         return this.scopedFacetCounter;
       }
 
+      public Counter getScopedSortCounter() {
+        return this.scopedSortCounter;
+      }
+
       public Counter getConcurrentCounter() {
         return this.concurrentCounter;
       }
@@ -1578,6 +1585,7 @@ public class IndexMetricsUpdater implements Closeable {
             this.requireSequenceTokensCounter,
             this.returnScopeCounter,
             this.scopedFacetCounter,
+            this.scopedSortCounter,
             this.facetDrillSidewaysCounterMap.get(QueryOptimizationStatus.OPTIMIZABLE).count(),
             this.facetDrillSidewaysCounterMap.get(QueryOptimizationStatus.GENERIC).count());
       }

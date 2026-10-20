@@ -38,6 +38,7 @@ import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
 import com.xgen.mongot.index.query.operators.mql.MqlFilterOperator;
 import com.xgen.mongot.index.query.scores.Score;
+import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.SequenceToken;
@@ -72,6 +73,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.search.ScoreDoc;
+import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -704,6 +706,70 @@ public class QueryMetricsRecorderTest {
     queryMetricsRecorder.record(query, QueryCursorOptions.empty());
 
     Assert.assertEquals(1, queryFeaturesStatsUpdater.getSortCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void testUnscopedSort_doesNotIncrementScopedSortCounter() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    var query =
+        OperatorQueryBuilder.builder()
+            .operator(OperatorBuilder.exists().path("foo").build())
+            .index(MOCK_INDEX_NAME)
+            .sort(
+                SortSpecBuilder.builder()
+                    .sortField(
+                        new MongotSortField(
+                            FieldPath.fromParts("price"), UserFieldSortOptions.DEFAULT_ASC))
+                    .buildSort())
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(0, queryFeaturesStatsUpdater.getScopedSortCounter().count(), EPSILON);
+  }
+
+  @Test
+  public void testScopedSort_incrementsScopedSortCounterOnce() {
+    var queryFeaturesStatsUpdater =
+        IndexMetricsUpdaterBuilder.QueryingMetricsUpdaterBuilder.QueryFeaturesMetricsUpdaterBuilder
+            .empty();
+    var queryMetricsRecorder = new QueryMetricsRecorder(queryFeaturesStatsUpdater);
+
+    var scope = new EmbeddedSortScope(FieldPath.parse("variants"), new BsonDocument());
+    var query =
+        OperatorQueryBuilder.builder()
+            .operator(OperatorBuilder.exists().path("foo").build())
+            .index(MOCK_INDEX_NAME)
+            .sort(
+                SortSpecBuilder.builder()
+                    // Two scoped sort keys: the counter records feature usage once per query, not
+                    // once per scoped key.
+                    .sortField(
+                        new MongotSortField(
+                            FieldPath.fromParts("variants", "price"),
+                            SortOptionsBuilder.user()
+                                .sortOrder(SortOrder.ASC)
+                                .embeddedScope(scope)
+                                .build()))
+                    .sortField(
+                        new MongotSortField(
+                            FieldPath.fromParts("variants", "addedOn"),
+                            SortOptionsBuilder.user()
+                                .sortOrder(SortOrder.DESC)
+                                .embeddedScope(scope)
+                                .build()))
+                    .buildSort())
+            .returnStoredSource(false)
+            .build();
+
+    queryMetricsRecorder.record(query, QueryCursorOptions.empty());
+
+    Assert.assertEquals(1, queryFeaturesStatsUpdater.getScopedSortCounter().count(), EPSILON);
   }
 
   @Test

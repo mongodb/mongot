@@ -181,9 +181,26 @@ public class QueryMetricsRecorder {
               .filter(sortOptions -> sortOptions instanceof UserFieldSortOptions)
               .map(sortOptions -> ((UserFieldSortOptions) sortOptions).nullEmptySortPosition())
               .map(this.queryFeaturesMetricsUpdater::getNoDataSortPositionCounter);
-      return Stream.concat(sortCounter, noDataCounter);
+      return Stream.concat(Stream.concat(sortCounter, noDataCounter), getScopedSortCounter(query));
     }
     return Stream.empty();
+  }
+
+  /**
+   * Increments once (deduped by {@link #record}) if any sort key carries an inline {@code
+   * embeddedDocument} block, so we can track adoption of embeddedDocument-scoped sort.
+   */
+  private Stream<Counter> getScopedSortCounter(SearchQuery query) {
+    boolean hasScopedSort =
+        query.sortSpec().get().getSortFields().stream()
+            .map(sortField -> sortField.options())
+            .anyMatch(
+                options ->
+                    options instanceof UserFieldSortOptions userOptions
+                        && userOptions.embeddedScope().isPresent());
+    return hasScopedSort
+        ? Stream.of(this.queryFeaturesMetricsUpdater.getScopedSortCounter())
+        : Stream.empty();
   }
 
   private Stream<Counter> getTrackingCounter(SearchQuery query) {
