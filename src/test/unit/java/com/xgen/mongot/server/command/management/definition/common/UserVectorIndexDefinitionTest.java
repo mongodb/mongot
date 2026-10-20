@@ -1,7 +1,6 @@
 package com.xgen.mongot.server.command.management.definition.common;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
 
 import com.google.common.truth.Truth;
 import com.xgen.mongot.index.definition.IndexNamespaceDefinition;
@@ -105,7 +104,7 @@ public class UserVectorIndexDefinitionTest {
   }
 
   @Test
-  public void testIndexNamespace_withoutCustomEngine_rejected() {
+  public void testIndexNamespace_withoutCustomEngine_accepted() throws BsonParseException {
     BsonDocument bson =
         UserVectorIndexDefinitionBuilder.builder()
             .addVectorField(128, VectorSimilarity.COSINE, VectorQuantization.NONE, "embedding")
@@ -113,14 +112,10 @@ public class UserVectorIndexDefinitionTest {
             .toBson()
             .append("indexNamespace", new BsonDocument("path", new BsonString("tenantId")));
 
-    BsonParseException thrown =
-        assertThrows(
-            BsonParseException.class,
-            () -> {
-              try (var parser = BsonDocumentParser.fromRoot(bson).build()) {
-                UserVectorIndexDefinition.fromBson(parser);
-              }
-            });
-    Truth.assertThat(thrown).hasMessageThat().contains("custom vector engine");
+    try (var parser = BsonDocumentParser.fromRoot(bson).build()) {
+      UserVectorIndexDefinition parsed = UserVectorIndexDefinition.fromBson(parser);
+      Truth.assertThat(parsed.indexNamespace()).isPresent();
+      Truth.assertThat(parsed.fields()).hasSize(1);
+    }
   }
 }

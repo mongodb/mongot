@@ -15,6 +15,7 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
+import com.xgen.mongot.index.version.IndexEngine;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.BsonDeserializationTestSuite;
@@ -125,7 +126,20 @@ public class VectorIndexDefinitionTest {
     }
 
     @Test
-    public void testFromBson_RejectsIndexNamespaceWithoutCustomEngine() {
+    public void testConstructor_IndexNamespaceWithoutCustomEngine_IsVectorlite() {
+      VectorIndexDefinition definition =
+          VectorIndexDefinitionBuilder.builder()
+              .indexNamespace("tenantId")
+              .withCosineVectorField("embedding", 128)
+              .build();
+
+      Assert.assertTrue(definition.isCustomVectorEngineIndex());
+      Assert.assertEquals(IndexEngine.VECTORLITE, definition.engine());
+      Truth.assertThat(definition.getVectorliteVectorField()).isPresent();
+    }
+
+    @Test
+    public void testFromBson_AcceptsIndexNamespaceWithoutCustomEngine() throws Exception {
       BsonDocument bson =
           VectorIndexDefinitionBuilder.builder()
               .withCosineVectorField("embedding", 128)
@@ -133,9 +147,56 @@ public class VectorIndexDefinitionTest {
               .toBson()
               .append("indexNamespace", namespaceBson());
 
+      VectorIndexDefinition parsed = VectorIndexDefinition.fromBson(bson);
+
+      Truth.assertThat(parsed.isCustomVectorEngineIndex()).isTrue();
+      Truth.assertThat(parsed.engine()).isEqualTo(IndexEngine.VECTORLITE);
+      Truth.assertThat(parsed.getVectorliteVectorField()).isPresent();
+      Truth.assertThat(parsed.getVectorliteVectorField().get().getPath().toString())
+          .isEqualTo("embedding");
+    }
+
+    @Test
+    public void testFromBson_RejectsMultipleVectorFieldsWithIndexNamespace() {
+      BsonDocument bson =
+          VectorIndexDefinitionBuilder.builder()
+              .withCosineVectorField("first.embedding", 128)
+              .withCosineVectorField("second.embedding", 128)
+              .build()
+              .toBson()
+              .append("indexNamespace", namespaceBson());
+
       var thrown =
           assertThrows(BsonParseException.class, () -> VectorIndexDefinition.fromBson(bson));
-      Truth.assertThat(thrown).hasMessageThat().contains("custom vector engine");
+      Truth.assertThat(thrown)
+          .hasMessageThat()
+          .contains("a vectorlite index supports exactly one vector field");
+    }
+
+    @Test
+    public void testConstructor_IndexNamespaceWithAutoEmbedField_Rejected() {
+      var builder =
+          VectorIndexDefinitionBuilder.builder()
+              .indexNamespace("tenantId")
+              .withAutoEmbedField("summary");
+
+      Assert.assertThrows(IllegalArgumentException.class, builder::build);
+    }
+
+    @Test
+    public void testFromBson_RejectsIndexNamespaceWithAutoEmbedField() {
+      BsonDocument bson =
+          VectorIndexDefinitionBuilder.builder()
+              .withAutoEmbedField("summary")
+              .build()
+              .toBson()
+              .append("indexNamespace", namespaceBson());
+
+      var thrown =
+          assertThrows(BsonParseException.class, () -> VectorIndexDefinition.fromBson(bson));
+      Truth.assertThat(thrown)
+          .hasMessageThat()
+          .contains("indexNamespace is only supported with vector fields of type \"vector\"");
     }
 
     @Test

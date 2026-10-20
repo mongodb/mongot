@@ -212,10 +212,12 @@ public class SingleLuceneIndexWriter implements LuceneIndexWriter {
             indexDefinition, indexCapabilities, indexingMetricsUpdater, featureFlags);
 
     Set<FieldPath> customVectorEngineFields =
-        vectorFields.entrySet().stream()
-            .filter(entry -> entry.getValue().isCustomVectorEngine())
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toSet());
+        indexDefinition.isCustomVectorEngineIndex()
+            ? Set.copyOf(vectorFields.keySet())
+            : vectorFields.entrySet().stream()
+                .filter(entry -> entry.getValue().isCustomVectorEngine())
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toSet());
     SingleLuceneIndexWriter writer =
         new SingleLuceneIndexWriter(
             luceneIndexWriter,

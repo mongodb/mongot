@@ -433,21 +433,6 @@ public class MaterializeVectorSearchCommandTest {
   }
 
   @Test
-  public void indexDefinedWithNamespace_queryWithoutNamespace_isUserError() throws Exception {
-    catalogHolds(
-        generation(
-            autoEmbedDefinition(COLLECTION_UUID, MODEL).indexNamespace("tenant").build(),
-            /* queryable= */ true));
-
-    BsonDocument response = run(textQuery(), Optional.empty(), Optional.empty());
-
-    verifyEmbedCalls(0);
-    assertThat(response.getInt32("ok").getValue()).isEqualTo(0);
-    assertThat(response.getString("errmsg").getValue())
-        .contains("index is defined with indexNamespace");
-  }
-
-  @Test
   public void transientEmbeddingFailure_isLabeledRetryable() throws Exception {
     catalogHolds(autoEmbedGeneration(COLLECTION_UUID, MODEL, /* queryable= */ true));
     doThrow(

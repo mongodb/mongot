@@ -54,9 +54,9 @@ public final class VectorIndexDefinition implements IndexDefinition {
 
     /**
      * Optional top-level option naming the field whose value partitions the index into namespaces,
-     * e.g. {@code indexNamespace: { path: "tenantID" }}. Only supported on custom vector engine
-     * indexes; queries against an index with an indexNamespace must supply a matching {@code
-     * indexNamespace} equality.
+     * e.g. {@code indexNamespace: { path: "tenantID" }}. Its presence makes the index a vectorlite
+     * index, with exactly one {@code type: "vector"} field. Queries against an index with an
+     * indexNamespace must supply a matching {@code indexNamespace} equality.
      */
     public static final Field.Optional<IndexNamespaceDefinition> INDEX_NAMESPACE =
         Field.builder("indexNamespace")
@@ -129,9 +129,10 @@ public final class VectorIndexDefinition implements IndexDefinition {
     this.mappings = VectorIndexFieldMapping.create(fields, nestedRoot);
     this.isAutoEmbeddingIndex = calculateIsAutoEmbeddingIndex(fields);
     this.isCustomVectorEngineIndex =
-        fields.stream()
-            .filter(VectorIndexFieldDefinition::isVectorField)
-            .anyMatch(f -> f.asVectorField().specification().isCustomVectorEngine());
+        indexNamespace.isPresent()
+            || fields.stream()
+                .filter(VectorIndexFieldDefinition::isVectorField)
+                .anyMatch(f -> f.asVectorField().specification().isCustomVectorEngine());
     this.parsedAutoEmbeddingFeatureVersion = calculateAutoEmbeddingFeatureVersion(fields);
     this.modelNamePerPath = calculateAutoEmbeddingModelName(fields);
 
@@ -142,8 +143,9 @@ public final class VectorIndexDefinition implements IndexDefinition {
                 "storedSource: true is not supported for vector indexes. "
                     + "Accepted values are include, exclude, or false."));
     Check.checkArg(
-        validateVectorEngines(fields).isEmpty(),
-        "vector fields must all use the same engine, and a custom engine index has exactly one");
+        validateVectorEngines(fields, indexNamespace.isPresent()).isEmpty(),
+        "vector fields must all use the same engine, and a vectorlite index has exactly one vector"
+            + " field");
     this.indexIdAtCreationTime = indexIdAtCreationTime;
     this.autoEmbeddingDefinitionVersion = autoEmbeddingDefinitionVersion;
     this.materializedViewNameFormatVersion = materializedViewNameFormatVersion;
@@ -257,6 +259,28 @@ public final class VectorIndexDefinition implements IndexDefinition {
 
   public boolean isCustomVectorEngineIndex() {
     return this.isCustomVectorEngineIndex;
+  }
+
+  /**
+   * Returns the single vector field routed to the vectorlite engine. In the legacy syntax the field
+   * is marked with {@code engine: "custom"}; when the index is vectorlite by virtue of its {@code
+   * indexNamespace}, the sole {@code type: "vector"} field is used instead.
+   */
+  public Optional<VectorIndexVectorFieldDefinition> getVectorliteVectorField() {
+    if (!this.isCustomVectorEngineIndex) {
+      return Optional.empty();
+    }
+    return this.fields.stream()
+        .filter(VectorIndexFieldDefinition::isVectorField)
+        .map(VectorIndexFieldDefinition::asVectorField)
+        .filter(f -> f.specification().isCustomVectorEngine())
+        .findFirst()
+        .or(
+            () ->
+                this.fields.stream()
+                    .filter(VectorDataFieldDefinition.class::isInstance)
+                    .map(VectorIndexFieldDefinition::asVectorField)
+                    .findFirst());
   }
 
   @Override
@@ -383,14 +407,8 @@ public final class VectorIndexDefinition implements IndexDefinition {
 
     Optional<IndexNamespaceDefinition> indexNamespace =
         parser.getField(Fields.INDEX_NAMESPACE).unwrap();
-    if (indexNamespace.isPresent()) {
-      Optional<String> indexNamespaceError = validateIndexNamespace(fields);
-      if (indexNamespaceError.isPresent()) {
-        parser.getContext().handleSemanticError(indexNamespaceError.get());
-      }
-    }
 
-    Optional<String> engineError = validateVectorEngines(fields);
+    Optional<String> engineError = validateVectorEngines(fields, indexNamespace.isPresent());
     if (engineError.isPresent()) {
       parser.getContext().handleSemanticError(engineError.get());
     }
@@ -419,16 +437,38 @@ public final class VectorIndexDefinition implements IndexDefinition {
   }
 
   /**
-   * Vector fields must all use one engine, and a custom engine index has exactly one vector field:
-   * the whole index is routed by engine, and the custom engine indexes a single field.
+   * Vector fields must all use one engine, and a vectorlite index has exactly one vector field: the
+   * whole index is routed by engine, and the vectorlite engine indexes a single field.
+   *
+   * <p>A vectorlite index is either the legacy syntax (a vector field with {@code engine:
+   * "custom"}) or the {@code indexNamespace} syntax, in which case the sole {@code type: "vector"}
+   * field is routed to the vectorlite engine.
    */
-  public static Optional<String> validateVectorEngines(List<VectorIndexFieldDefinition> fields) {
-    List<VectorFieldSpecification> vectors =
+  public static Optional<String> validateVectorEngines(
+      List<VectorIndexFieldDefinition> fields, boolean hasIndexNamespace) {
+    List<VectorIndexVectorFieldDefinition> vectors =
         fields.stream()
             .filter(VectorIndexFieldDefinition::isVectorField)
-            .map(f -> f.asVectorField().specification())
+            .map(VectorIndexFieldDefinition::asVectorField)
             .toList();
-    long custom = vectors.stream().filter(VectorFieldSpecification::isCustomVectorEngine).count();
+    long custom = vectors.stream().filter(f -> f.specification().isCustomVectorEngine()).count();
+    if (hasIndexNamespace) {
+      long dataVectorFields =
+          vectors.stream().filter(VectorDataFieldDefinition.class::isInstance).count();
+      if (dataVectorFields != vectors.size()) {
+        return Optional.of(
+            "indexNamespace is only supported with vector fields of type \"vector\"");
+      }
+      if (custom > 0 && custom != dataVectorFields) {
+        return Optional.of(
+            "vector fields must all use the same engine; cannot mix custom engine and Lucene"
+                + " vector fields in one index");
+      }
+      if (dataVectorFields != 1) {
+        return Optional.of("a vectorlite index supports exactly one vector field");
+      }
+      return Optional.empty();
+    }
     if (custom == 0) {
       return Optional.empty();
     }
@@ -439,21 +479,6 @@ public final class VectorIndexDefinition implements IndexDefinition {
     }
     if (custom > 1) {
       return Optional.of("a custom engine vector index supports exactly one vector field");
-    }
-    return Optional.empty();
-  }
-
-  /**
-   * Validates that an indexNamespace is allowed for the given fields. Returns an error message if
-   * not: the option is only implemented by the custom vector engine.
-   */
-  public static Optional<String> validateIndexNamespace(List<VectorIndexFieldDefinition> fields) {
-    boolean hasCustomEngineVectorField =
-        fields.stream()
-            .filter(VectorIndexFieldDefinition::isVectorField)
-            .anyMatch(f -> f.asVectorField().specification().isCustomVectorEngine());
-    if (!hasCustomEngineVectorField) {
-      return Optional.of("indexNamespace is only supported on custom vector engine indexes");
     }
     return Optional.empty();
   }

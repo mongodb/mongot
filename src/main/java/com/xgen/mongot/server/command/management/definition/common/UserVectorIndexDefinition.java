@@ -83,11 +83,10 @@ public record UserVectorIndexDefinition(
     var fields = parser.getField(Fields.FIELDS).unwrap();
     Optional<IndexNamespaceDefinition> indexNamespace =
         parser.getField(Fields.INDEX_NAMESPACE).unwrap();
-    if (indexNamespace.isPresent()) {
-      Optional<String> indexNamespaceError = VectorIndexDefinition.validateIndexNamespace(fields);
-      if (indexNamespaceError.isPresent()) {
-        parser.getContext().handleSemanticError(indexNamespaceError.get());
-      }
+    Optional<String> engineError =
+        VectorIndexDefinition.validateVectorEngines(fields, indexNamespace.isPresent());
+    if (engineError.isPresent()) {
+      parser.getContext().handleSemanticError(engineError.get());
     }
     return new UserVectorIndexDefinition(
         fields,
