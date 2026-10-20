@@ -45,6 +45,7 @@ import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.metrics.SimpleMetricsFactory;
 import com.xgen.testing.mongot.mock.index.MaterializedViewIndex;
@@ -68,6 +69,7 @@ import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.BsonString;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.UuidRepresentation;
 import org.bson.conversions.Bson;
@@ -665,6 +667,95 @@ public class DynamicLeaderLeaseManagerTest {
     verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
     BsonDocument filter = filterCaptor.getValue().toBsonDocument();
     assertThat(filter.toJson()).doesNotContain("leaseExpiration");
+  }
+
+  @Test
+  public void heartbeat_flagOffRenewalFilter_carriesTheSnapshotEpoch() throws Exception {
+    // Arrange - leader with a near-expiry lease whose epoch differs from every lease version in
+    // play; the flag-off whole-document renewal must fence on that snapshot's epoch, so a write
+    // built before a same-host reclaim cannot match the reclaimed lease's version arm.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    setupFindLeaseFromDatabase(
+        leaseWithEpochGreaterThanVersion(generationId, HOSTNAME, Instant.now().plusSeconds(30)));
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+    putLeaseWithEpochGreaterThanVersionAndNearExpiry(generationId);
+    setupSuccessfulLeaseUpdate();
+    clearInvocations(this.mockCollection);
+
+    // Act
+    this.leaseManager.heartbeat();
+
+    // Assert
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    assertThat(epochEqValues(filterCaptor.getValue().toBsonDocument())).containsExactly(5L);
+  }
+
+  @Test
+  public void updateReplicationStatus_filter_carriesTheSnapshotEpoch() throws Exception {
+    // Arrange - leader with a cached lease whose epoch differs from every lease version in play;
+    // the status write must not apply across an ownership change the version arms cannot see.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    setupFindLeaseFromDatabase(
+        leaseWithEpochGreaterThanVersion(generationId, HOSTNAME, Instant.now().plusSeconds(30)));
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+    putLeaseWithEpochGreaterThanVersionAndNearExpiry(generationId);
+    setupSuccessfulLeaseUpdate();
+    clearInvocations(this.mockCollection);
+
+    // Act
+    this.leaseManager.updateReplicationStatus(
+        generationId, 0L, new IndexStatus(IndexStatus.StatusCode.UNKNOWN));
+
+    // Assert
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    assertThat(epochEqValues(filterCaptor.getValue().toBsonDocument())).containsExactly(5L);
+  }
+
+  @Test
+  public void executeOpsCommandsAfterInitializeLease_giveUpFilter_carriesTheSnapshotEpoch()
+      throws Exception {
+    // Arrange - a give-up ops command for a lease cached with an epoch that differs from every
+    // lease version in play; the give-up write must be fenced on that snapshot's epoch.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    String leaseKey = getLeaseKeyFromCatalog(generationId);
+    DynamicLeaderLeaseManager manager =
+        DynamicLeaderLeaseManager.create(
+            this.mockAutoEmbeddingMongoClient,
+            MeterAndFtdcRegistry.createWithSimpleRegistries(),
+            HOSTNAME,
+            DB_RESOLVER,
+            this.mvMetadataCatalog,
+            new LeaseManagerOpsCommands(
+                Optional.of(
+                    new LeaseManagerOpsCommands.OpsGiveUpLeaseCommand(
+                        HOSTNAME, List.of(leaseKey), Instant.now().plusSeconds(60))),
+                Optional.empty()));
+    // Register the lease key -> database mapping, then cache the snapshot whose epoch differs
+    // from every lease version in play.
+    manager.add(indexGeneration);
+    manager.putLease(
+        leaseKey,
+        leaseWithEpochGreaterThanVersion(generationId, HOSTNAME, Instant.now().plusSeconds(30)));
+    setupSuccessfulLeaseUpdate();
+
+    // Act
+    manager.executeOpsCommandsAfterInitializeLease(leaseKey);
+
+    // Assert
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    assertThat(epochEqValues(filterCaptor.getValue().toBsonDocument())).containsExactly(5L);
   }
 
   @Test
@@ -4309,6 +4400,57 @@ public class DynamicLeaderLeaseManagerTest {
             current.cleanupState(),
             current.epoch());
     this.leaseManager.putLease(leaseKey, nearExpiry);
+  }
+
+  /**
+   * A lease whose epoch differs from every lease version in play (version 2, epoch 5): an epoch
+   * term copied from a lease version cannot pass an assertion on it.
+   */
+  private Lease leaseWithEpochGreaterThanVersion(
+      MaterializedViewGenerationId generationId, String owner, Instant expiration)
+      throws BsonParseException {
+    BsonDocument doc = createLease(generationId, owner, expiration).toBson();
+    doc.put(Lease.Fields.LEASE_VERSION.getName(), new BsonInt64(2));
+    doc.put(Lease.Fields.EPOCH.getName(), new BsonInt64(5));
+    return Lease.fromBson(doc);
+  }
+
+  private void putLeaseWithEpochGreaterThanVersionAndNearExpiry(
+      MaterializedViewGenerationId generationId) throws BsonParseException {
+    this.leaseManager.putLease(
+        getLeaseKeyFromCatalog(generationId),
+        leaseWithEpochGreaterThanVersion(
+            generationId, HOSTNAME, Instant.now().plusMillis(Lease.LEASE_EXPIRATION_MS / 4)));
+  }
+
+  /** The values of every {@code epoch: {$eq: ...}} term anywhere in a captured filter document. */
+  private static List<Long> epochEqValues(Bson capturedFilter) {
+    List<Long> values = new ArrayList<>();
+    collectEpochEqValues(capturedFilter.toBsonDocument(), values);
+    return values;
+  }
+
+  private static void collectEpochEqValues(BsonValue value, List<Long> values) {
+    if (value.isDocument()) {
+      BsonDocument doc = value.asDocument();
+      if (doc.containsKey(Lease.Fields.EPOCH.getName())) {
+        BsonValue epochValue = doc.get(Lease.Fields.EPOCH.getName());
+        if (epochValue.isInt64()) {
+          values.add(epochValue.asInt64().getValue());
+        } else if (epochValue.isDocument()
+            && epochValue.asDocument().containsKey("$eq")
+            && epochValue.asDocument().get("$eq").isInt64()) {
+          values.add(epochValue.asDocument().get("$eq").asInt64().getValue());
+        }
+      }
+      for (BsonValue child : doc.values()) {
+        collectEpochEqValues(child, values);
+      }
+    } else if (value.isArray()) {
+      for (BsonValue child : value.asArray().getValues()) {
+        collectEpochEqValues(child, values);
+      }
+    }
   }
 
   private Lease createLease(

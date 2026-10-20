@@ -447,7 +447,7 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
     Lease released = lease.withReleasedOwnership();
     Bson filter =
         createUpdateFilterForOwnedLease(
-            leaseKeyToGiveUp, lease.leaseVersion(), released.leaseVersion());
+            leaseKeyToGiveUp, lease.leaseVersion(), released.leaseVersion(), lease.epoch());
     UpdateResult result;
     try {
       result =
@@ -2554,6 +2554,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    *       response)
    * </ul>
    *
+   * <p>The epoch term means an owned update never applies across an ownership change, including the
+   * same-host reclaim that the version arms cannot tell apart: a reclaim bumps the version by one
+   * and mints a new epoch, so a write whose snapshot predates the reclaim would otherwise still
+   * match the new-version arm and put the old epoch back. The absent-field arm keeps leases last
+   * written by a pre-epoch binary writable: {@link Lease#fromBson} defaults a missing epoch to that
+   * document's lease version, and the arm is only ever ANDed with the version OCC above, never used
+   * alone.
+   *
    * <p>TODO(CLOUDP-382207): There is a potential race condition where MaterializedViewWriter writes
    * to the MV collection before updating commit info in the lease. If the lease expires between the
    * MV write and the lease update, another instance could acquire leadership and also write to the
@@ -2564,9 +2572,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    * @param leaseKey the key and _id the lease
    * @param currentLeaseVersion the expected current lease version
    * @param newLeaseVersion the new lease version after update
+   * @param currentEpoch the tenure epoch of the snapshot this write was built from
    */
   private Bson createUpdateFilterForOwnedLease(
-      String leaseKey, long currentLeaseVersion, long newLeaseVersion) {
+      String leaseKey, long currentLeaseVersion, long newLeaseVersion, long currentEpoch) {
     return Filters.and(
         Filters.eq("_id", leaseKey),
         Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname),
@@ -2574,7 +2583,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             // Normal case: version matches expected
             Filters.eq(Lease.Fields.LEASE_VERSION.getName(), currentLeaseVersion),
             // Idempotent case: we already wrote but didn't get a response
-            Filters.eq(Lease.Fields.LEASE_VERSION.getName(), newLeaseVersion)));
+            Filters.eq(Lease.Fields.LEASE_VERSION.getName(), newLeaseVersion)),
+        Filters.or(
+            Filters.eq(Lease.Fields.EPOCH.getName(), currentEpoch),
+            Filters.exists(Lease.Fields.EPOCH.getName(), false)));
   }
 
   /**
@@ -2755,7 +2767,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         Lease renewedLease = currentLease.withRenewedOwnership();
         var filter =
             createUpdateFilterForOwnedLease(
-                leaseKey, currentLease.leaseVersion(), renewedLease.leaseVersion());
+                leaseKey,
+                currentLease.leaseVersion(),
+                renewedLease.leaseVersion(),
+                currentLease.epoch());
 
         var result =
             this.operationExecutor.execute(
@@ -2975,7 +2990,10 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
       // Base filter checks ownership and version (normal or idempotent case).
       var baseFilter =
           createUpdateFilterForOwnedLease(
-              leaseKey, currentLease.leaseVersion(), updatedLease.leaseVersion());
+              leaseKey,
+              currentLease.leaseVersion(),
+              updatedLease.leaseVersion(),
+              currentLease.epoch());
       // For the idempotent case, also verify commitInfo matches to confirm it was our write.
       var filter =
           Filters.and(
