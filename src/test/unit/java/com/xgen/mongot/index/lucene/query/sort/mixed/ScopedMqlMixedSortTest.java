@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.field.FieldValue;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.BsonUtils;
@@ -58,6 +59,7 @@ public class ScopedMqlMixedSortTest {
   private static final BitSetProducer PARENTS = new QueryBitSetProducer(ROOTS);
   private static final BitSetProducer CHILDREN =
       new QueryBitSetProducer(new TermQuery(new Term("selected", "true")));
+  private static final ScopeFilters FILTERS = new ScopeFilters(PARENTS, CHILDREN);
   private static final UUID UUID_VALUE = UUID.fromString("11111111-1111-1111-1111-111111111111");
   private static final ObjectId OBJECT_ID = new ObjectId("7".repeat(24));
 
@@ -177,7 +179,7 @@ public class ScopedMqlMixedSortTest {
   @Test
   public void equals_scopedAndUnscoped_areDistinctInBothDirections() {
     MongotSortField field = new MongotSortField(PATH, UserFieldSortOptions.DEFAULT_ASC);
-    MqlMixedSort scoped = MqlMixedSort.scoped(field, SCOPE, PARENTS, CHILDREN);
+    MqlMixedSort scoped = MqlMixedSort.scoped(field, SCOPE, FILTERS);
     MqlMixedSort unscoped = new MqlMixedSort(field, Optional.empty());
     SortField serialized = new SortField(PATH.toString(), SortField.Type.CUSTOM, false);
 
@@ -192,14 +194,14 @@ public class ScopedMqlMixedSortTest {
   @Test
   public void equals_scopedSorts_includeTheirFilters() {
     MongotSortField field = new MongotSortField(PATH, UserFieldSortOptions.DEFAULT_ASC);
-    MqlMixedSort first = MqlMixedSort.scoped(field, SCOPE, PARENTS, CHILDREN);
-    MqlMixedSort same = MqlMixedSort.scoped(field, SCOPE, PARENTS, CHILDREN);
+    MqlMixedSort first = MqlMixedSort.scoped(field, SCOPE, FILTERS);
+    MqlMixedSort same = MqlMixedSort.scoped(field, SCOPE, FILTERS);
     MqlMixedSort different =
         MqlMixedSort.scoped(
             field,
             SCOPE,
-            PARENTS,
-            new QueryBitSetProducer(new TermQuery(new Term("selected", "false"))));
+            new ScopeFilters(
+                PARENTS, new QueryBitSetProducer(new TermQuery(new Term("selected", "false")))));
 
     assertThat(first).isEqualTo(same);
     assertThat(first.hashCode()).isEqualTo(same.hashCode());
@@ -270,8 +272,7 @@ public class ScopedMqlMixedSortTest {
   }
 
   private static Sort sort(UserFieldSortOptions options) {
-    return new Sort(
-        MqlMixedSort.scoped(new MongotSortField(PATH, options), SCOPE, PARENTS, CHILDREN));
+    return new Sort(MqlMixedSort.scoped(new MongotSortField(PATH, options), SCOPE, FILTERS));
   }
 
   private List<String> ids(TopDocs result) throws IOException {

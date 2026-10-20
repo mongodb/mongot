@@ -22,6 +22,7 @@ import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDoubleSort;
 import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedLongSort;
 import com.xgen.mongot.index.lucene.query.sort.LuceneSortFactory;
 import com.xgen.mongot.index.lucene.query.sort.MqlSortedSetSortField;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -585,21 +586,17 @@ public class LuceneSearchQueryFactoryDistributor {
       Query childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
       BitSetProducer childFilter = new QueryBitSetProducer(childQuery);
       BitSetProducer parentFilter = rootParentBitSetProducer();
+      ScopeFilters scopeFilters = new ScopeFilters(parentFilter, childFilter);
       SortField scopedSort;
       if (useMixed) {
-        scopedSort = MqlMixedSort.scoped(field, scopePath, parentFilter, childFilter);
+        scopedSort = MqlMixedSort.scoped(field, scopePath, scopeFilters);
       } else {
         scopedSort =
             switch (sortType.orElseThrow()) {
-              case NUMBER_INT64_V2 ->
-                  new EmbeddedScopedLongSort(field, scopePath, parentFilter, childFilter);
-              case NUMBER_DOUBLE_V2 ->
-                  new EmbeddedScopedDoubleSort(field, scopePath, parentFilter, childFilter);
-              case DATE_V2 ->
-                  new EmbeddedScopedDateSort(field, scopePath, parentFilter, childFilter);
-              default ->
-                  MqlSortedSetSortField.scopedTokenSort(
-                      field, scopePath, parentFilter, childFilter);
+              case NUMBER_INT64_V2 -> new EmbeddedScopedLongSort(field, scopePath, scopeFilters);
+              case NUMBER_DOUBLE_V2 -> new EmbeddedScopedDoubleSort(field, scopePath, scopeFilters);
+              case DATE_V2 -> new EmbeddedScopedDateSort(field, scopePath, scopeFilters);
+              default -> MqlSortedSetSortField.scopedTokenSort(field, scopePath, scopeFilters);
             };
       }
       overrides.put(field.field(), scopedSort);

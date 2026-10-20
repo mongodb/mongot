@@ -38,7 +38,6 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:io_micrometer_micrometer_core",
         "@maven//:org_apache_lucene_lucene_core",
-        "@maven//:org_apache_lucene_lucene_join",
         "@maven//:org_jetbrains_annotations",
         "@maven//:org_mongodb_bson",
         "@maven//:org_slf4j_slf4j_api",

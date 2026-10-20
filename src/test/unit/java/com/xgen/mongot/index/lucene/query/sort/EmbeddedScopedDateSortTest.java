@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.query.sort;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.SortOrder;
@@ -66,8 +67,9 @@ public class EmbeddedScopedDateSortTest {
             new EmbeddedScopedDateSort(
                 new MongotSortField(PATH, options),
                 SCOPE,
-                new QueryBitSetProducer(ROOTS),
-                new QueryBitSetProducer(new TermQuery(new Term("inStock", "true")))));
+                new ScopeFilters(
+                    new QueryBitSetProducer(ROOTS),
+                    new QueryBitSetProducer(new TermQuery(new Term("inStock", "true"))))));
     this.expectedIds = expectedIds;
     List<BsonValue> valuesById =
         List.of(

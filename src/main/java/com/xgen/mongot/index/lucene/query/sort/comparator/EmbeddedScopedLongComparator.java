@@ -8,7 +8,6 @@ import org.apache.lucene.search.LeafFieldComparator;
 import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
-import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.util.BitSet;
 
 /**
@@ -20,8 +19,7 @@ import org.apache.lucene.util.BitSet;
  */
 public class EmbeddedScopedLongComparator extends MqlLongComparator {
 
-  private final BitSetProducer parentFilter;
-  private final BitSetProducer childFilter;
+  private final ScopeFilters scope;
   private final boolean reduceMax;
 
   public EmbeddedScopedLongComparator(
@@ -32,12 +30,12 @@ public class EmbeddedScopedLongComparator extends MqlLongComparator {
       SortField.Type sortType,
       SortedNumericSelector.Type selector,
       NullEmptySortPosition nullEmptySortPosition,
-      BitSetProducer parentFilter,
-      BitSetProducer childFilter,
+      ScopeFilters scope,
       boolean reduceMax) {
     super(numHits, field, reverse, pruning, sortType, selector, nullEmptySortPosition);
-    this.parentFilter = parentFilter;
-    this.childFilter = childFilter;
+    // The reduced doc-values below serve advanceExact only; a scoped sort must not prune.
+    ScopeFilters.requirePruningDisabled(pruning);
+    this.scope = scope;
     this.reduceMax = reduceMax;
   }
 
@@ -59,8 +57,9 @@ public class EmbeddedScopedLongComparator extends MqlLongComparator {
       // The superclass reduces a child's own multi-values via the sort selector; wrap that to
       // reduce again across the parent's matching children.
       NumericDocValues perChildValues = super.getNumericDocValues(context, field);
-      BitSet parents = EmbeddedScopedLongComparator.this.parentFilter.getBitSet(context);
-      BitSet children = EmbeddedScopedLongComparator.this.childFilter.getBitSet(context);
+      ScopeFilters scope = EmbeddedScopedLongComparator.this.scope;
+      BitSet parents = scope.parents().getBitSet(context);
+      BitSet children = scope.children().getBitSet(context);
       return new BlockJoinReducedNumericDocValues(
           perChildValues, parents, children, EmbeddedScopedLongComparator.this.reduceMax);
     }

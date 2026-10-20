@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.query.sort;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
@@ -142,8 +143,9 @@ public class EmbeddedScopedDoubleSortTest {
         new EmbeddedScopedDoubleSort(
             new MongotSortField(PRICE, this.options),
             SCOPE,
-            new QueryBitSetProducer(ROOTS),
-            new QueryBitSetProducer(new TermQuery(new Term("selected", "true")))));
+            new ScopeFilters(
+                new QueryBitSetProducer(ROOTS),
+                new QueryBitSetProducer(new TermQuery(new Term("selected", "true"))))));
   }
 
   private List<String> ids(TopDocs... pages) throws IOException {

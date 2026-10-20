@@ -12,6 +12,7 @@ java_library(
         "MongotNumericComparator.java",
         "MongotUpdateableDocIdSetIterator.java",
         "MqlLongComparator.java",
+        "ScopeFilters.java",
     ],
     # Disable checks for these specific files as they're cloned from library
     javacopts = ["-XepExcludedPaths:.*/com.xgen.mongot.index.lucene.query.sort.comparator.(MongotNumericComparator|MongotUpdateableDocIdSetIterator).java"],

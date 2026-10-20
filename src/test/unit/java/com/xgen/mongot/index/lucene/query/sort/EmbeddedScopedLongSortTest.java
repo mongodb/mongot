@@ -4,6 +4,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.google.common.collect.ImmutableList;
 import com.xgen.mongot.index.lucene.field.FieldName;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.util.BsonUtils;
@@ -123,8 +124,7 @@ public class EmbeddedScopedLongSortTest {
         new EmbeddedScopedLongSort(
             new MongotSortField(FieldPath.parse("variants.price"), options),
             SCOPE_PATH,
-            parents,
-            children);
+            new ScopeFilters(parents, children));
 
     return new Sort(sortField);
   }

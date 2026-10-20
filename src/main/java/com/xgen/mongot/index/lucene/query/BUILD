@@ -75,6 +75,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/lucene/query/custom",
         "//src/main/java/com/xgen/mongot/index/lucene/query/range",
         "//src/main/java/com/xgen/mongot/index/lucene/query/sort",
+        "//src/main/java/com/xgen/mongot/index/lucene/query/sort/comparator",
         "//src/main/java/com/xgen/mongot/index/lucene/query/sort/mixed",
         "//src/main/java/com/xgen/mongot/index/lucene/query/util",
         "//src/main/java/com/xgen/mongot/index/lucene/query/values",

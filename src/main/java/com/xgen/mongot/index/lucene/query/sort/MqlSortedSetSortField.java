@@ -5,6 +5,7 @@ import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.query.sort.comparator.BlockJoinReducedSortedDocValues;
 import com.xgen.mongot.index.lucene.query.sort.comparator.BsonConverter;
 import com.xgen.mongot.index.lucene.query.sort.comparator.FieldComparatorBsonWrapper;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.NullEmptySortPosition;
 import com.xgen.mongot.index.query.sort.SortOptions;
@@ -21,7 +22,6 @@ import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.SortedSetSelector;
 import org.apache.lucene.search.SortedSetSortField;
 import org.apache.lucene.search.comparators.TermOrdValComparator;
-import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BytesRef;
 import org.bson.BsonBoolean;
@@ -60,9 +60,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
    * When present (embeddedDoc-scoped sort), each root is sorted by the ordinal reduced over its
    * matching children rather than its own value. See {@link BlockJoinReducedSortedDocValues}.
    */
-  private final Optional<BitSetProducer> parentFilter;
-
-  private final Optional<BitSetProducer> childFilter;
+  private final Optional<ScopeFilters> scope;
 
   private MqlSortedSetSortField(
       String fieldName,
@@ -70,14 +68,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
       BsonConverter<BytesRef> converter,
       boolean enablePruning,
       boolean indexSorted) {
-    this(
-        fieldName,
-        options,
-        converter,
-        enablePruning,
-        indexSorted,
-        Optional.empty(),
-        Optional.empty());
+    this(fieldName, options, converter, enablePruning, indexSorted, Optional.empty());
   }
 
   private MqlSortedSetSortField(
@@ -86,8 +77,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
       BsonConverter<BytesRef> converter,
       boolean enablePruning,
       boolean indexSorted,
-      Optional<BitSetProducer> parentFilter,
-      Optional<BitSetProducer> childFilter) {
+      Optional<ScopeFilters> scope) {
     super(fieldName, options.isReverse(), options.selector().sortedSetSelector);
 
     setMissingValue(
@@ -101,8 +91,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
     this.converter = converter;
     this.enablePruning = enablePruning;
     this.indexSorted = indexSorted;
-    this.parentFilter = parentFilter;
-    this.childFilter = childFilter;
+    this.scope = scope;
   }
 
   /**
@@ -139,6 +128,12 @@ public class MqlSortedSetSortField extends SortedSetSortField {
     // Consider both mongot & lucene pruning configuration
     Pruning configurePruning = this.enablePruning ? lucenePruning : Pruning.NONE;
 
+    // A scoped token sort reads block-join reduced ordinals that serve advanceExact only, so it
+    // must never prune. This trips only if the scoped path is ever built pruning-enabled.
+    if (this.scope.isPresent()) {
+      ScopeFilters.requirePruningDisabled(configurePruning);
+    }
+
     TermOrdValComparator termOrdValComparator =
         new TermOrdValComparator(
             numHits,
@@ -154,12 +149,13 @@ public class MqlSortedSetSortField extends SortedSetSortField {
                 SortedSetSelector.wrap(
                     DocValues.getSortedSet(context.reader(), field),
                     MqlSortedSetSortField.super.getSelector());
-            if (MqlSortedSetSortField.this.parentFilter.isEmpty()) {
+            if (MqlSortedSetSortField.this.scope.isEmpty()) {
               return perChild;
             }
             // embeddedDoc-scoped: reduce the ordinal over the parent's matching children.
-            BitSet parents = MqlSortedSetSortField.this.parentFilter.get().getBitSet(context);
-            BitSet children = MqlSortedSetSortField.this.childFilter.get().getBitSet(context);
+            ScopeFilters scope = MqlSortedSetSortField.this.scope.get();
+            BitSet parents = scope.parents().getBitSet(context);
+            BitSet children = scope.children().getBitSet(context);
             boolean max = MqlSortedSetSortField.super.getSelector() == SortedSetSelector.Type.MAX;
             return new BlockJoinReducedSortedDocValues(perChild, parents, children, max);
           }
@@ -242,13 +238,10 @@ public class MqlSortedSetSortField extends SortedSetSortField {
    * A token/string sort scoped to the matching children of an {@code embeddedDocuments} block. Each
    * root is sorted by the ordinal reduced (MIN ascending / MAX descending) over its matching
    * children (see {@link BlockJoinReducedSortedDocValues}). The child-selecting operator is
-   * resolved at the query layer (CLOUDP-441316); this takes the {@link BitSetProducer}s directly.
+   * resolved at the query layer (CLOUDP-441316); this takes the {@link ScopeFilters} directly.
    */
   public static MqlSortedSetSortField scopedTokenSort(
-      MongotSortField sortField,
-      FieldPath embeddedPath,
-      BitSetProducer parentFilter,
-      BitSetProducer childFilter) {
+      MongotSortField sortField, FieldPath embeddedPath, ScopeFilters scope) {
     var fieldName =
         resolveFieldName(FieldName.TypeField.TOKEN, sortField.field(), Optional.of(embeddedPath));
     return new MqlSortedSetSortField(
@@ -257,8 +250,7 @@ public class MqlSortedSetSortField extends SortedSetSortField {
         STRING_CONVERTER,
         /* enablePruning= */ false,
         /* indexSorted= */ false,
-        Optional.of(parentFilter),
-        Optional.of(childFilter));
+        Optional.of(scope));
   }
 
   private static @NotNull String resolveFieldName(

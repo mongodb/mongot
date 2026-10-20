@@ -15,6 +15,7 @@ import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.field.FieldName;
 import com.xgen.mongot.index.lucene.query.context.SearchQueryFactoryContext;
 import com.xgen.mongot.index.lucene.query.sort.common.ExplainSortField;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
 import com.xgen.mongot.index.query.InvalidQueryException;
@@ -196,7 +197,8 @@ public class LuceneSortFactoryTest {
                 scope ->
                     overrides.put(
                         field.field(),
-                        MqlMixedSort.scoped(field, scope.path(), parents, children)));
+                        MqlMixedSort.scoped(
+                            field, scope.path(), new ScopeFilters(parents, children))));
       }
     }
     try (var unused = Explain.setup(Optional.of(verbosity), Optional.of(1))) {

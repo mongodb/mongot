@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.lucene.query.sort.mixed;
 
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.query.sort.MongotSortField;
 import com.xgen.mongot.index.query.sort.SortOptions;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
@@ -11,7 +12,6 @@ import org.apache.lucene.search.FieldComparator;
 import org.apache.lucene.search.FieldComparatorSource;
 import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.SortField;
-import org.apache.lucene.search.join.BitSetProducer;
 import org.bson.BsonType;
 import org.bson.BsonValue;
 import org.jetbrains.annotations.Nullable;
@@ -25,34 +25,25 @@ public class MqlMixedSort extends SortField {
   private final SortOptions options;
   private final FieldPath field;
   private final Optional<FieldPath> embeddedRoot;
-  private final Optional<BitSetProducer> parentFilter;
-  private final Optional<BitSetProducer> childFilter;
+  private final Optional<ScopeFilters> scope;
 
   public MqlMixedSort(MongotSortField sortField, Optional<FieldPath> embeddedRoot) {
-    this(sortField, embeddedRoot, Optional.empty(), Optional.empty());
+    this(sortField, embeddedRoot, Optional.empty());
   }
 
   private MqlMixedSort(
-      MongotSortField sortField,
-      Optional<FieldPath> embeddedRoot,
-      Optional<BitSetProducer> parentFilter,
-      Optional<BitSetProducer> childFilter) {
+      MongotSortField sortField, Optional<FieldPath> embeddedRoot, Optional<ScopeFilters> scope) {
     super(
         sortField.field().toString(),
-        parentFilter.isPresent()
+        scope.isPresent()
             ? new ScopedComparatorSource(
-                new Scope(
-                    sortField,
-                    embeddedRoot.orElseThrow(),
-                    parentFilter.orElseThrow(),
-                    childFilter.orElseThrow()))
+                new Scope(sortField, embeddedRoot.orElseThrow(), scope.orElseThrow()))
             : null,
         sortField.options().order().isReverse());
     this.options = sortField.options();
     this.field = sortField.field();
     this.embeddedRoot = embeddedRoot;
-    this.parentFilter = parentFilter;
-    this.childFilter = childFilter;
+    this.scope = scope;
   }
 
   /**
@@ -62,12 +53,8 @@ public class MqlMixedSort extends SortField {
    * cross-type ordering by bracket over those reduced values. See CLOUDP-441316.
    */
   public static MqlMixedSort scoped(
-      MongotSortField sortField,
-      FieldPath embeddedPath,
-      BitSetProducer parentFilter,
-      BitSetProducer childFilter) {
-    return new MqlMixedSort(
-        sortField, Optional.of(embeddedPath), Optional.of(parentFilter), Optional.of(childFilter));
+      MongotSortField sortField, FieldPath embeddedPath, ScopeFilters scope) {
+    return new MqlMixedSort(sortField, Optional.of(embeddedPath), Optional.of(scope));
   }
 
   @Override
@@ -78,13 +65,12 @@ public class MqlMixedSort extends SortField {
 
   @Override
   public @Nullable IndexSorter getIndexSorter() {
-    return this.parentFilter.isPresent()
+    return this.scope.isPresent()
         ? null
         : new MqlMixedIndexSorter(this, (UserFieldSortOptions) this.options);
   }
 
-  private record Scope(
-      MongotSortField field, FieldPath path, BitSetProducer parents, BitSetProducer children) {}
+  private record Scope(MongotSortField field, FieldPath path, ScopeFilters filters) {}
 
   /** Gives scoped sorts a distinct identity even against a plain, deserialized SortField. */
   private static final class ScopedComparatorSource extends FieldComparatorSource {
@@ -97,8 +83,7 @@ public class MqlMixedSort extends SortField {
     @Override
     public FieldComparator<BsonValue> newComparator(
         String field, int numHits, Pruning pruning, boolean reversed) {
-      return MqlMixedSort.scoped(
-              this.scope.field(), this.scope.path(), this.scope.parents(), this.scope.children())
+      return MqlMixedSort.scoped(this.scope.field(), this.scope.path(), this.scope.filters())
           .getComparator(numHits, pruning);
     }
 
@@ -127,7 +112,6 @@ public class MqlMixedSort extends SortField {
   }
 
   private MixedFieldComparator mixedComparator(TypeField typeField, BsonType bsonType) {
-    return new MixedFieldComparator(
-        typeField, bsonType, this.field, this.embeddedRoot, this.parentFilter, this.childFilter);
+    return new MixedFieldComparator(typeField, bsonType, this.field, this.embeddedRoot, this.scope);
   }
 }

@@ -3,6 +3,7 @@ package com.xgen.mongot.index.lucene.query.sort.mixed;
 import com.xgen.mongot.index.lucene.field.FieldName.TypeField;
 import com.xgen.mongot.index.lucene.query.sort.comparator.BlockJoinReducedNumericDocValues;
 import com.xgen.mongot.index.lucene.query.sort.comparator.BlockJoinReducedSortedDocValues;
+import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.query.sort.SortSelector;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.FieldPath;
@@ -19,7 +20,6 @@ import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.search.SortField.Type;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.search.SortedSetSelector;
-import org.apache.lucene.search.join.BitSetProducer;
 import org.apache.lucene.util.BytesRef;
 import org.bson.BsonType;
 import org.bson.BsonValue;
@@ -36,13 +36,11 @@ public class MixedFieldComparator {
    * its doc-values (MIN/MAX over the parent's matching children). The composite comparator then
    * resolves cross-type ordering by bracket over those per-type reduced values.
    */
-  private final Optional<BitSetProducer> parentFilter;
-
-  private final Optional<BitSetProducer> childFilter;
+  private final Optional<ScopeFilters> scope;
 
   public MixedFieldComparator(
       TypeField typeField, BsonType bsonType, FieldPath path, Optional<FieldPath> embeddedRoot) {
-    this(typeField, bsonType, path, embeddedRoot, Optional.empty(), Optional.empty());
+    this(typeField, bsonType, path, embeddedRoot, Optional.empty());
   }
 
   public MixedFieldComparator(
@@ -50,40 +48,40 @@ public class MixedFieldComparator {
       BsonType bsonType,
       FieldPath path,
       Optional<FieldPath> embeddedRoot,
-      Optional<BitSetProducer> parentFilter,
-      Optional<BitSetProducer> childFilter) {
+      Optional<ScopeFilters> scope) {
     this.typeField = typeField;
     this.bsonType = bsonType;
     this.path = typeField.getLuceneFieldName(path, embeddedRoot);
-    this.parentFilter = parentFilter;
-    this.childFilter = childFilter;
+    this.scope = scope;
   }
 
   /** Reduces numeric doc-values over a parent's matching children when scoped; else identity. */
   private NumericDocValues maybeReduce(
       NumericDocValues dv, LeafReader reader, SortSelector selector) throws IOException {
-    if (this.parentFilter.isEmpty()) {
+    if (this.scope.isEmpty()) {
       return dv;
     }
+    ScopeFilters scopeFilters = this.scope.get();
     LeafReaderContext ctx = reader.getContext();
     return new BlockJoinReducedNumericDocValues(
         dv,
-        this.parentFilter.get().getBitSet(ctx),
-        this.childFilter.get().getBitSet(ctx),
+        scopeFilters.parents().getBitSet(ctx),
+        scopeFilters.children().getBitSet(ctx),
         selector == SortSelector.MAX);
   }
 
   /** Reduces sorted (ordinal) doc-values over a parent's matching children when scoped. */
   private SortedDocValues maybeReduce(SortedDocValues dv, LeafReader reader, SortSelector selector)
       throws IOException {
-    if (this.parentFilter.isEmpty()) {
+    if (this.scope.isEmpty()) {
       return dv;
     }
+    ScopeFilters scopeFilters = this.scope.get();
     LeafReaderContext ctx = reader.getContext();
     return new BlockJoinReducedSortedDocValues(
         dv,
-        this.parentFilter.get().getBitSet(ctx),
-        this.childFilter.get().getBitSet(ctx),
+        scopeFilters.parents().getBitSet(ctx),
+        scopeFilters.children().getBitSet(ctx),
         selector == SortSelector.MAX);
   }
 
