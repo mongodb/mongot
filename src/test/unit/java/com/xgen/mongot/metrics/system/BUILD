@@ -3,6 +3,7 @@ load("//bazel/java:test.bzl", "java_test_suite")
 java_test_suite(
     name = "system",
     srcs = [
+        "CgroupV2MemoryTest.java",
         "CpuInfoMetricsTest.java",
         "MemoryMetricsTest.java",
         "NumaInfoMetricsTest.java",

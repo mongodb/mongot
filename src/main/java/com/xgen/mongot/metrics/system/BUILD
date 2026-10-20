@@ -3,6 +3,7 @@ load("//bazel/java:package.bzl", "java_library")
 java_library(
     name = "system",
     srcs = [
+        "CgroupV2Memory.java",
         "CpuInfoMetrics.java",
         "DiskMetrics.java",
         "MemoryMetrics.java",

@@ -23,6 +23,7 @@ public class MemoryMetrics {
   private final GlobalMemory globalMemory;
   private final VirtualMemory virtualMemory;
   private final CgroupInfo cgroupInfo;
+  private final CgroupV2Memory cgroupV2Memory;
   private final AtomicLong physTotal = new AtomicLong();
   private final AtomicLong physAvailable = new AtomicLong();
   private final AtomicLong physicalInUse = new AtomicLong();
@@ -30,17 +31,22 @@ public class MemoryMetrics {
   private final AtomicLong memoryMappings = new AtomicLong();
 
   private MemoryMetrics(
-      GlobalMemory globalMemory, VirtualMemory virtualMemory, CgroupInfo cgroupInfo) {
+      GlobalMemory globalMemory,
+      VirtualMemory virtualMemory,
+      CgroupInfo cgroupInfo,
+      CgroupV2Memory cgroupV2Memory) {
     this.globalMemory = globalMemory;
     this.virtualMemory = virtualMemory;
     this.cgroupInfo = cgroupInfo;
+    this.cgroupV2Memory = cgroupV2Memory;
   }
 
   static MemoryMetrics create(SystemInfo systemInfo, MeterRegistry meterRegistry) {
     GlobalMemory globalMemory = systemInfo.getHardware().getMemory();
     VirtualMemory virtualMemory = globalMemory.getVirtualMemory();
     CgroupInfo cgroupInfo = systemInfo.getOperatingSystem().getCgroupInfo();
-    return create(globalMemory, virtualMemory, cgroupInfo, meterRegistry);
+    return create(
+        globalMemory, virtualMemory, cgroupInfo, CgroupV2Memory.forThisProcess(), meterRegistry);
   }
 
   @VisibleForTesting
@@ -48,8 +54,10 @@ public class MemoryMetrics {
       GlobalMemory globalMemory,
       VirtualMemory virtualMemory,
       CgroupInfo cgroupInfo,
+      CgroupV2Memory cgroupV2Memory,
       MeterRegistry meterRegistry) {
-    MemoryMetrics memoryMetrics = new MemoryMetrics(globalMemory, virtualMemory, cgroupInfo);
+    MemoryMetrics memoryMetrics =
+        new MemoryMetrics(globalMemory, virtualMemory, cgroupInfo, cgroupV2Memory);
 
     Gauge.builder("system.memory.memoryMappings", memoryMetrics.memoryMappings, AtomicLong::get)
         .description("The number of memory mappings")
@@ -125,19 +133,33 @@ public class MemoryMetrics {
     return Optional.empty();
   }
 
-  /** Refreshes all periodically-computed memory metrics. */
+  /** The phys trio scoped to one cgroup; usage over the limit reads as fully used, never over. */
+  private void setCgroupScope(long limitBytes, long usageBytes) {
+    long available = Math.max(0L, limitBytes - usageBytes);
+    this.physTotal.set(limitBytes);
+    this.physAvailable.set(available);
+    this.physicalInUse.set(limitBytes - available);
+  }
+
+  /**
+   * Refreshes all periodically-computed memory metrics.
+   *
+   * <p>The {@code phys} trio is one coherent view of the memory that can OOM-kill this process: the
+   * cgroup-v2 level with the least headroom under a finite {@code memory.max}, from this process's
+   * own cgroup up (a slice without its own limit is still bounded by the pod's and the node's);
+   * else this process's cgroup as oshi reads it, which covers cgroup v1; else the host. Alerts
+   * divide {@code inUse} by {@code total}, so all three always describe the same scope.
+   */
   public void update() {
     long hostTotal = this.globalMemory.getTotal();
     long hostAvailable = this.globalMemory.getAvailable();
 
+    var tightest = this.cgroupV2Memory.tightestLimitedLevel(hostTotal);
     long cgroupLimit = this.cgroupInfo.getMemoryLimit();
-    if (cgroupLimit < CgroupInfo.UNLIMITED_MEMORY && cgroupLimit < hostTotal) {
-      long cgroupUsage = this.cgroupInfo.getMemoryUsage();
-      long adjustedAvailable = Math.max(0L, cgroupLimit - cgroupUsage);
-
-      this.physTotal.set(cgroupLimit);
-      this.physAvailable.set(adjustedAvailable);
-      this.physicalInUse.set(cgroupLimit - adjustedAvailable);
+    if (tightest.isPresent()) {
+      setCgroupScope(tightest.get().limitBytes(), tightest.get().usageBytes());
+    } else if (cgroupLimit < CgroupInfo.UNLIMITED_MEMORY && cgroupLimit < hostTotal) {
+      setCgroupScope(cgroupLimit, this.cgroupInfo.getMemoryUsage());
     } else {
       this.physTotal.set(hostTotal);
       this.physAvailable.set(hostAvailable);

@@ -65,16 +65,30 @@ public class SystemMetricsInstrumentation {
         .addKeyValue("interval", delay)
         .addKeyValue("timeUnit", unit.name().toLowerCase())
         .log("Starting periodic system metrics update");
+    // scheduleWithFixedDelay cancels the task on an uncaught throwable, so one
+    // failing updater must not take the others' gauges down with it.
     this.updater.scheduleWithFixedDelay(
         () -> {
-          this.diskMetrics.update();
-          this.netstatMetrics.update();
-          this.processMetrics.update();
-          this.memoryMetrics.update();
+          updateSafely("disk", this.diskMetrics::update);
+          updateSafely("netstat", this.netstatMetrics::update);
+          updateSafely("process", this.processMetrics::update);
+          updateSafely("memory", this.memoryMetrics::update);
         },
         delay,
         delay,
         unit);
+  }
+
+  /** Runs one updater; a failure is logged and the next tick retries. */
+  private static void updateSafely(String component, Runnable update) {
+    try {
+      update.run();
+    } catch (RuntimeException e) {
+      LOG.atWarn()
+          .addKeyValue("component", component)
+          .setCause(e)
+          .log("system metrics updater failed");
+    }
   }
 
   /** Stops periodic scheduling. */
