@@ -201,37 +201,6 @@ public class ResumeTokenUtilsTest {
   }
 
   @Test
-  public void lowWaterMark_singleToken_returnsIt() {
-    assertThat(ResumeTokenUtils.lowWaterMark(List.of(resumeToken(EVENT))))
-        .isEqualTo(resumeToken(EVENT));
-  }
-
-  @Test
-  public void lowWaterMark_minimumInMiddle_returnsEarliest() {
-    assertThat(
-            ResumeTokenUtils.lowWaterMark(
-                List.of(
-                    resumeToken(EVENT_NEXT_IN_TXN),
-                    resumeToken(EVENT),
-                    resumeToken(EVENT_LATER_OPTIME))))
-        .isEqualTo(resumeToken(EVENT));
-  }
-
-  @Test
-  public void lowWaterMark_sameTransaction_ordersByFullStreamPosition() {
-    // Same clusterTime, so only the full _data tells them apart.
-    assertThat(
-            ResumeTokenUtils.lowWaterMark(
-                List.of(resumeToken(EVENT_NEXT_IN_TXN), resumeToken(EVENT))))
-        .isEqualTo(resumeToken(EVENT));
-  }
-
-  @Test
-  public void lowWaterMark_empty_throwsIllegalArgumentException() {
-    assertThrows(IllegalArgumentException.class, () -> ResumeTokenUtils.lowWaterMark(List.of()));
-  }
-
-  @Test
   public void opTimeFromResumeToken_returnsClusterTime() throws DecoderException {
     assertThat(opTime(EVENT)).isEqualTo(new BsonTimestamp(0x68D0A4B400000001L));
   }

@@ -4,7 +4,6 @@ import static com.xgen.mongot.util.Check.argNotNull;
 import static com.xgen.mongot.util.Check.checkArg;
 
 import java.nio.ByteBuffer;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.regex.Pattern;
 import org.apache.commons.codec.DecoderException;
@@ -39,19 +38,6 @@ public class ResumeTokenUtils {
   public static final Comparator<BsonDocument> BY_STREAM_POSITION =
       Comparator.comparing(
           ResumeTokenUtils::comparableDataFromResumeToken, String.CASE_INSENSITIVE_ORDER);
-
-  /**
-   * Returns the earliest token by {@link #BY_STREAM_POSITION} — the low-water mark across
-   * partitions, the one position every reader has passed.
-   *
-   * @throws IllegalArgumentException if {@code resumeTokens} is empty
-   */
-  public static BsonDocument lowWaterMark(Collection<BsonDocument> resumeTokens) {
-    checkArg(
-        !resumeTokens.isEmpty(),
-        "Cannot compute the low-water mark: no resume tokens were provided");
-    return resumeTokens.stream().min(BY_STREAM_POSITION).orElseThrow();
-  }
 
   /**
    * Returns the raw hex-encoded {@code _data} value of {@code resumeToken}.

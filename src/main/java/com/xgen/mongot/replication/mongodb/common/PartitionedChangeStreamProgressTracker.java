@@ -68,6 +68,18 @@ public final class PartitionedChangeStreamProgressTracker {
     return Map.copyOf(result);
   }
 
+  /**
+   * Returns a detached copy of the earliest confirmed token. Like {@link #snapshot()}, this must be
+   * captured before the writer's commit snapshot; acknowledgments alone are not durable.
+   */
+  public synchronized BsonDocument getLowWaterMark() {
+    return this.partitions.values().stream()
+        .map(progress -> progress.confirmedToken)
+        .min(ResumeTokenUtils.BY_STREAM_POSITION)
+        .orElseThrow()
+        .clone();
+  }
+
   private synchronized void acknowledge(PartitionProgress progress, PendingBatch batch) {
     batch.indexed = true;
     while (!progress.pending.isEmpty() && progress.pending.getFirst().indexed) {

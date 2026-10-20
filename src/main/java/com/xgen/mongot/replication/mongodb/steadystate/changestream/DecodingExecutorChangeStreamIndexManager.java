@@ -28,7 +28,6 @@ import com.xgen.mongot.replication.mongodb.common.DocumentIndexer;
 import com.xgen.mongot.replication.mongodb.common.IndexCommitUserData;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamProgressTracker;
-import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue.Priority;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
@@ -42,7 +41,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import org.bson.BsonDocument;
 import org.bson.RawBsonDocument;
 
 class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager {
@@ -407,18 +405,16 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
 
   /** Commit data for the low-water mark across the partitions' confirmed positions. */
   private IndexCommitUserData confirmedCommitData() {
-    BsonDocument lowWaterMark =
-        ResumeTokenUtils.lowWaterMark(this.partitionTracker.orElseThrow().snapshot().values());
     return IndexCommitUserData.createChangeStreamResume(
-        ChangeStreamResumeInfo.create(this.namespace, lowWaterMark),
-        this.generationId.generation.formatVersion.versionNumber());
+        lowWaterMarkResumeInfo(), this.generationId.generation.formatVersion.versionNumber());
   }
 
   /**
    * The low-water mark across partitions; what a transient restart resumes every partition from.
    */
   private ChangeStreamResumeInfo lowWaterMarkResumeInfo() {
-    return confirmedCommitData().resumeInfo().orElseThrow();
+    return ChangeStreamResumeInfo.create(
+        this.namespace, this.partitionTracker.orElseThrow().getLowWaterMark());
   }
 
   /** Acknowledgment callback and commit data for a registered partitioned batch. */

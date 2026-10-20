@@ -3,6 +3,7 @@ package com.xgen.mongot.replication.mongodb.common;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -12,11 +13,91 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.junit.Test;
 
 public class PartitionedChangeStreamProgressTrackerTest {
   private static final ChangeStreamPartition FIRST = new ChangeStreamPartition(0, 2);
   private static final ChangeStreamPartition SECOND = new ChangeStreamPartition(1, 2);
+
+  @Test
+  public void getLowWaterMark_pendingBatches_usesSlowestConfirmedPosition() {
+    var tracker =
+        new PartitionedChangeStreamProgressTracker(Map.of(FIRST, token(10), SECOND, token(20)));
+    var first = tracker.registerBatch(FIRST, token(30));
+
+    tracker.registerBatch(SECOND, token(40)).run();
+
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(10));
+    first.run();
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(30));
+  }
+
+  @Test
+  public void getLowWaterMark_sameTimestamp_comparesFullTokenIgnoringCase() {
+    var earlier = token("8200000001000000000a");
+    var later = token("8200000001000000000B");
+    var tracker = new PartitionedChangeStreamProgressTracker(Map.of(FIRST, later, SECOND, earlier));
+
+    assertThat(tracker.getLowWaterMark()).isEqualTo(earlier);
+  }
+
+  @Test
+  public void getLowWaterMark_outOfOrderAcknowledgments_doesNotSkipGap() {
+    var tracker =
+        new PartitionedChangeStreamProgressTracker(Map.of(FIRST, token(10), SECOND, token(40)));
+    var first = tracker.registerBatch(FIRST, token(20));
+    var second = tracker.registerBatch(FIRST, token(30));
+
+    second.run();
+
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(10));
+    first.run();
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(30));
+  }
+
+  @Test
+  public void getLowWaterMark_capturedToken_isDetachedFromLaterProgressAndCallerMutation() {
+    var tracker =
+        new PartitionedChangeStreamProgressTracker(Map.of(FIRST, token(10), SECOND, token(40)));
+    var captured = tracker.getLowWaterMark();
+
+    tracker.registerBatch(FIRST, token(20)).run();
+
+    assertThat(captured).isEqualTo(token(10));
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(20));
+    tracker.getLowWaterMark().put("_data", token(99).get("_data"));
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(20));
+  }
+
+  @Test
+  public void getLowWaterMark_singlePartition_returnsConfirmedToken() {
+    var only = new ChangeStreamPartition(0, 1);
+    var tracker = new PartitionedChangeStreamProgressTracker(Map.of(only, token(10)));
+
+    tracker.registerBatch(only, token(20)).run();
+
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(20));
+  }
+
+  @Test
+  public void getLowWaterMark_earlierReplayToken_doesNotAssumeMonotonicProgress() {
+    var tracker =
+        new PartitionedChangeStreamProgressTracker(Map.of(FIRST, token(20), SECOND, token(20)));
+
+    tracker.registerBatch(FIRST, token(10)).run();
+
+    assertThat(tracker.getLowWaterMark()).isEqualTo(token(10));
+  }
+
+  @Test
+  public void getLowWaterMark_malformedConfirmedToken_rejectsComparison() {
+    var tracker =
+        new PartitionedChangeStreamProgressTracker(
+            Map.of(FIRST, token(10), SECOND, token("not-hex")));
+
+    assertThrows(IllegalArgumentException.class, tracker::getLowWaterMark);
+  }
 
   @Test
   public void snapshot_unconfirmedBatches_retainsAllInitialPositions() {
@@ -253,5 +334,9 @@ public class PartitionedChangeStreamProgressTrackerTest {
 
   private static BsonDocument token(String position) {
     return new BsonDocument("_data", new BsonString(position));
+  }
+
+  private static BsonDocument token(int seconds) {
+    return ChangeStreamUtils.resumeToken(new BsonTimestamp(seconds, 0));
   }
 }
