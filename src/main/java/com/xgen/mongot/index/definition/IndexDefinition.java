@@ -29,6 +29,10 @@ import org.bson.types.ObjectId;
 public sealed interface IndexDefinition extends DocumentEncodable
     permits VectorIndexDefinition, SearchIndexDefinition {
 
+  /**
+   * Field declarations shared by both index-definition implementations. When adding a field here,
+   * see docs/internal/development/patterns/config-journal-schema-change.md for the full workflow.
+   */
   class Fields {
 
     public static final WithDefault<Type> TYPE =

@@ -37,7 +37,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * See the config journals section in: src/main/java/com/xgen/mongot/config/README.md
+ * See docs/internal/development/patterns/config-journal-schema-change.md for how to change this
+ * schema.
  *
  * <p>A config journal describing indexes in different generations and states. One index generation
  * can be either staged, live or deleted.
