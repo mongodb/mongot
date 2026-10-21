@@ -13,6 +13,7 @@ import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping.AutoEmbedField;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
+import com.xgen.mongot.embedding.utils.MaterializedViewArrayElementType;
 import com.xgen.mongot.embedding.utils.PartialEmbedClassification;
 import com.xgen.mongot.embedding.utils.PartialEmbedFallbackReason;
 import com.xgen.mongot.index.DocumentEvent;
@@ -85,6 +86,8 @@ public class ChangeStreamDocumentUtils {
     public final Map<ViewFullProcessingReason, Integer> viewDecisions;
     public final int viewFilterOnlyPartialApplied;
     public final Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason;
+    public final Map<MaterializedViewArrayElementType, Integer>
+        materializedViewWritesWithDuplicatedArrayElements;
 
     private DocumentEventBatch(
         List<DocumentEvent> finalChangeEvents,
@@ -98,7 +101,9 @@ public class ChangeStreamDocumentUtils {
         int filterOnlyPartialApplied,
         Map<ViewFullProcessingReason, Integer> viewDecisions,
         int viewFilterOnlyPartialApplied,
-        Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason) {
+        Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason,
+        Map<MaterializedViewArrayElementType, Integer>
+            materializedViewWritesWithDuplicatedArrayElements) {
       this.finalChangeEvents = finalChangeEvents;
       this.updatesWitnessed = updatesWitnessed;
       this.updatesApplicable = updatesApplicable;
@@ -111,6 +116,8 @@ public class ChangeStreamDocumentUtils {
       this.viewDecisions = viewDecisions;
       this.viewFilterOnlyPartialApplied = viewFilterOnlyPartialApplied;
       this.viewDerivationFallbackReason = viewDerivationFallbackReason;
+      this.materializedViewWritesWithDuplicatedArrayElements =
+          materializedViewWritesWithDuplicatedArrayElements;
     }
   }
 
@@ -127,6 +134,9 @@ public class ChangeStreamDocumentUtils {
     private final EnumMap<ViewFullProcessingReason, Integer> viewDecisionCounters =
         new EnumMap<>(ViewFullProcessingReason.class);
     private int viewFilterOnlyPartialAppliedCounter;
+    private final EnumMap<MaterializedViewArrayElementType, Integer>
+        materializedViewWritesWithDuplicatedArrayElements =
+            new EnumMap<>(MaterializedViewArrayElementType.class);
     private Optional<ViewDerivationFallbackReason> viewDerivationFallbackReason = Optional.empty();
 
     public ChangeStreamBatchMetrics() {
@@ -165,6 +175,11 @@ public class ChangeStreamDocumentUtils {
     /** A view-based UPDATE took the filter-only partial path. */
     public void viewFilterOnlyPartialApplied() {
       this.viewFilterOnlyPartialAppliedCounter++;
+    }
+
+    /** A partial $set body contained a UUID or vector array element the old writer duplicated. */
+    public void documentHasDuplicatedArrayElements(MaterializedViewArrayElementType element) {
+      this.materializedViewWritesWithDuplicatedArrayElements.merge(element, 1, Integer::sum);
     }
 
     /** Records (once per index) why derivation fell back to full processing. */
@@ -226,6 +241,11 @@ public class ChangeStreamDocumentUtils {
 
     public int getViewFilterOnlyPartialApplied() {
       return this.viewFilterOnlyPartialAppliedCounter;
+    }
+
+    public Map<MaterializedViewArrayElementType, Integer>
+        getMaterializedViewDocsWithDuplicatedArrayElements() {
+      return this.materializedViewWritesWithDuplicatedArrayElements;
     }
 
     public Optional<ViewDerivationFallbackReason> getViewDerivationFallbackReason() {
@@ -455,7 +475,8 @@ public class ChangeStreamDocumentUtils {
         metrics.getFilterOnlyPartialApplied(),
         metrics.getViewDecisions(),
         metrics.getViewFilterOnlyPartialApplied(),
-        metrics.getViewDerivationFallbackReason());
+        metrics.getViewDerivationFallbackReason(),
+        metrics.getMaterializedViewDocsWithDuplicatedArrayElements());
   }
 
   /**
@@ -604,6 +625,9 @@ public class ChangeStreamDocumentUtils {
                       } else {
                         metrics.viewFilterOnlyPartialApplied();
                       }
+                      AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(
+                              filterFieldUpdates.get(), mapping)
+                          .forEach(metrics::documentHasDuplicatedArrayElements);
                       return Optional.of(
                           DocumentEvent.createPartialUpdate(
                               metadata,
@@ -662,6 +686,9 @@ public class ChangeStreamDocumentUtils {
                   } else {
                     metrics.filterOnlyPartialApplied();
                   }
+                  AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(
+                          filterFieldUpdates.get(), mapping)
+                      .forEach(metrics::documentHasDuplicatedArrayElements);
                   return Optional.of(
                       DocumentEvent.createPartialUpdate(
                           metadata,

@@ -50,7 +50,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.bson.BsonArray;
+import org.bson.BsonBinary;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonDouble;
@@ -2618,6 +2620,253 @@ public class AutoEmbeddingDocumentUtilsTest {
 
     // Should return empty document when filter field is missing
     assertEquals(new BsonDocument(), result);
+  }
+
+  @Test
+  public void detectDuplicatedArrayElementTypes_reportsUuidAndVectorElements() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("absentSource")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append(
+                "tenantIds",
+                new BsonArray(
+                    List.of(new BsonBinary(UUID.randomUUID()), new BsonBinary(UUID.randomUUID()))))
+            .append(
+                "coordinates",
+                new BsonArray(
+                    List.of(
+                        new BsonArray(List.of(new BsonInt32(10), new BsonInt32(10))),
+                        new BsonArray(List.of(new BsonInt32(20), new BsonInt32(20))))));
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(source, mapping))
+        .containsExactly(
+            MaterializedViewArrayElementType.UUID, MaterializedViewArrayElementType.VECTOR);
+  }
+
+  @Test
+  public void detectDuplicatedArrayElementTypes_ignoresDocumentFieldsAndDroppedArrays() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("absentSource")))
+                    .build())
+            .field(
+                "kept",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append("uuidField", new BsonBinary(UUID.randomUUID()))
+            .append("kept", new BsonArray(List.of(new BsonBinary(UUID.randomUUID()))))
+            .append("dropped", new BsonArray(List.of(new BsonBinary(UUID.randomUUID()))));
+
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(source, mapping))
+        .containsExactly(MaterializedViewArrayElementType.UUID);
+  }
+
+  @Test
+  public void detectDuplicatedArrayElementTypes_nestedArrayUnderDescendOnlyParent() {
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
+                    new VectorIndexFilterFieldDefinition(FieldPath.parse("groups.ids")),
+                    new VectorIndexFilterFieldDefinition(FieldPath.parse("groups.coords"))))
+            .build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef);
+    BsonDocument inner =
+        new BsonDocument("ids", new BsonArray(List.of(new BsonBinary(UUID.randomUUID()))))
+            .append(
+                "coords",
+                new BsonArray(
+                    List.of(
+                        new BsonArray(List.of(new BsonInt32(10), new BsonInt32(10))),
+                        new BsonArray(List.of(new BsonInt32(20), new BsonInt32(20))))));
+    BsonDocument source =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append("text", new BsonString("some text"))
+            .append("groups", new BsonArray(List.of(new BsonArray(List.of(inner)))));
+    ImmutableSet<MaterializedViewArrayElementType> expected =
+        ImmutableSet.of(
+            MaterializedViewArrayElementType.UUID, MaterializedViewArrayElementType.VECTOR);
+    RawBsonDocument raw = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(source, mapping))
+        .containsExactlyElementsIn(expected);
+    assertThat(
+            AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(
+                extractFilterValues(raw, mapping), mapping))
+        .containsExactlyElementsIn(expected);
+  }
+
+  @Test
+  public void detectDuplicatedArrayElementTypes_skipsTopLevelIdField() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("text")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument source =
+        new BsonDocument()
+            .append(
+                "_id",
+                new BsonDocument("ids", new BsonArray(List.of(new BsonBinary(UUID.randomUUID()))))
+                    .append(
+                        "coords",
+                        new BsonArray(
+                            List.of(
+                                new BsonArray(List.of(new BsonInt32(10), new BsonInt32(10))),
+                                new BsonArray(List.of(new BsonInt32(20), new BsonInt32(20)))))))
+            .append("text", new BsonString("some text"));
+
+    // The MV writer strips the copied _id, so its contents never reach the MV.
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(source, mapping))
+        .isEmpty();
+
+    BsonDocument withPayloadArrays =
+        source
+            .clone()
+            .append("tenantIds", new BsonArray(List.of(new BsonBinary(UUID.randomUUID()))))
+            .append(
+                "payloadCoords",
+                new BsonArray(
+                    List.of(
+                        new BsonArray(List.of(new BsonInt32(1), new BsonInt32(2))),
+                        new BsonArray(List.of(new BsonInt32(3), new BsonInt32(4))))));
+    assertThat(
+            AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(
+                withPayloadArrays, mapping))
+        .containsExactly(
+            MaterializedViewArrayElementType.UUID, MaterializedViewArrayElementType.VECTOR);
+  }
+
+  @Test
+  public void detectDuplicatedArrayElementTypes_matchesWriterForDottedFieldNames() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field(
+                "embedding",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("a")))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument source =
+        new BsonDocument()
+            .append("a", new BsonString("some text"))
+            .append("a.b", new BsonArray(List.of(new BsonBinary(UUID.randomUUID()))));
+
+    // The MV writer treats a literal dotted key as one field, so the detector must too.
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(source, mapping))
+        .containsExactly(MaterializedViewArrayElementType.UUID);
+  }
+
+  @Test
+  public void detectDuplicatedArrayElementTypes_keepsDescendantsOfPassthroughDocument() {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "text",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(
+                        new SearchAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("text")))
+                    .build())
+            .field(
+                "meta",
+                FieldDefinitionBuilder.builder()
+                    .document(DocumentFieldDefinitionBuilder.builder().dynamic(true).build())
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+    BsonDocument source =
+        new BsonDocument()
+            .append("text", new BsonString("some text"))
+            .append(
+                "meta",
+                new BsonDocument(
+                    "color", new BsonArray(List.of(new BsonBinary(UUID.randomUUID())))));
+
+    // A dynamic document is copied wholesale, so an undeclared descendant is still passthrough.
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(source, mapping))
+        .containsExactly(MaterializedViewArrayElementType.UUID);
+  }
+
+  @Test
+  public void extractFilterFieldValues_reportsDuplicatedArrayElements() {
+    List<VectorIndexFieldDefinition> fields =
+        List.of(
+            new VectorAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("text")),
+            new VectorIndexFilterFieldDefinition(FieldPath.parse("tenantIds")),
+            new VectorIndexFilterFieldDefinition(FieldPath.parse("coordinates")));
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
+    BsonDocument bsonDoc =
+        new BsonDocument()
+            .append("_id", new BsonString("anId"))
+            .append("text", new BsonString("some text"))
+            .append(
+                "tenantIds",
+                new BsonArray(
+                    List.of(new BsonBinary(UUID.randomUUID()), new BsonBinary(UUID.randomUUID()))))
+            .append(
+                "coordinates",
+                new BsonArray(
+                    List.of(
+                        new BsonArray(List.of(new BsonInt32(10), new BsonInt32(10))),
+                        new BsonArray(List.of(new BsonInt32(20), new BsonInt32(20))))));
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef);
+    Optional<BsonDocument> result =
+        AutoEmbeddingDocumentUtils.extractFilterFieldValues(rawBsonDoc, mapping);
+
+    assertThat(result).isPresent();
+    assertThat(AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(result.get(), mapping))
+        .containsExactly(
+            MaterializedViewArrayElementType.UUID, MaterializedViewArrayElementType.VECTOR);
   }
 
   @Test

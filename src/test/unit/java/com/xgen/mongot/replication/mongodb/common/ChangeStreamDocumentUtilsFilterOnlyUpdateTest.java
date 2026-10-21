@@ -8,6 +8,7 @@ import com.google.common.collect.ImmutableSet;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.embedding.utils.MaterializedViewArrayElementType;
 import com.xgen.mongot.embedding.utils.PartialEmbedFallbackReason;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.definition.BooleanFieldDefinition;
@@ -31,8 +32,10 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonArray;
+import org.bson.BsonBinary;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
@@ -109,6 +112,55 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
     assertEquals(0, batch.partialEmbedApplied);
     assertTrue(batch.partialEmbedFallbacks.isEmpty());
     assertEquals(1, batch.filterOnlyPartialApplied);
+  }
+
+  @Test
+  public void filterOnlyPartial_reportsDuplicatedArrayElements() {
+    VectorIndexDefinition indexDef =
+        VectorIndexDefinitionBuilder.builder()
+            .withAutoEmbedField("description")
+            .withFilterPath("tenantIds")
+            .withFilterPath("coordinates")
+            .build();
+    BsonArray tenantIds =
+        new BsonArray(
+            List.of(new BsonBinary(UUID.randomUUID()), new BsonBinary(UUID.randomUUID())));
+    BsonArray coordinates =
+        new BsonArray(
+            List.of(
+                new BsonArray(List.of(new BsonInt32(10), new BsonInt32(10))),
+                new BsonArray(List.of(new BsonInt32(20), new BsonInt32(20)))));
+    BsonDocument fullDocument =
+        new BsonDocument()
+            .append("_id", new BsonInt32(0))
+            .append("description", new BsonString("machine learning"))
+            .append("tenantIds", tenantIds)
+            .append("coordinates", coordinates)
+            .append(indexDef.getIndexId().toString(), new BsonDocument("_id", new BsonInt32(0)));
+    ChangeStreamDocument<RawBsonDocument> changeEvent =
+        ChangeStreamUtils.dataEvent(
+            OperationType.UPDATE,
+            0,
+            new UpdateDescription(null, new BsonDocument("tenantIds", tenantIds)),
+            fullDocument);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(changeEvent),
+            indexDef,
+            indexDef.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            false,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDef));
+
+    assertEquals(1, batch.filterOnlyPartialApplied);
+    assertEquals(
+        Integer.valueOf(1),
+        batch.materializedViewWritesWithDuplicatedArrayElements.get(
+            MaterializedViewArrayElementType.UUID));
+    assertEquals(
+        Integer.valueOf(1),
+        batch.materializedViewWritesWithDuplicatedArrayElements.get(
+            MaterializedViewArrayElementType.VECTOR));
   }
 
   @Test

@@ -59,6 +59,11 @@ public record VectorAutoEmbedFieldMapping(
   }
 
   @Override
+  public boolean hasSourcePassthroughFields() {
+    return fieldMap().values().stream().anyMatch(AutoEmbedField.PassthroughField.class::isInstance);
+  }
+
+  @Override
   public boolean enumeratesAllIndexedPaths() {
     return true;
   }

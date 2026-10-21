@@ -134,6 +134,11 @@ public record SearchIndexAutoEmbedFieldMapping(
     return matchesPassthrough(path);
   }
 
+  @Override
+  public boolean hasSourcePassthroughFields() {
+    return this.dynamic.isEnabled() || !this.explicitPassthroughPaths.isEmpty();
+  }
+
   /**
    * Returns embed entries plus a synthetic {@link AutoEmbedField.PassthroughField} for each
    * explicit passthrough path. Keeping the map symmetric with the vector mapping so callers like

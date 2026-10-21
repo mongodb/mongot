@@ -56,6 +56,9 @@ public sealed interface AutoEmbedFieldMapping
 
   boolean isPassthrough(FieldPath path);
 
+  /** Returns whether any passthrough field can come from the source document. */
+  boolean hasSourcePassthroughFields();
+
   /** Returns the declared field map. */
   Map<FieldPath, AutoEmbedField> fieldMap();
 

@@ -45,6 +45,89 @@ public class AutoEmbedFieldMappingCreatorTest {
       MAT_VIEW_SCHEMA_METADATA =
           new MaterializedViewCollectionMetadata.MaterializedViewSchemaMetadata(0, Map.of());
 
+  @Test
+  public void hasSourcePassthroughFields_reflectsMapping() {
+    AutoEmbedFieldMapping vectorEmbedOnly =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            VectorIndexDefinitionBuilder.builder()
+                .setFields(
+                    List.of(
+                        new VectorAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("text"))))
+                .build());
+    Assert.assertFalse(vectorEmbedOnly.hasSourcePassthroughFields());
+
+    AutoEmbedFieldMapping vectorWithFilter =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            VectorIndexDefinitionBuilder.builder()
+                .setFields(
+                    List.of(
+                        new VectorAutoEmbedFieldDefinition(
+                            "voyage-3-large", FieldPath.parse("text")),
+                        new VectorIndexFilterFieldDefinition(FieldPath.parse("tenant"))))
+                .build());
+    Assert.assertTrue(vectorWithFilter.hasSourcePassthroughFields());
+
+    AutoEmbedFieldMapping searchStaticEmbedOnly =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            SearchIndexDefinitionBuilder.builder()
+                .defaultMetadata()
+                .mappings(
+                    DocumentFieldDefinitionBuilder.builder()
+                        .dynamic(false)
+                        .field(
+                            "embedding",
+                            FieldDefinitionBuilder.builder()
+                                .searchAutoEmbed(
+                                    new SearchAutoEmbedFieldDefinition(
+                                        "voyage-3-large", FieldPath.parse("text")))
+                                .build())
+                        .build())
+                .build());
+    Assert.assertFalse(searchStaticEmbedOnly.hasSourcePassthroughFields());
+
+    AutoEmbedFieldMapping searchStaticWithPassthrough =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            SearchIndexDefinitionBuilder.builder()
+                .defaultMetadata()
+                .mappings(
+                    DocumentFieldDefinitionBuilder.builder()
+                        .dynamic(false)
+                        .field(
+                            "flag",
+                            FieldDefinitionBuilder.builder()
+                                .bool(new BooleanFieldDefinition())
+                                .build())
+                        .field(
+                            "embedding",
+                            FieldDefinitionBuilder.builder()
+                                .searchAutoEmbed(
+                                    new SearchAutoEmbedFieldDefinition(
+                                        "voyage-3-large", FieldPath.parse("text")))
+                                .build())
+                        .build())
+                .build());
+    Assert.assertTrue(searchStaticWithPassthrough.hasSourcePassthroughFields());
+
+    AutoEmbedFieldMapping searchDynamic =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            SearchIndexDefinitionBuilder.builder()
+                .defaultMetadata()
+                .mappings(
+                    DocumentFieldDefinitionBuilder.builder()
+                        .dynamic(true)
+                        .field(
+                            "embedding",
+                            FieldDefinitionBuilder.builder()
+                                .searchAutoEmbed(
+                                    new SearchAutoEmbedFieldDefinition(
+                                        "voyage-3-large", FieldPath.parse("text")))
+                                .build())
+                        .build())
+                .build());
+    Assert.assertTrue(searchDynamic.hasSourcePassthroughFields());
+  }
+
   @BeforeClass
   public static void registerTestModels() {
     EmbeddingModelCatalog.clear();

@@ -6,6 +6,7 @@ java_test_suite(
         "AutoEmbedFieldMappingCreatorTest.java",
         "AutoEmbeddingDocumentUtilsTest.java",
         "AutoEmbeddingIndexDefinitionUtilsTest.java",
+        "MaterializedViewPassthroughRoundTripTest.java",
         "MongoClientOperationExecutorTest.java",
         "SearchAutoEmbedPassthroughDefinitionTest.java",
     ],

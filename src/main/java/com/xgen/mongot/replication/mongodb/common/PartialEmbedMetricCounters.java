@@ -2,6 +2,7 @@ package com.xgen.mongot.replication.mongodb.common;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableMap;
+import com.xgen.mongot.embedding.utils.MaterializedViewArrayElementType;
 import com.xgen.mongot.embedding.utils.PartialEmbedFallbackReason;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.DocumentEventBatch;
@@ -22,7 +23,10 @@ public class PartialEmbedMetricCounters {
   private final Counter appliedCounter;
   private final Counter filterOnlyPartialAppliedCounter;
   private final ImmutableMap<PartialEmbedFallbackReason, Counter> fallbackCounters;
+  private final ImmutableMap<MaterializedViewArrayElementType, Counter>
+      duplicatedArrayElementCounters;
 
+  /** Creates metric counters for the supplied base tags. */
   public PartialEmbedMetricCounters(MetricsFactory metricsFactory, Tags baseTags) {
     this.appliedCounter = metricsFactory.counter("partialEmbedApplied", baseTags);
     this.filterOnlyPartialAppliedCounter =
@@ -37,6 +41,22 @@ public class PartialEmbedMetricCounters {
               baseTags.and("reason", Enums.convertNameTo(CaseFormat.LOWER_UNDERSCORE, reason))));
     }
     this.fallbackCounters = ImmutableMap.copyOf(byReason);
+    EnumMap<MaterializedViewArrayElementType, Counter> byElement =
+        new EnumMap<>(MaterializedViewArrayElementType.class);
+    for (MaterializedViewArrayElementType element : MaterializedViewArrayElementType.values()) {
+      byElement.put(
+          element,
+          metricsFactory.counter(
+              MaterializedViewDuplicatedArrayElementMetricCounters.METRIC_NAME,
+              baseTags
+                  .and(
+                      MaterializedViewDuplicatedArrayElementMetricCounters.ELEMENT_TYPE_TAG,
+                      element.tagValue())
+                  .and(
+                      MaterializedViewDuplicatedArrayElementMetricCounters.SAMPLE_MODULUS_TAG,
+                      "1")));
+    }
+    this.duplicatedArrayElementCounters = ImmutableMap.copyOf(byElement);
   }
 
   /** Adds one batch's partial-embed tallies to the counters. */
@@ -49,5 +69,7 @@ public class PartialEmbedMetricCounters {
     }
     batch.partialEmbedFallbacks.forEach(
         (reason, count) -> this.fallbackCounters.get(reason).increment(count));
+    batch.materializedViewWritesWithDuplicatedArrayElements.forEach(
+        (element, count) -> this.duplicatedArrayElementCounters.get(element).increment(count));
   }
 }

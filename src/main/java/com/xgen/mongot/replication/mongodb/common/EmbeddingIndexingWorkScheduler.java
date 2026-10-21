@@ -4,9 +4,11 @@ import static com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.buildAutoEmbeddingDocumentEvent;
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.buildMaterializedViewDocumentEvent;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.SetMultimap;
 import com.google.common.flogger.FluentLogger;
@@ -31,8 +33,11 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils;
+import com.xgen.mongot.embedding.utils.MaterializedViewArrayElementType;
 import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.FieldExceededLimitsException;
+import com.xgen.mongot.index.IndexTypeData;
+import com.xgen.mongot.index.IndexTypeData.IndexTypeTag;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorFieldAutoEmbeddingSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -69,6 +74,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import net.jodah.failsafe.FailsafeException;
 import org.bson.BsonDocument;
+import org.bson.BsonValue;
 import org.bson.types.ObjectId;
 import org.jetbrains.annotations.TestOnly;
 
@@ -108,6 +114,13 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
   private static final int MAX_AUTO_EMBED_DOCUMENT_BUNDLE_SIZE = 1000;
 
   /**
+   * The full-build duplicated-array-element counters sample one document in this many and scale
+   * each hit by the same factor. This is exposure telemetry for the pre-CLOUDP-459586 writer bug,
+   * not a correctness signal, so the estimate is sufficient.
+   */
+  @VisibleForTesting static final int DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS = 100;
+
+  /**
    * Default per-batch memory budget for the legacy {@code EMBEDDING} strategy (type:text indexes).
    * Unbounded because this strategy does not go through the configurable budget path.
    */
@@ -119,6 +132,8 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
 
   private final MaterializedViewCollectionMetadataCatalog materializedViewCollectionMetadataCatalog;
   private final MetricsFactory metricsFactory;
+  private final ImmutableMap<IndexTypeTag, MaterializedViewDuplicatedArrayElementMetricCounters>
+      duplicatedArrayElementCounters;
 
   /**
    * The registry this scheduler's metrics are exported on. Both MongoDbReplicationManager and
@@ -193,6 +208,24 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     this.meterRegistry = indexingExecutor.getMeterRegistry();
     this.metricsFactory =
         new MetricsFactory("embeddingIndexingWorkScheduler", indexingExecutor.getMeterRegistry());
+    this.duplicatedArrayElementCounters =
+        ImmutableMap.of(
+            IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
+            new MaterializedViewDuplicatedArrayElementMetricCounters(
+                this.metricsFactory,
+                Tags.of(
+                    IndexTypeData.INDEX_TYPE_TAG_NAME,
+                    IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING.tagValue,
+                    MaterializedViewDuplicatedArrayElementMetricCounters.SAMPLE_MODULUS_TAG,
+                    Integer.toString(DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS))),
+            IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING,
+            new MaterializedViewDuplicatedArrayElementMetricCounters(
+                this.metricsFactory,
+                Tags.of(
+                    IndexTypeData.INDEX_TYPE_TAG_NAME,
+                    IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue,
+                    MaterializedViewDuplicatedArrayElementMetricCounters.SAMPLE_MODULUS_TAG,
+                    Integer.toString(DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS))));
   }
 
   /**
@@ -962,6 +995,16 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                   embeddingMapPerField,
                   Check.isPresent(matViewSchemaMetadata, "matViewSchemaMetadata"),
                   sourceNestedRoot);
+          if (shouldSampleDuplicatedArrayElements(event.getDocumentId())) {
+            event
+                .getDocument()
+                .ifPresent(
+                    document ->
+                        recordDuplicatedArrayElements(
+                            indexDefinition,
+                            AutoEmbeddingDocumentUtils.detectDuplicatedArrayElementTypes(
+                                document, autoEmbedMapping)));
+          }
         } else {
           autoEmbeddingDocumentEvent =
               buildAutoEmbeddingDocumentEvent(event, autoEmbedMapping, embeddingMapPerField);
@@ -973,6 +1016,30 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       }
     }
     return events;
+  }
+
+  private void recordDuplicatedArrayElements(
+      IndexDefinition indexDefinition,
+      ImmutableSet<MaterializedViewArrayElementType> passthroughArrayElements) {
+    if (passthroughArrayElements.isEmpty()) {
+      return;
+    }
+    MaterializedViewDuplicatedArrayElementMetricCounters counters =
+        this.duplicatedArrayElementCounters.get(IndexTypeData.getIndexTypeTag(indexDefinition));
+    Check.stateNotNull(counters, "duplicatedArrayElementCounters");
+    passthroughArrayElements.forEach(
+        element -> counters.record(element, DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS));
+  }
+
+  /** Deterministically samples documents by id; one in every sample modulus is inspected. */
+  @VisibleForTesting
+  static boolean shouldSampleDuplicatedArrayElements(BsonValue documentId) {
+    @Var int hash = documentId.hashCode();
+    // Finalize the hash so sequential or patterned ids do not cluster on the modulus.
+    hash ^= hash >>> 16;
+    hash *= 0x85EBCA6B;
+    hash ^= hash >>> 13;
+    return Math.floorMod(hash, DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS) == 0;
   }
 
   /**

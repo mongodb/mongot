@@ -18,6 +18,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.errorprone.annotations.Var;
 import com.mongodb.MongoNamespace;
 import com.xgen.mongot.embedding.AutoEmbedFieldMapping;
 import com.xgen.mongot.embedding.AutoEmbeddingMemoryBudget;
@@ -48,6 +49,7 @@ import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.DocumentMetadata;
 import com.xgen.mongot.index.FieldExceededLimitsException;
 import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
@@ -94,6 +96,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import org.bson.BsonArray;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -450,6 +454,94 @@ public class EmbeddingIndexingWorkSchedulerTest {
             expectedAutoEmbeddingsPerField(vectorIndexDefinition.getMappings()),
             VERSION_ZERO);
     verify(indexer, times(1)).indexDocumentEvent(expected);
+  }
+
+  @Test
+  public void testMaterializedViewDuplicatedArrayElementMetrics()
+      throws ExecutionException,
+          InterruptedException,
+          TimeoutException,
+          FieldExceededLimitsException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    ObjectId indexId = new ObjectId();
+    var generationId =
+        new MaterializedViewGenerationId(
+            indexId, new MaterializedViewGeneration(Generation.CURRENT));
+    EmbeddingIndexingWorkScheduler scheduler =
+        schedulerForMaterializedViewIndex(
+            Suppliers.ofInstance(
+                new EmbeddingServiceManager(
+                    List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+                    new FakeEmbeddingClientFactory(),
+                    Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+                    meterRegistry,
+                    Optional.empty())),
+            generationId,
+            VERSION_ZERO,
+            meterRegistry);
+    VectorIndexDefinition vectorIndexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .indexId(indexId)
+            .withAutoEmbedField(indexId + ".text")
+            .withFilterPath(indexId + ".tenantIds")
+            .withFilterPath(indexId + ".coordinates")
+            .build();
+    DocumentIndexer indexer = mockDocumentRequiresAutoEmbedding(vectorIndexDefinition);
+    BsonDocument innerDoc =
+        new BsonDocument()
+            .append("_id", sampledDocumentId())
+            .append("text", new BsonString("some text"))
+            .append(
+                "tenantIds",
+                new BsonArray(
+                    List.of(new BsonBinary(UUID.randomUUID()), new BsonBinary(UUID.randomUUID()))))
+            .append(
+                "coordinates",
+                new BsonArray(
+                    List.of(
+                        new BsonArray(List.of(new BsonInt32(10), new BsonInt32(10))),
+                        new BsonArray(List.of(new BsonInt32(20), new BsonInt32(20))))));
+    RawBsonDocument rawBsonDoc =
+        BsonUtils.documentToRaw(new BsonDocument(indexId.toString(), innerDoc));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    scheduler
+        .schedule(
+            new ArrayList<>(List.of(event)),
+            SchedulerQueue.Priority.STEADY_STATE_CHANGE_STREAM,
+            indexer,
+            generationId,
+            Optional.of(new ObjectId()),
+            Optional.of(COMMIT_USER_DATA),
+            IGNORE_METRICS)
+        .get(5, TimeUnit.SECONDS);
+
+    int modulus = EmbeddingIndexingWorkScheduler.DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS;
+    assertThat(riskCounter(meterRegistry, "uuid")).isEqualTo(modulus);
+    assertThat(riskCounter(meterRegistry, "vector")).isEqualTo(modulus);
+  }
+
+  @Test
+  public void testDuplicatedArrayElementSampling() {
+    BsonString sampled = sampledDocumentId();
+    assertThat(EmbeddingIndexingWorkScheduler.shouldSampleDuplicatedArrayElements(sampled))
+        .isTrue();
+    assertThat(EmbeddingIndexingWorkScheduler.shouldSampleDuplicatedArrayElements(sampled))
+        .isTrue();
+
+    int modulus = EmbeddingIndexingWorkScheduler.DUPLICATED_ARRAY_ELEMENT_SAMPLE_MODULUS;
+    int total = 10_000;
+    @Var int sampledCount = 0;
+    for (int i = 0; i < total; i++) {
+      if (EmbeddingIndexingWorkScheduler.shouldSampleDuplicatedArrayElements(
+          new BsonString("id-" + i))) {
+        sampledCount++;
+      }
+    }
+    assertThat(sampledCount).isAtLeast(total / modulus / 2);
+    assertThat(sampledCount).isAtMost(total / modulus * 2);
   }
 
   @Test
@@ -2615,5 +2707,28 @@ public class EmbeddingIndexingWorkSchedulerTest {
                   72, 76, -67, 26, 82, 6, -54, -57, -106, 57, -60, 20, -4, -118
                 }))
         .build();
+  }
+
+  private static BsonString sampledDocumentId() {
+    for (int i = 0; i < 10_000; i++) {
+      BsonString id = new BsonString("anId" + i);
+      if (EmbeddingIndexingWorkScheduler.shouldSampleDuplicatedArrayElements(id)) {
+        return id;
+      }
+    }
+    throw new AssertionError("no sampled document id found");
+  }
+
+  private static double riskCounter(MeterRegistry meterRegistry, String elementType) {
+    return meterRegistry
+        .get(
+            "embeddingIndexingWorkScheduler."
+                + MaterializedViewDuplicatedArrayElementMetricCounters.METRIC_NAME)
+        .tag(
+            IndexTypeData.INDEX_TYPE_TAG_NAME,
+            IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH_AUTO_EMBEDDING.tagValue)
+        .tag("elementType", elementType)
+        .counter()
+        .count();
   }
 }

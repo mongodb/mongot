@@ -5,7 +5,6 @@ import com.xgen.mongot.index.ingestion.handlers.DocumentHandler;
 import com.xgen.mongot.index.ingestion.handlers.FieldValueHandler;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
-import com.xgen.mongot.util.bson.BsonVectorParser;
 import com.xgen.mongot.util.bson.Vector;
 import java.util.Optional;
 import java.util.UUID;
@@ -109,12 +108,7 @@ public class MaterializedViewFieldValueHandler implements FieldValueHandler {
 
   @Override
   public void handleKnnVector(Supplier<Optional<Vector>> supplier) {
-    if (shouldKeepField()) {
-      Optional<Vector> vector = supplier.get();
-      if (vector.isPresent()) {
-        add(BsonVectorParser.encode(vector.get()));
-      }
-    }
+    // do nothing (handled on array element level)
   }
 
   @Override
@@ -141,12 +135,7 @@ public class MaterializedViewFieldValueHandler implements FieldValueHandler {
 
   @Override
   public void handleUuid(Supplier<Optional<UUID>> supplier) {
-    if (shouldKeepField()) {
-      Optional<UUID> uuid = supplier.get();
-      if (uuid.isPresent()) {
-        add(new BsonBinary(uuid.get()));
-      }
-    }
+    // do nothing, since we already store the value via handleBinary() above
   }
 
   @Override

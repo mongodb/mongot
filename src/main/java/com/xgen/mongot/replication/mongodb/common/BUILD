@@ -50,6 +50,7 @@ java_library(
         "IndexingWorkSchedulerFactory.java",
         "InitialSyncException.java",
         "InitialSyncResumeInfo.java",
+        "MaterializedViewDuplicatedArrayElementMetricCounters.java",
         "MetadataNamespace.java",
         "MongoDbReplicationConfig.java",
         "MongoExceptionUtils.java",

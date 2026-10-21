@@ -22,12 +22,15 @@ import com.xgen.mongot.index.ingestion.BsonDocumentProcessor;
 import com.xgen.mongot.util.BsonUtils;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.BsonVectorParser;
+import com.xgen.mongot.util.bson.NativeVectorParser;
 import com.xgen.mongot.util.bson.Vector;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -39,7 +42,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 import org.apache.commons.collections4.map.CompositeMap;
+import org.bson.BSONException;
 import org.bson.BsonArray;
+import org.bson.BsonBinary;
+import org.bson.BsonBinarySubType;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.bson.BsonValue;
@@ -56,6 +62,8 @@ public class AutoEmbeddingDocumentUtils {
   // avoid a utils → mongodb package dependency.
   private static final String MV_NAMESPACE = "_autoEmbed";
 
+  private static final String ID_FIELD = "_id";
+
   /**
    * Metadata fields present in materialized view documents that are not part of the index field
    * mappings. These fields must be excluded when comparing MV documents to source documents to
@@ -65,7 +73,7 @@ public class AutoEmbeddingDocumentUtils {
   // Package-private so tests within the same package can validate it. The cross-package enforcer
   // test in MaterializedViewWriterTest validates it via the full writer → compareDocuments path.
   static final ImmutableSet<String> MV_METADATA_FIELDS =
-      ImmutableSet.of("_id", "_autoEmbed._leaseVersion");
+      ImmutableSet.of(ID_FIELD, MV_NAMESPACE + "._leaseVersion");
 
   /**
    * Extracts string field values from rawBsonDocument based on VectorIndexFieldMappings (from index
@@ -227,7 +235,7 @@ public class AutoEmbeddingDocumentUtils {
    * embedding pipeline.
    */
   static void stripIdForMaterializedViewWrite(BsonDocument bsonDoc) {
-    bsonDoc.remove("_id");
+    bsonDoc.remove(ID_FIELD);
   }
 
   // Collects filter-field values whose source path is a strict descendant of the source nestedRoot,
@@ -1174,6 +1182,125 @@ public class AutoEmbeddingDocumentUtils {
           "Failed to extract filter field values; caller must fall back to a full replacement", e);
       return Optional.empty();
     }
+  }
+
+  /**
+   * Returns the array-element shapes that expose {@code document} to the pre-CLOUDP-459586 MV
+   * duplication bug: UUID and vector-parseable elements inside passthrough arrays. The old writer
+   * appended a second copy of those elements when copying the document into the materialized view.
+   * Detection lives outside the writer so the writer stays a verbatim copy of the source document.
+   *
+   * <p>Returns immediately when the mapping has no source passthrough fields, because such an index
+   * cannot have contained the duplicated elements. The top-level {@code _id} is skipped because
+   * {@link #stripIdForMaterializedViewWrite} removes the copied field before the MV write and the
+   * source id is supplied separately by the writer.
+   */
+  public static ImmutableSet<MaterializedViewArrayElementType> detectDuplicatedArrayElementTypes(
+      BsonDocument document, AutoEmbedFieldMapping fieldMapping) {
+    if (!fieldMapping.hasSourcePassthroughFields()) {
+      return ImmutableSet.of();
+    }
+    EnumSet<MaterializedViewArrayElementType> duplicated =
+        EnumSet.noneOf(MaterializedViewArrayElementType.class);
+    collectDuplicatedArrayElementTypes(document, Optional.empty(), fieldMapping, duplicated);
+    return duplicated.isEmpty() ? ImmutableSet.of() : ImmutableSet.copyOf(duplicated);
+  }
+
+  private static void collectDuplicatedArrayElementTypes(
+      BsonValue value,
+      Optional<FieldPath> path,
+      AutoEmbedFieldMapping fieldMapping,
+      EnumSet<MaterializedViewArrayElementType> duplicated) {
+    if (value.isDocument()) {
+      for (Map.Entry<String, BsonValue> entry : value.asDocument().entrySet()) {
+        // The MV writer strips the copied _id and writes the source id from the event instead.
+        if (path.isEmpty() && ID_FIELD.equals(entry.getKey())) {
+          continue;
+        }
+        FieldPath fieldPath =
+            path.map(p -> p.newChild(entry.getKey()))
+                .orElseGet(() -> FieldPath.newRoot(entry.getKey()));
+        // Mirror MaterializedViewDocumentHandler: skip subtrees the MV writer would drop.
+        if (!fieldMapping.isPassthrough(fieldPath)
+            && !fieldMapping.passthroughDescendPredicate().test(fieldPath)) {
+          continue;
+        }
+        collectDuplicatedArrayElementTypes(
+            entry.getValue(), Optional.of(fieldPath), fieldMapping, duplicated);
+      }
+      return;
+    }
+    if (!value.isArray()) {
+      return;
+    }
+    if (path.isPresent() && fieldMapping.isPassthrough(path.get())) {
+      collectDuplicatedArrayElementTypesInArray(
+          value.asArray(), path.get(), fieldMapping, duplicated);
+      return;
+    }
+    // A non-passthrough array is dropped from the MV, but documents inside it can still hold
+    // passthrough fields of their own.
+    for (BsonValue element : value.asArray()) {
+      if (element.isDocument() || element.isArray()) {
+        collectDuplicatedArrayElementTypes(element, path, fieldMapping, duplicated);
+      }
+    }
+  }
+
+  private static void collectDuplicatedArrayElementTypesInArray(
+      BsonArray array,
+      FieldPath path,
+      AutoEmbedFieldMapping fieldMapping,
+      EnumSet<MaterializedViewArrayElementType> duplicated) {
+    for (BsonValue element : array) {
+      if (isUuid(element)) {
+        duplicated.add(MaterializedViewArrayElementType.UUID);
+      } else if (isVector(element)) {
+        duplicated.add(MaterializedViewArrayElementType.VECTOR);
+      }
+      if (element.isArray()) {
+        collectDuplicatedArrayElementTypesInArray(
+            element.asArray(), path, fieldMapping, duplicated);
+      } else if (element.isDocument()) {
+        collectDuplicatedArrayElementTypes(element, Optional.of(path), fieldMapping, duplicated);
+      }
+    }
+  }
+
+  private static boolean isUuid(BsonValue value) {
+    if (!value.isBinary()) {
+      return false;
+    }
+    BsonBinary binary = value.asBinary();
+    if (binary.getType() != BsonBinarySubType.UUID_STANDARD.getValue()) {
+      return false;
+    }
+    try {
+      binary.asUuid();
+      return true;
+    } catch (BSONException e) {
+      return false;
+    }
+  }
+
+  private static boolean isVector(BsonValue value) {
+    if (value.isArray()) {
+      try {
+        NativeVectorParser.parse(value.asArray());
+        return true;
+      } catch (BsonParseException e) {
+        return false;
+      }
+    }
+    if (value.isBinary() && value.asBinary().getType() == BsonVectorParser.VECTOR_SUB_TYPE) {
+      try {
+        BsonVectorParser.parse(value.asBinary());
+        return true;
+      } catch (BSONException e) {
+        return false;
+      }
+    }
+    return false;
   }
 
   /** Adds the MV's co-located nested filter values as array-positional keys (CLOUDP-402522). */
