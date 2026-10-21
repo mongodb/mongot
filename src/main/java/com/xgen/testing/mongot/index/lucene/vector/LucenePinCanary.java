@@ -18,7 +18,7 @@ public final class LucenePinCanary {
       Pattern.compile("_LUCENE_FORK_VERSION = \"([^\"]+)\"");
 
   /** The version the copied methods were last diffed against. */
-  private static final String EXPECTED_LUCENE_FORK_VERSION = "10.4.0-3";
+  private static final String EXPECTED_LUCENE_FORK_VERSION = "10.4.0-5";
 
   private LucenePinCanary() {}
 
