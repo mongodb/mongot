@@ -46,6 +46,7 @@ java_test_suite(
         "ReplicationOptimeUpdaterTest.java",
         "ResumeTokenUtilsTest.java",
         "SchedulerQueueTest.java",
+        "SourceCollectionCountUpdaterTest.java",
         "SplitEventChangeStreamClientTest.java",
         "SteadyStateExceptionTest.java",
         "SynonymSyncExceptionTest.java",

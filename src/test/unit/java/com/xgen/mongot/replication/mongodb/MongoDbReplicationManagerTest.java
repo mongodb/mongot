@@ -46,6 +46,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.ReplicationOptimeUpdater;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
+import com.xgen.mongot.replication.mongodb.common.SourceCollectionCountUpdater;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
@@ -1004,6 +1005,7 @@ public class MongoDbReplicationManagerTest {
                   lifecycleManagers,
                   commitExecutor,
                   mock(ReplicationOptimeUpdater.class),
+                  mock(SourceCollectionCountUpdater.class),
                   initializedIndexCatalog,
                   commitInterval,
                   requestRateLimitBackoffMs,

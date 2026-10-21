@@ -40,9 +40,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import org.apache.lucene.search.TotalHits;
 import org.jetbrains.annotations.TestOnly;
@@ -212,6 +214,11 @@ public class IndexMetricsUpdater implements Closeable {
     return this.indexMetricValuesSupplier.refreshAndGetIndexSize();
   }
 
+  /** Returns the index's current document counts, without snapshotting the other metrics. */
+  public DocCounts getDocCounts() {
+    return this.indexMetricValuesSupplier.getDocCounts();
+  }
+
   /**
    * Gets a snapshot of the current value of all the index metrics tracked by this {@code
    * IndexMetricsUpdater}.
@@ -280,6 +287,9 @@ public class IndexMetricsUpdater implements Closeable {
     static final String CONSECUTIVE_INITIAL_SYNC_RESYNC_EXCEPTIONS_NAME =
         "consecutiveInitialSyncResyncExceptions";
     static final String STEADY_STATE_EXCEPTION_COUNTER_NAME = "steadyStateExceptions";
+    static final String SOURCE_COLLECTION_DOC_COUNT_NAME = "sourceCollectionDocCount";
+    static final String SOURCE_COLLECTION_CHECK_INDEXED_DOC_COUNT_NAME =
+        "sourceCollectionCheckIndexedDocCount";
     static final String SORTABLE_STRING_TRUNCATED = "sortableStringTruncated";
     static final String INVALID_GEOMETRY_FIELD = "invalidGeometryField";
     static final String VECTOR_FIELDS_INDEXED = "vectorFieldsIndexed";
@@ -298,6 +308,7 @@ public class IndexMetricsUpdater implements Closeable {
     private final Timer commitTimer;
     private final Counter initialSyncExceptionCounter;
     private final AtomicLong consecutiveInitialSyncResyncExceptions;
+    private final AtomicReference<Optional<SourceCollectionDocCounts>> sourceCollectionDocCounts;
     private final Counter steadyStateExceptionCounter;
     private final Counter sortableStringTruncated;
     private final Counter invalidGeometryField;
@@ -353,6 +364,18 @@ public class IndexMetricsUpdater implements Closeable {
       this.steadyStateExceptionCounter =
           metricsFactory.perIndexCounter(
               STEADY_STATE_EXCEPTION_COUNTER_NAME, indexFeatureVersionTag);
+      // The source collection's fast count and the index's source-document count, sampled
+      // together so that they can be compared. NaN until the first sample, or when the counts are
+      // not comparable for this index.
+      this.sourceCollectionDocCounts = new AtomicReference<>(Optional.empty());
+      metricsFactory.perIndexObjectValueGauge(
+          SOURCE_COLLECTION_DOC_COUNT_NAME,
+          this.sourceCollectionDocCounts,
+          counts -> counts.get().map(c -> (double) c.collectionDocs()).orElse(Double.NaN));
+      metricsFactory.perIndexObjectValueGauge(
+          SOURCE_COLLECTION_CHECK_INDEXED_DOC_COUNT_NAME,
+          this.sourceCollectionDocCounts,
+          counts -> counts.get().map(c -> (double) c.indexedDocs()).orElse(Double.NaN));
       this.sortableStringTruncated = processMetricsFactory.counter(SORTABLE_STRING_TRUNCATED);
       this.invalidGeometryField = processMetricsFactory.counter(INVALID_GEOMETRY_FIELD);
       this.vectorFieldsIndexed = processMetricsFactory.counter(VECTOR_FIELDS_INDEXED);
@@ -438,6 +461,21 @@ public class IndexMetricsUpdater implements Closeable {
     public Counter getSteadyStateExceptionCounter() {
       return this.steadyStateExceptionCounter;
     }
+
+    /** Sets the latest pair of counts, or clears both with an empty value. */
+    public void setSourceCollectionDocCounts(Optional<SourceCollectionDocCounts> counts) {
+      this.sourceCollectionDocCounts.set(counts);
+    }
+
+    public Optional<SourceCollectionDocCounts> getSourceCollectionDocCounts() {
+      return this.sourceCollectionDocCounts.get();
+    }
+
+    /**
+     * A source collection's document count, and the index's source-document count read right after
+     * it.
+     */
+    public record SourceCollectionDocCounts(long collectionDocs, long indexedDocs) {}
 
     public Counter getSortableStringTruncatedCounter() {
       return this.sortableStringTruncated;

@@ -54,6 +54,7 @@ import io.micrometer.core.instrument.search.MeterNotFoundException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -320,6 +321,34 @@ public class IndexMetricsUpdaterTest {
                 .tag(INDEX_TYPE_TAG_NAME, "search")
                 .gauge();
         Assert.assertEquals(1000, gauge.value(), 0.1d);
+      }
+
+      @Test
+      public void testSourceCollectionDocCountGaugesReportThePairTogether() {
+        var factory = mockMetricsFactory(IndexingMetricsUpdater.NAMESPACE);
+        var indexingMetricsUpdater =
+            IndexMetricsUpdaterBuilder.IndexingMetricsUpdaterBuilder.builder()
+                .metricsFactory(factory)
+                .build();
+        Gauge collectionDocs =
+            factory.get(IndexingMetricsUpdater.SOURCE_COLLECTION_DOC_COUNT_NAME).gauge();
+        Gauge indexedDocs =
+            factory
+                .get(IndexingMetricsUpdater.SOURCE_COLLECTION_CHECK_INDEXED_DOC_COUNT_NAME)
+                .gauge();
+        Assert.assertTrue(Double.isNaN(collectionDocs.value()));
+        Assert.assertTrue(Double.isNaN(indexedDocs.value()));
+
+        indexingMetricsUpdater.setSourceCollectionDocCounts(
+            Optional.of(new IndexingMetricsUpdater.SourceCollectionDocCounts(1_000, 870)));
+
+        Assert.assertEquals(1_000, collectionDocs.value(), 0.1d);
+        Assert.assertEquals(870, indexedDocs.value(), 0.1d);
+
+        indexingMetricsUpdater.setSourceCollectionDocCounts(Optional.empty());
+
+        Assert.assertTrue(Double.isNaN(collectionDocs.value()));
+        Assert.assertTrue(Double.isNaN(indexedDocs.value()));
       }
 
       @Test

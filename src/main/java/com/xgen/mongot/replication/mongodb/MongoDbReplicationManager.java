@@ -23,6 +23,7 @@ import com.xgen.mongot.metrics.ThreadPoolResourceMetrics;
 import com.xgen.mongot.monitor.Gate;
 import com.xgen.mongot.replication.ReplicationManager;
 import com.xgen.mongot.replication.mongodb.common.ClientSessionRecord;
+import com.xgen.mongot.replication.mongodb.common.CollectionStatsMongoClient;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.DefaultDocumentIndexer;
@@ -31,6 +32,7 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkSchedulerFactory;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.ReplicationOptimeUpdater;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
+import com.xgen.mongot.replication.mongodb.common.SourceCollectionCountUpdater;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.replication.mongodb.steadystate.SteadyStateManager;
@@ -130,6 +132,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
   private final Duration commitInterval;
 
   private final ReplicationOptimeUpdater replicationOptimeUpdater;
+  private final SourceCollectionCountUpdater sourceCollectionCountUpdater;
 
   // TODO(CLOUDP-231027): Remove after separating from LifecycleManager.
   private final InitializedIndexCatalog initializedIndexCatalog;
@@ -174,6 +177,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
       Map<GenerationId, IndexManager> indexManagers,
       NamedScheduledExecutorService commitExecutor,
       ReplicationOptimeUpdater replicationOptimeUpdater,
+      SourceCollectionCountUpdater sourceCollectionCountUpdater,
       InitializedIndexCatalog initializedIndexCatalog,
       Duration commitInterval,
       Duration requestRateLimitBackoffDuration,
@@ -198,6 +202,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
     this.syncSourceConfig = syncSourceConfig;
     this.featureFlags = featureFlags;
     this.replicationOptimeUpdater = replicationOptimeUpdater;
+    this.sourceCollectionCountUpdater = sourceCollectionCountUpdater;
     this.initializedIndexCatalog = initializedIndexCatalog;
     this.requestRateLimitBackoffDuration = requestRateLimitBackoffDuration;
     this.enableNaturalOrderScan = enableNaturalOrderScan;
@@ -228,6 +233,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
       Map<GenerationId, IndexManager> indexManagers,
       NamedScheduledExecutorService commitExecutor,
       ReplicationOptimeUpdater replicationOptimeUpdater,
+      SourceCollectionCountUpdater sourceCollectionCountUpdater,
       InitializedIndexCatalog initializedIndexCatalog,
       Duration commitInterval,
       Duration requestRateLimitBackoffDuration,
@@ -253,6 +259,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
             indexManagers,
             commitExecutor,
             replicationOptimeUpdater,
+            sourceCollectionCountUpdater,
             initializedIndexCatalog,
             commitInterval,
             requestRateLimitBackoffDuration,
@@ -429,6 +436,15 @@ public class MongoDbReplicationManager implements ReplicationManager {
             meterRegistry,
             attributionBindings);
 
+    var sourceCollectionCountUpdater =
+        SourceCollectionCountUpdater.create(
+            indexCatalog,
+            initializedIndexCatalog,
+            new CollectionStatsMongoClient(syncMongoClient),
+            SourceCollectionCountUpdater.DEFAULT_UPDATE_INTERVAL,
+            featureFlags,
+            meterRegistry);
+
     return MongoDbReplicationManager.create(
         lifecycleExecutor,
         indexingWorkSchedulerFactory,
@@ -448,6 +464,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
         new ConcurrentHashMap<>(), // ConcurrentHashMap to make copy without locks
         commitExecutor,
         replicationOptimeMetricUpdater,
+        sourceCollectionCountUpdater,
         initializedIndexCatalog,
         durabilityConfig.commitInterval,
         Duration.ofMillis(replicationConfig.requestRateLimitBackoffMs),
@@ -854,6 +871,7 @@ public class MongoDbReplicationManager implements ReplicationManager {
         .thenRunAsync(() -> Executors.shutdownOrFail(this.commitExecutor), shutdownExecutor)
         .thenRunAsync(() -> Executors.shutdownOrFail(this.lifecycleExecutor), shutdownExecutor)
         .thenRunAsync(this.replicationOptimeUpdater::close, shutdownExecutor)
+        .thenRunAsync(this.sourceCollectionCountUpdater::close, shutdownExecutor)
         .thenRunAsync(this::deregisterGauges, shutdownExecutor)
         .whenComplete((result, throwable) -> shutdownExecutor.shutdown());
   }

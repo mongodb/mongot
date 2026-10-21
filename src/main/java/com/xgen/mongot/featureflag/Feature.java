@@ -137,7 +137,11 @@ public enum Feature {
   // CLOUDP-445915: OIDC authentication to mongod via an enterprise-supplied OidcCallbackFactory.
   // Enabled in FeatureFlags.enterpriseDefaults() (kill switch); community runtimes reject an
   // `oidc` config block at parse time via the ENTERPRISE field edition.
-  OIDC_AUTH("oidcAuth", State.DISABLED);
+  OIDC_AUTH("oidcAuth", State.DISABLED),
+  // Kill switch for SourceCollectionCountUpdater, in case its hourly collStats calls prove costly.
+  // Named for the off action so the updater runs by default and MMS can stop it by writing true.
+  FORCE_DISABLE_SOURCE_COLLECTION_COUNT_UPDATER(
+      "forceDisableSourceCollectionCountUpdater", State.DISABLED);
 
   private final String name;
   private final State defaultState;

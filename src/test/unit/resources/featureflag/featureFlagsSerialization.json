@@ -59,7 +59,8 @@
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
         "aeResyncHashJoin": false,
-        "oidcAuth": false
+        "oidcAuth": false,
+        "forceDisableSourceCollectionCountUpdater": false
       }
     },
     {
@@ -121,7 +122,8 @@
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
         "aeResyncHashJoin": false,
-        "oidcAuth": false
+        "oidcAuth": false,
+        "forceDisableSourceCollectionCountUpdater": false
       }
     },
     {
@@ -183,7 +185,8 @@
         "alwaysBootstrapSnapshotterResources": true,
         "aeResyncIdOrderTripwireFailFast": true,
         "aeResyncHashJoin": true,
-        "oidcAuth": true
+        "oidcAuth": true,
+        "forceDisableSourceCollectionCountUpdater": true
       }
     },
     {
@@ -245,7 +248,8 @@
         "alwaysBootstrapSnapshotterResources": false,
         "aeResyncIdOrderTripwireFailFast": false,
         "aeResyncHashJoin": false,
-        "oidcAuth": false
+        "oidcAuth": false,
+        "forceDisableSourceCollectionCountUpdater": false
       }
     }
   ]
