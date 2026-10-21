@@ -112,6 +112,7 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MultiPhraseQuery;
 import org.apache.lucene.search.PhraseQuery;
 import org.apache.lucene.search.PrefixQuery;
+import org.apache.lucene.search.Pruning;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
 import org.apache.lucene.search.Sort;
@@ -1573,6 +1574,126 @@ public class LuceneSearchQueryFactoryDistributorTest {
   }
 
   @Test
+  public void createSort_scopedSort_recordsChildEvaluationMetricsOnce() throws Exception {
+    FieldPath path = FieldPath.parse("variants.price");
+    FieldPath scope = FieldPath.parse("variants");
+    IndexMetricsUpdater.QueryingMetricsUpdater metrics = queryMetrics();
+    // The scope operator is exists(variants.inStock): a child matches when it is at the scope's
+    // nesting level and records that field in the fieldNames meta-field.
+    Document matching = new Document();
+    matching.add(
+        new StringField(
+            FieldName.MetaField.EMBEDDED_PATH.getLuceneFieldName(),
+            scope.toString(),
+            Field.Store.NO));
+    matching.add(
+        new StringField(
+            FieldName.MetaField.FIELD_NAMES.getLuceneFieldName(),
+            "variants.inStock",
+            Field.Store.NO));
+    matching.add(
+        new SortedNumericDocValuesField(
+            FieldName.TypeField.NUMBER_INT64_V2.getLuceneFieldName(path, Optional.of(scope)), 5));
+    Document other = new Document();
+    other.add(
+        new StringField(
+            FieldName.MetaField.EMBEDDED_PATH.getLuceneFieldName(),
+            scope.toString(),
+            Field.Store.NO));
+    other.add(
+        new SortedNumericDocValuesField(
+            FieldName.TypeField.NUMBER_INT64_V2.getLuceneFieldName(path, Optional.of(scope)), 7));
+
+    try (Directory index = new ByteBuffersDirectory();
+        IndexWriter indexWriter = new IndexWriter(index, new IndexWriterConfig())) {
+      indexWriter.addDocuments(List.of(matching, other, new Document()));
+      indexWriter.forceMerge(1);
+      try (DirectoryReader reader = DirectoryReader.open(indexWriter)) {
+        Sort sort = createScopedSort(scopedMapping(), true, reader, metrics);
+        LeafReaderContext leaf = reader.leaves().getFirst();
+
+        // Drive the comparator so the scoped child bitset is actually materialized; building the
+        // SortField alone does no per-segment work.
+        sort.getSort()[0].getComparator(1, Pruning.NONE).getLeafComparator(leaf);
+        sort.getSort()[0].getComparator(1, Pruning.NONE).getLeafComparator(leaf);
+
+        // One matching child, counted once despite two leaf comparators over the same segment.
+        assertThat(metrics.getScopedSortMatchingChildrenPerSegment().count()).isEqualTo(1);
+        assertThat(metrics.getScopedSortMatchingChildrenPerSegment().totalAmount()).isEqualTo(1.0);
+        assertThat(metrics.getScopedSortChildEvaluationLatencyTimer().count()).isEqualTo(1);
+      }
+    }
+  }
+
+  @Test
+  public void createSort_selectiveParentQuery_recordsSegmentCandidates() throws Exception {
+    ParentQueryMetrics result = runScopedSortForParent("selected");
+
+    assertThat(result.rootCount()).isEqualTo(1);
+    assertThat(result.sampleCount()).isEqualTo(1);
+    // Only two children belong to the matched parent; the segment has five scope matches.
+    assertThat(result.matchingChildren()).isEqualTo(5.0);
+  }
+
+  @Test
+  public void createSort_noMatchingParents_recordsCandidatesWhenBitsetMaterializes()
+      throws Exception {
+    ParentQueryMetrics result = runScopedSortForParent("absent");
+
+    assertThat(result.rootCount()).isEqualTo(0);
+    assertThat(result.sampleCount()).isEqualTo(1);
+    assertThat(result.matchingChildren()).isEqualTo(5.0);
+  }
+
+  private record ParentQueryMetrics(long rootCount, long sampleCount, double matchingChildren) {}
+
+  private static ParentQueryMetrics runScopedSortForParent(String parent) throws Exception {
+    var metrics = queryMetrics();
+    try (Directory index = new ByteBuffersDirectory();
+        IndexWriter writer = new IndexWriter(index, new IndexWriterConfig())) {
+      writer.addDocuments(List.of(metricChild(5), metricChild(7), metricParent("selected")));
+      writer.addDocuments(
+          List.of(metricChild(1), metricChild(2), metricChild(3), metricParent("other")));
+      try (DirectoryReader reader = DirectoryReader.open(writer)) {
+        Sort sort = createScopedSort(scopedMapping(), true, reader, metrics);
+        var hits =
+            new IndexSearcher(reader).search(new TermQuery(new Term("parent", parent)), 10, sort);
+        return new ParentQueryMetrics(
+            hits.totalHits.value(),
+            metrics.getScopedSortMatchingChildrenPerSegment().count(),
+            metrics.getScopedSortMatchingChildrenPerSegment().totalAmount());
+      }
+    }
+  }
+
+  private static Document metricParent(String parent) {
+    Document document = new Document();
+    document.add(
+        new StringField(
+            FieldName.MetaField.EMBEDDED_ROOT.getLuceneFieldName(), "T", Field.Store.NO));
+    document.add(new StringField("parent", parent, Field.Store.NO));
+    return document;
+  }
+
+  private static Document metricChild(long price) {
+    Document document = new Document();
+    document.add(
+        new StringField(
+            FieldName.MetaField.EMBEDDED_PATH.getLuceneFieldName(), "variants", Field.Store.NO));
+    document.add(
+        new StringField(
+            FieldName.MetaField.FIELD_NAMES.getLuceneFieldName(),
+            "variants.inStock",
+            Field.Store.NO));
+    document.add(
+        new SortedNumericDocValuesField(
+            FieldName.TypeField.NUMBER_INT64_V2.getLuceneFieldName(
+                FieldPath.parse("variants.price"), Optional.of(FieldPath.parse("variants"))),
+            price));
+    return document;
+  }
+
+  @Test
   public void createSort_singleTypeSchemaWithForeignIndexedType_rejected() throws Exception {
     FieldPath path = FieldPath.parse("variants.price");
     FieldPath scope = FieldPath.parse("variants");
@@ -1750,6 +1871,32 @@ public class LuceneSearchQueryFactoryDistributorTest {
                 "exists", new BsonDocument("path", new BsonString("variants.inStock")))));
   }
 
+  /** Builds a scoped sort against a real reader, so per-segment scope work can be driven. */
+  private static Sort createScopedSort(
+      FieldToSortableTypesMapping mapping,
+      boolean scopedEnabled,
+      IndexReader reader,
+      IndexMetricsUpdater.QueryingMetricsUpdater metrics)
+      throws Exception {
+    EmbeddedSortScope scope =
+        new EmbeddedSortScope(
+            FieldPath.parse("variants"),
+            new BsonDocument(
+                "exists", new BsonDocument("path", new BsonString("variants.inStock"))));
+    return scopedSortTestFactory(Representation.INT64, metrics)
+        .createSort(
+            Optional.of(scopedSortSpec(scope)),
+            Optional.empty(),
+            mapping,
+            Optional.empty(),
+            DEFAULT_OPTIONS,
+            Optional.empty(),
+            /* sortDrivesAggregation= */ false,
+            reader,
+            scopedEnabled)
+        .orElseThrow();
+  }
+
   private static Sort createScopedSort(
       FieldToSortableTypesMapping mapping,
       boolean scopedEnabled,
@@ -1759,24 +1906,11 @@ public class LuceneSearchQueryFactoryDistributorTest {
       EmbeddedSortScope scope)
       throws Exception {
     LuceneSearchQueryFactoryDistributor factory = scopedSortTestFactory(representation);
-    SortSpec sortSpec =
-        SortSpecBuilder.builder()
-            .sortField(
-                SortFieldBuilder.builder()
-                    .path(scope.path().newChild("price").toString())
-                    .sortOption(
-                        new UserFieldSortOptions(
-                            SortOrder.ASC,
-                            SortSelector.MIN,
-                            NullEmptySortPosition.LOWEST,
-                            Optional.of(scope)))
-                    .build())
-            .buildSort();
 
     try (IndexReader reader = new MultiReader()) {
       return factory
           .createSort(
-              Optional.of(sortSpec),
+              Optional.of(scopedSortSpec(scope)),
               Optional.empty(),
               mapping,
               returnScope,
@@ -1791,8 +1925,28 @@ public class LuceneSearchQueryFactoryDistributorTest {
     }
   }
 
+  private static SortSpec scopedSortSpec(EmbeddedSortScope scope) {
+    return SortSpecBuilder.builder()
+        .sortField(
+            SortFieldBuilder.builder()
+                .path(scope.path().newChild("price").toString())
+                .sortOption(
+                    new UserFieldSortOptions(
+                        SortOrder.ASC,
+                        SortSelector.MIN,
+                        NullEmptySortPosition.LOWEST,
+                        Optional.of(scope)))
+                .build())
+        .buildSort();
+  }
+
   private static LuceneSearchQueryFactoryDistributor scopedSortTestFactory(
       Representation representation) {
+    return scopedSortTestFactory(representation, queryMetrics());
+  }
+
+  private static LuceneSearchQueryFactoryDistributor scopedSortTestFactory(
+      Representation representation, IndexMetricsUpdater.QueryingMetricsUpdater metrics) {
     SearchIndexDefinition indexDefinition =
         SearchIndexDefinitionBuilder.builder()
             .indexFeatureVersion(4)
@@ -1848,7 +2002,7 @@ public class LuceneSearchQueryFactoryDistributorTest {
         IndexFormatVersion.CURRENT,
         AnalyzerRegistryBuilder.empty(),
         SynonymRegistryBuilder.empty(),
-        queryMetrics(),
+        metrics,
         false,
         FeatureFlags.withDefaults().enable(Feature.NEW_EMBEDDED_SEARCH_CAPABILITIES).build());
   }

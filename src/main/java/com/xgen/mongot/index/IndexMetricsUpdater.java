@@ -517,6 +517,15 @@ public class IndexMetricsUpdater implements Closeable {
 
   public static class QueryingMetricsUpdater implements Closeable {
     public static final String NAMESPACE = "query";
+
+    @VisibleForTesting
+    static final String SCOPED_SORT_CHILD_EVALUATION_LATENCY_TIMER_NAME =
+        "embeddedScopedSortChildEvaluationLatency";
+
+    @VisibleForTesting
+    static final String SCOPED_SORT_MATCHING_CHILDREN_SUMMARY_NAME =
+        "embeddedScopedSortMatchingChildrenPerSegment";
+
     private static final FluentLogger flogger = FluentLogger.forEnclosingClass();
     private final PerIndexMetricsFactory metricsFactory;
     private final Counter totalQueryCounter;
@@ -607,6 +616,21 @@ public class IndexMetricsUpdater implements Closeable {
     private final Counter noProgressBatchCounter;
     private final Timer tokenFacetsStateRefreshLatencyTimer;
     private final Timer stringFacetsStateRefreshLatencyTimer;
+
+    /**
+     * Wall time of the first successful child-bitset materialization per segment and scoped sort
+     * key. Excludes operator compilation and cache hits; measures the lazy child-query work that
+     * shared child evaluation (CLOUDP-441986) could avoid.
+     */
+    private final Timer scopedSortChildEvaluationLatencyTimer;
+
+    /**
+     * Cardinality of a scoped key's child bitset per materialized segment, independent of the main
+     * query's parent matches. This is a candidate count, not reducer visits: selective parent
+     * queries may visit fewer children, and mixed-type comparators can visit a child more than
+     * once.
+     */
+    private final DistributionSummary scopedSortMatchingChildrenPerSegment;
 
     private final DistributionSummary numCandidatesUnquantized;
     private final DistributionSummary numCandidatesScalarQuantized;
@@ -775,6 +799,13 @@ public class IndexMetricsUpdater implements Closeable {
           isSearchIndex
               ? metricsFactory.perIndexTimer("stringFacetsStateRefreshLatency")
               : MetricsFactory.NOOP_TIMER;
+      // Process-level: scoped sort is a search-index feature, and neither metric is part of the
+      // IndexStats snapshot, so they don't need a per-index breakdown.
+      this.scopedSortChildEvaluationLatencyTimer =
+          processMetricsFactory.timer(
+              SCOPED_SORT_CHILD_EVALUATION_LATENCY_TIMER_NAME, TimeUnit.MILLISECONDS);
+      this.scopedSortMatchingChildrenPerSegment =
+          processMetricsFactory.summary(SCOPED_SORT_MATCHING_CHILDREN_SUMMARY_NAME);
       this.numCandidatesUnquantized =
           processMetricsFactory.histogram(
               "numCandidatesPerQuery",
@@ -1074,6 +1105,14 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Counter getNoProgressBatchCounter() {
       return this.noProgressBatchCounter;
+    }
+
+    public Timer getScopedSortChildEvaluationLatencyTimer() {
+      return this.scopedSortChildEvaluationLatencyTimer;
+    }
+
+    public DistributionSummary getScopedSortMatchingChildrenPerSegment() {
+      return this.scopedSortMatchingChildrenPerSegment;
     }
 
     public Timer getTokenFacetsStateRefreshLatencyTimer() {

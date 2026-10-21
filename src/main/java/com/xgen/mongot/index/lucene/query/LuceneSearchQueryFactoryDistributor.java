@@ -24,6 +24,7 @@ import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedDoubleSort;
 import com.xgen.mongot.index.lucene.query.sort.EmbeddedScopedLongSort;
 import com.xgen.mongot.index.lucene.query.sort.LuceneSortFactory;
 import com.xgen.mongot.index.lucene.query.sort.MqlSortedSetSortField;
+import com.xgen.mongot.index.lucene.query.sort.comparator.InstrumentedChildBitSetProducer;
 import com.xgen.mongot.index.lucene.query.sort.comparator.ScopeFilters;
 import com.xgen.mongot.index.lucene.query.sort.mixed.MqlMixedSort;
 import com.xgen.mongot.index.lucene.searcher.FieldToSortableTypesMapping;
@@ -609,7 +610,13 @@ public class LuceneSearchQueryFactoryDistributor {
       } else {
         childQuery = createEmbeddedChildQuery(scope.operator(), scope.path(), reader);
       }
-      BitSetProducer childFilter = new QueryBitSetProducer(childQuery);
+      // Instrument the child side only: the parent filter is the shared root-documents bitset,
+      // not a cost the scope introduces.
+      BitSetProducer childFilter =
+          new InstrumentedChildBitSetProducer(
+              new QueryBitSetProducer(childQuery),
+              this.queryFactoryContext.getMetrics().getScopedSortChildEvaluationLatencyTimer(),
+              this.queryFactoryContext.getMetrics().getScopedSortMatchingChildrenPerSegment());
       BitSetProducer parentFilter = rootParentBitSetProducer();
       ScopeFilters scopeFilters = new ScopeFilters(parentFilter, childFilter);
       SortField scopedSort;
