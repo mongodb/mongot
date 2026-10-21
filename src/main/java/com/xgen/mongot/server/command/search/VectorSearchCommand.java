@@ -28,6 +28,7 @@ import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.Variables;
 import com.xgen.mongot.index.VectorIndexReader;
@@ -303,6 +304,8 @@ public class VectorSearchCommand implements Command {
 
       boolean isUserFacing = UserFacingException.isUserFacing(e);
       this.metrics.recordInternalFailure(e);
+
+      QuarantinedIndexException.rethrowIfEnvoyCanRetry(e, this.searchEnvoyMetadata.isPresent());
 
       if (e instanceof IndexUnavailableException
           && this.searchEnvoyMetadata.isPresent()

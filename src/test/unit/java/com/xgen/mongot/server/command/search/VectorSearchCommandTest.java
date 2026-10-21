@@ -42,6 +42,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MetaResults;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
@@ -302,7 +303,9 @@ public class VectorSearchCommandTest {
                 + " 'fieldFromTheFuture')."),
         result.get("errmsg"));
     command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
-    Assert.assertEquals(result, command.run());
+
+    var failure = Assert.assertThrows(CompletionException.class, command::run);
+    Assert.assertTrue(failure.getCause() instanceof QuarantinedIndexException);
   }
 
   @Test

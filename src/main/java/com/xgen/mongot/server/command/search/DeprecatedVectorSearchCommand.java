@@ -19,6 +19,7 @@ import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.ReaderClosedException;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
@@ -181,6 +182,7 @@ public class DeprecatedVectorSearchCommand implements Command {
         }
       }
     } catch (IndexUnavailableException e) {
+      QuarantinedIndexException.rethrowIfEnvoyCanRetry(e, this.searchEnvoyMetadata.isPresent());
       if (this.searchEnvoyMetadata.isPresent()
           && this.metadata
               .dynamicFeatureFlagRegistry()

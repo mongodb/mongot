@@ -43,6 +43,7 @@ import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MetaResults;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.lucene.explain.information.LuceneQuerySpecification;
@@ -872,7 +873,9 @@ public class DeprecatedVectorSearchCommandTest {
             + " 'fieldFromTheFuture').",
         result.getString("errmsg").getValue());
     command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
-    Assert.assertEquals(result, command.run());
+
+    var failure = Assert.assertThrows(CompletionException.class, command::run);
+    Assert.assertTrue(failure.getCause() instanceof QuarantinedIndexException);
   }
 
   @Test

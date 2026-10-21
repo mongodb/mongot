@@ -48,6 +48,7 @@ import com.xgen.mongot.index.InitialSyncIndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.MetaResults;
+import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -790,7 +791,58 @@ public class SearchCommandTest {
     Truth.assertThat(metricsFactory.counter("searchCommandNonexistentIndex").count())
         .isEqualTo(0.0);
     command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
-    Assert.assertEquals(result, command.run());
+
+    var failure = Assert.assertThrows(CompletionException.class, command::run);
+    Truth.assertThat(failure.getCause()).isInstanceOf(QuarantinedIndexException.class);
+  }
+
+  @Test
+  public void testQuarantinedIndexWithRetryFlagOffPreservesFailure() throws Exception {
+    assertQuarantinedIndexPreservedForEnvoyRetry(DynamicFeatureFlagConfig.Phase.DISABLED);
+  }
+
+  @Test
+  public void testQuarantinedIndexWithRetryFlagOnPreservesFailure() throws Exception {
+    assertQuarantinedIndexPreservedForEnvoyRetry(DynamicFeatureFlagConfig.Phase.ENABLED);
+  }
+
+  private void assertQuarantinedIndexPreservedForEnvoyRetry(DynamicFeatureFlagConfig.Phase phase)
+      throws Exception {
+    var retryRegistry =
+        new DynamicFeatureFlagRegistry(
+            Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(new ObjectId()));
+    retryRegistry.updateDynamicFeatureFlags(List.of(indexRetryConfig(phase)));
+    var metadata =
+        new SearchCommandsRegister.BootstrapperMetadata(
+            BOOTSTRAPPER_METADATA.mongotVersion(),
+            BOOTSTRAPPER_METADATA.mongotHostName(),
+            BOOTSTRAPPER_METADATA.mongoDbServerInfoProvider(),
+            BOOTSTRAPPER_METADATA.featureFlags(),
+            retryRegistry);
+
+    var incompatibleIndexes = new IncompatibleIndexes(TestMeterRegistry.get());
+    incompatibleIndexes.addLiveIndex(
+        quarantined("invalid", "unsupported field 'fieldFromTheFuture'"));
+    SearchCommand command =
+        new SearchCommand(
+            new SearchCommand.Metrics(mockMetricsFactory()),
+            getCursorManager(),
+            new DefaultIndexCatalog(),
+            new InitializedIndexCatalog(),
+            incompatibleIndexes,
+            SearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .query(INVALID_INDEX_QUERY)
+                .build(),
+            metadata,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            () -> null);
+    command.handleSearchEnvoyMetadata(SearchEnvoyMetadata.getDefaultInstance());
+
+    var failure = Assert.assertThrows(CompletionException.class, command::run);
+    Truth.assertThat(failure.getCause()).isInstanceOf(QuarantinedIndexException.class);
   }
 
   /** A quarantined index of another name leaves the nonexistent-index behaviour untouched. */
