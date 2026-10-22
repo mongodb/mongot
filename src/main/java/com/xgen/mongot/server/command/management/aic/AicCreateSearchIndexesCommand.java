@@ -27,11 +27,11 @@ import com.xgen.mongot.server.command.management.definition.common.NamedSearchIn
 import com.xgen.mongot.server.command.management.definition.common.UserViewDefinition;
 import com.xgen.mongot.server.command.management.util.IndexMapper;
 import com.xgen.mongot.server.message.MessageUtils;
-import com.xgen.mongot.util.CollectionUtils;
 import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -147,7 +147,17 @@ public class AicCreateSearchIndexesCommand implements Command {
       List<InternalAndExternalDefinition> deduplicatedIndexes = new ArrayList<>();
       Map<String, IndexDefinition> existingIndexDefinitionsByName =
           this.authoritativeIndexCatalog.listIndexDefinitions(this.collectionUuid).stream()
-              .collect(CollectionUtils.toMapUnsafe(IndexDefinition::getName, Function.identity()));
+              .collect(
+                  Collectors.toMap(
+                      IndexDefinition::getName,
+                      Function.identity(),
+                      (first, second) -> {
+                        throw new IllegalStateException(
+                            String.format(
+                                "Duplicate index name '%s' in authoritative index catalog",
+                                first.getName()));
+                      },
+                      HashMap::new));
       for (InternalAndExternalDefinition newInternalAndExternal : newIndexes) {
         IndexDefinition newIndex = newInternalAndExternal.internal;
         Optional<IndexDefinition> existingIndex =
@@ -216,6 +226,8 @@ public class AicCreateSearchIndexesCommand implements Command {
             }
             // If index exists with equivalent definition, continue to next index
             if (existingIndex.isPresent()) {
+              existingIndexDefinitionsByName.put(
+                  indexToCreate.internal.getName(), existingIndex.get());
               continue;
             }
             // If index not found, fall through to raise the error
@@ -232,10 +244,14 @@ public class AicCreateSearchIndexesCommand implements Command {
       List<NamedSearchIndexId> responseData =
           newIndexes.stream()
               .map(
-                  id ->
-                      new NamedSearchIndexId(
-                          id.internal.getName(), id.internal.getIndexId().toString()))
-              .collect(Collectors.toList());
+                  newIndex -> {
+                    IndexDefinition persistedIndex =
+                        existingIndexDefinitionsByName.getOrDefault(
+                            newIndex.internal.getName(), newIndex.internal);
+                    return new NamedSearchIndexId(
+                        persistedIndex.getName(), persistedIndex.getIndexId().toString());
+                  })
+              .toList();
 
       return new CreateSearchIndexesResponse(responseData).toBson();
     } catch (InvariantException | InvalidIndexDefinitionException | MetadataServiceException e) {

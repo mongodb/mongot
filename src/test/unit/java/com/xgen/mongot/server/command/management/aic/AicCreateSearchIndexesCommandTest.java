@@ -13,6 +13,7 @@ import static com.xgen.testing.mongot.server.command.management.definition.Manag
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -110,6 +111,8 @@ public class AicCreateSearchIndexesCommandTest {
             rawDefCaptor.capture());
     assertNotNull(captor.getValue());
     assertTrue(IndexMapper.areEquivalent(expected, captor.getValue()));
+    assertEquals(
+        captor.getValue().getIndexId().toString(), createdNamedIndex.getString("id").getValue());
     assertEquals(0L, (long) captor.getValue().getDefinitionVersion().orElseThrow());
     assertTrue(captor.getValue().getDefinitionVersionId().isEmpty());
     assertTrue(captor.getValue().getDefinitionVersionCreatedAt().isPresent());
@@ -163,6 +166,8 @@ public class AicCreateSearchIndexesCommandTest {
             any());
     assertNotNull(captor.getValue());
     assertTrue(IndexMapper.areEquivalent(expected, captor.getValue()));
+    assertEquals(
+        captor.getValue().getIndexId().toString(), createdNamedIndex.getString("id").getValue());
     assertEquals(0L, (long) captor.getValue().getDefinitionVersion().orElseThrow());
     assertTrue(captor.getValue().getDefinitionVersionCreatedAt().isPresent());
   }
@@ -170,11 +175,12 @@ public class AicCreateSearchIndexesCommandTest {
   @Test
   public void testDedupeExistingIndexes() throws MetadataServiceException {
     var mockAic = mock(AuthoritativeIndexCatalog.class);
+    ObjectId existingIndexId = new ObjectId();
     when(mockAic.listIndexDefinitions(COLLECTION_UUID))
         .thenReturn(
             List.of(
                 SearchIndexDefinitionBuilder.builder()
-                    .indexId(new ObjectId())
+                    .indexId(existingIndexId)
                     .database(DATABASE_NAME)
                     .collectionUuid(COLLECTION_UUID)
                     .name(INDEX_NAME)
@@ -202,9 +208,113 @@ public class AicCreateSearchIndexesCommandTest {
     var indexesCreated = response.getArray("indexesCreated");
     assertEquals(1, indexesCreated.size());
     assertEquals(INDEX_NAME, indexesCreated.getFirst().asDocument().getString("name").getValue());
+    assertEquals(
+        existingIndexId.toString(),
+        indexesCreated.getFirst().asDocument().getString("id").getValue());
 
     verify(mockAic, never()).createIndex(any(), any(), any());
     verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testDuplicateIndexNamesInCatalogThrowsIllegalStateException()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                SearchIndexDefinitionBuilder.builder()
+                    .indexId(new ObjectId())
+                    .database(DATABASE_NAME)
+                    .collectionUuid(COLLECTION_UUID)
+                    .name(INDEX_NAME)
+                    .lastObservedCollectionName(COLLECTION_NAME)
+                    .dynamicMapping()
+                    .build(),
+                SearchIndexDefinitionBuilder.builder()
+                    .indexId(new ObjectId())
+                    .database(DATABASE_NAME)
+                    .collectionUuid(COLLECTION_UUID)
+                    .name(INDEX_NAME)
+                    .lastObservedCollectionName(COLLECTION_NAME)
+                    .dynamicMapping()
+                    .build()));
+
+    CreateSearchIndexesCommandDefinition definition =
+        (CreateSearchIndexesCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.createIndexes()
+                .withDynamicIndex()
+                .buildSearchIndexCommand();
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
+
+    var exception = assertThrows(IllegalStateException.class, command::run);
+
+    assertTrue(exception.getMessage().contains(INDEX_NAME));
+  }
+
+  @Test
+  public void testResponseReturnsPersistedIdsForExistingAndNewIndexes()
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    ObjectId existingIndexId = new ObjectId();
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID))
+        .thenReturn(
+            List.of(
+                SearchIndexDefinitionBuilder.builder()
+                    .indexId(existingIndexId)
+                    .database(DATABASE_NAME)
+                    .collectionUuid(COLLECTION_UUID)
+                    .name(INDEX_NAME)
+                    .lastObservedCollectionName(COLLECTION_NAME)
+                    .dynamicMapping()
+                    .build()));
+
+    CreateSearchIndexesCommandDefinition definition =
+        (CreateSearchIndexesCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.createIndexes()
+                .withDynamicIndex()
+                .withVectorIndex()
+                .buildSearchIndexCommand();
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
+    var response = command.run();
+
+    var indexesCreated = response.getArray("indexesCreated");
+    assertEquals(2, indexesCreated.size());
+    var existingIndexResponse = indexesCreated.get(0).asDocument();
+    assertEquals(INDEX_NAME, existingIndexResponse.getString("name").getValue());
+    assertEquals(existingIndexId.toString(), existingIndexResponse.getString("id").getValue());
+
+    var createdIndexResponse = indexesCreated.get(1).asDocument();
+    assertEquals(VECTOR_INDEX_NAME, createdIndexResponse.getString("name").getValue());
+    ArgumentCaptor<VectorIndexDefinition> captor =
+        ArgumentCaptor.forClass(VectorIndexDefinition.class);
+    verify(mockAic)
+        .createIndex(
+            eq(new AuthoritativeIndexKey(COLLECTION_UUID, VECTOR_INDEX_NAME)),
+            captor.capture(),
+            any());
+    assertEquals(
+        captor.getValue().getIndexId().toString(), createdIndexResponse.getString("id").getValue());
+    verify(mockAic, never())
+        .createIndex(eq(new AuthoritativeIndexKey(COLLECTION_UUID, INDEX_NAME)), any(), any());
   }
 
   @Test
@@ -262,11 +372,12 @@ public class AicCreateSearchIndexesCommandTest {
   @Test
   public void testExistingIndexesAfterValidation() throws MetadataServiceException {
     var mockAic = mock(AuthoritativeIndexCatalog.class);
+    ObjectId existingIndexId = new ObjectId();
     doReturn(
             List.of(),
             List.of(
                 SearchIndexDefinitionBuilder.builder()
-                    .indexId(new ObjectId())
+                    .indexId(existingIndexId)
                     .database(DATABASE_NAME)
                     .collectionUuid(COLLECTION_UUID)
                     .name(INDEX_NAME)
@@ -302,6 +413,10 @@ public class AicCreateSearchIndexesCommandTest {
 
     var indexesCreated = response.getArray("indexesCreated");
     assertEquals(1, indexesCreated.size());
+    assertEquals(INDEX_NAME, indexesCreated.getFirst().asDocument().getString("name").getValue());
+    assertEquals(
+        existingIndexId.toString(),
+        indexesCreated.getFirst().asDocument().getString("id").getValue());
   }
 
   @Test
