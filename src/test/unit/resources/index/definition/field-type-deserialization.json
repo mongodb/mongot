@@ -12,8 +12,7 @@
       "value": {
         "type": "autoEmbed",
         "model": "voyage-3-large",
-        "modality": "text",
-        "path": "description"
+        "modality": "text"
       }
     },
     {

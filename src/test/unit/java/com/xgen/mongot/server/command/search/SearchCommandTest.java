@@ -2371,7 +2371,7 @@ public class SearchCommandTest {
             .limit(10)
             .numCandidates(100)
             .query(queryInput)
-            .path(FieldPath.parse("embedding"))
+            .path(FieldPath.parse("content"))
             .build();
     return new OperatorQuery(
         new VectorSearchOperator(null, criteria),
@@ -2392,7 +2392,7 @@ public class SearchCommandTest {
         .append(
             "vectorSearch",
             new BsonDocument()
-                .append("path", new BsonString("embedding"))
+                .append("path", new BsonString("content"))
                 .append("query", queryInput)
                 .append("numCandidates", new BsonInt32(100))
                 .append("limit", new BsonInt32(10)));

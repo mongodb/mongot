@@ -103,8 +103,7 @@
           {
             "type": "autoEmbed",
             "model": "voyage-3-large",
-            "modality": "text",
-            "path": "content"
+            "modality": "text"
           }
         ]
       },

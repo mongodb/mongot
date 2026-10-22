@@ -117,22 +117,11 @@ public class Projection {
             return Optional.empty();
           }
 
-          // Copy into a mutable list: lookupIndexedPathsForProject may return an immutable list,
-          // and the autoEmbed path loop below mutates indexedPaths.
           indexedPaths = new ArrayList<>(lookupIndexedPathsForProject(mappings, ""));
           // requesting full document if $project filter is not possible for top-level field
           // mappings
           if (indexedPaths.isEmpty()) {
             return Optional.empty();
-          }
-          // CLOUDP-353553: lookupIndexedPathsForProject projects each autoEmbed field by its
-          // declared index field name (e.g. "desc_embedding"), but embedding reads the source text
-          // from the field's path (e.g. "description"). Without projecting the path
-          // the source text is stripped from the scanned document and no embedding vector is ever
-          // generated. getModelNamePerPath() is keyed by path and covers auto-embed fields
-          // at any document nesting depth.
-          for (FieldPath sourcePath : searchIndexDefinition.getModelNamePerPath().keySet()) {
-            indexedPaths.add(sourcePath.toString());
           }
         }
         case VectorIndexDefinition vectorIndexDefinition -> {

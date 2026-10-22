@@ -152,7 +152,7 @@ public class SearchCommandOfflineServeTest {
                         .append(
                             "vectorSearch",
                             new BsonDocument()
-                                .append("path", new BsonString("embedding"))
+                                .append("path", new BsonString("content"))
                                 .append("limit", new BsonInt32(5))
                                 .append("numCandidates", new BsonInt32(10))
                                 .append("query", new BsonString("find me offline"))))

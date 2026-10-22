@@ -121,6 +121,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
   private final Optional<String> analyzerName;
   private final Optional<String> searchAnalyzerName;
   private final DocumentFieldDefinition mappings;
+  private final AutoEmbedFieldSet autoEmbedFields;
   private final Optional<List<CustomAnalyzerDefinition>> analyzers;
   private final int indexFeatureVersion;
   private final Optional<List<SynonymMappingDefinition>> synonyms;
@@ -154,6 +155,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
       Optional<ViewDefinition> view,
       int numPartitions,
       DocumentFieldDefinition mappings,
+      AutoEmbedFieldSet autoEmbedFields,
       Optional<String> analyzerName,
       Optional<String> searchAnalyzerName,
       UnmodifiableTrie<String, FieldDefinition> staticFieldDefinitions,
@@ -180,6 +182,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
     this.analyzerName = analyzerName;
     this.searchAnalyzerName = searchAnalyzerName;
     this.mappings = mappings;
+    this.autoEmbedFields = autoEmbedFields;
     this.staticFieldDefinitions = staticFieldDefinitions;
     this.nonStockAnalyzerNames = nonStockAnalyzerNames;
     this.analyzers = analyzers;
@@ -200,8 +203,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
     this.definitionVersion = definitionVersion;
     this.definitionVersionCreatedAt = definitionVersionCreatedAt;
     this.definitionVersionId = definitionVersionId;
-    this.isAutoEmbeddingIndex = calculateIsAutoEmbeddingIndex(mappings);
-    this.modelNamePerPath = calculateModelNamePerPath(mappings);
+    this.isAutoEmbeddingIndex = !autoEmbedFields.isEmpty();
+    this.modelNamePerPath = autoEmbedFields.modelNamePerPath();
     this.indexIdAtCreationTime = indexIdAtCreationTime;
     this.autoEmbeddingDefinitionVersion = autoEmbeddingDefinitionVersion;
     this.materializedViewNameFormatVersion = materializedViewNameFormatVersion;
@@ -230,6 +233,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
       Optional<ObjectId> indexIdAtCreationTime,
       Optional<Long> autoEmbeddingDefinitionVersion,
       Optional<Long> materializedViewNameFormatVersion) {
+    AutoEmbedFieldSet autoEmbedFields = AutoEmbedFieldSet.create(mappings);
     Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
     registerFields(staticFields, Optional.empty(), mappings);
     UnmodifiableTrie<String, FieldDefinition> unmodifiableStaticFields =
@@ -256,6 +260,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         view,
         numPartitions,
         mappings,
+        autoEmbedFields,
         analyzerName,
         searchAnalyzerName,
         unmodifiableStaticFields,
@@ -290,6 +295,7 @@ public final class SearchIndexDefinition implements IndexDefinition {
         Optional.of(updatedViewDefinition),
         this.numPartitions,
         this.mappings,
+        this.autoEmbedFields,
         this.analyzerName,
         this.searchAnalyzerName,
         this.staticFieldDefinitions,
@@ -333,7 +339,6 @@ public final class SearchIndexDefinition implements IndexDefinition {
     validateTypeSetReferences(typeSets, mappings);
     Optional<Sort> sort = parser.getField(Fields.SORT).unwrap();
     IndexSortValidator.validateSort(sort, mappings);
-    validateUniqueAutoEmbedPaths(mappings);
     validateAutoEmbedPathsDoNotOverlapMappings(mappings);
 
     return create(
@@ -640,35 +645,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
     return this.modelNamePerPath;
   }
 
-  private static boolean calculateIsAutoEmbeddingIndex(DocumentFieldDefinition mappings) {
-    return mappings.containsSearchAutoEmbedField();
-  }
-
-  private static ImmutableMap<FieldPath, String> calculateModelNamePerPath(
-      DocumentFieldDefinition mappings) {
-    ImmutableMap.Builder<FieldPath, String> builder = ImmutableMap.builder();
-    collectModelNamePerPath(mappings, builder);
-    // Duplicate paths are rejected at the definition boundaries (fromBson validation and
-    // AutoEmbeddingIndexValidator); keep-last here so construction itself never throws a raw
-    // duplicate-key error on paths that build definitions directly.
-    return builder.buildKeepingLast();
-  }
-
-  /**
-   * Collects {@code path -> model} entries for auto-embed fields declared anywhere in the {@code
-   * document} hierarchy. A field's auto-embed and {@code document} type alternatives are processed
-   * independently, mirroring the auto-embed mapping walk.
-   */
-  private static void collectModelNamePerPath(
-      DocumentFieldDefinition document, ImmutableMap.Builder<FieldPath, String> builder) {
-    for (FieldDefinition fieldDefinition : document.fields().values()) {
-      fieldDefinition
-          .searchAutoEmbedFieldDefinition()
-          .ifPresent(autoEmbed -> builder.put(autoEmbed.path(), autoEmbed.modelName()));
-      fieldDefinition
-          .documentFieldDefinition()
-          .ifPresent(nested -> collectModelNamePerPath(nested, builder));
-    }
+  public AutoEmbedFieldSet getAutoEmbedFields() {
+    return this.autoEmbedFields;
   }
 
   @Override
@@ -787,28 +765,9 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   /**
-   * Rejects duplicate auto-embed {@code path} declarations at any nesting depth. Each source field
-   * produces one embedding in the materialized view, keyed by that path, so two declarations
-   * sharing a source field cannot coexist; without this check the duplicate surfaces as an {@link
-   * IllegalArgumentException} from map construction instead of a parse error.
-   */
-  private static void validateUniqueAutoEmbedPaths(DocumentFieldDefinition mappings)
-      throws BsonParseException {
-    Set<FieldPath> seen = new HashSet<>();
-    Set<FieldPath> duplicates = new LinkedHashSet<>();
-    collectDuplicateAutoEmbedPaths(mappings, seen, duplicates);
-    if (!duplicates.isEmpty()) {
-      throw new BsonParseException(
-          String.format("Multiple autoEmbed fields declare the same path: %s", duplicates),
-          Optional.empty());
-    }
-  }
-
-  /**
-   * Returns auto-embed {@code path}s that conflict with a document-shaped mapping: a path declared
-   * inside an {@code embeddedDocuments} subtree, a {@code geo} field path (GeoJSON values cannot be
-   * copied alongside a generated vector), or a field that also declares {@code document} or {@code
-   * embeddedDocuments}.
+   * Returns auto-embed {@code path}s that conflict with a document-shaped mapping: a {@code geo}
+   * field path (GeoJSON values cannot be copied alongside a generated vector), or a field that also
+   * declares {@code document} or {@code embeddedDocuments}.
    */
   public static ImmutableSet<FieldPath> autoEmbedPathMappingConflicts(
       DocumentFieldDefinition mappings) {
@@ -827,16 +786,6 @@ public final class SearchIndexDefinition implements IndexDefinition {
       Optional<FieldPath> prefix,
       Set<FieldPath> conflictingPaths,
       Set<FieldPath> autoEmbedPaths) {
-    collectDeclaredPathsAndAutoEmbedPaths(
-        fields, prefix, /* underEmbeddedDocuments= */ false, conflictingPaths, autoEmbedPaths);
-  }
-
-  private static void collectDeclaredPathsAndAutoEmbedPaths(
-      Map<String, FieldDefinition> fields,
-      Optional<FieldPath> prefix,
-      boolean underEmbeddedDocuments,
-      Set<FieldPath> conflictingPaths,
-      Set<FieldPath> autoEmbedPaths) {
     for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
       FieldPath path =
           prefix
@@ -845,12 +794,8 @@ public final class SearchIndexDefinition implements IndexDefinition {
       FieldDefinition fieldDefinition = entry.getValue();
       Optional<SearchAutoEmbedFieldDefinition> autoEmbed =
           fieldDefinition.searchAutoEmbedFieldDefinition();
-      autoEmbed.ifPresent(definition -> autoEmbedPaths.add(definition.path()));
-      // Auto-embed beneath embeddedDocuments is unsupported (AUTO_EMBED is an illegal
-      // embeddedDocuments subfield type), so every declared path inside such a subtree conflicts
-      // with an auto-embed source path.
-      if (underEmbeddedDocuments) {
-        conflictingPaths.add(path);
+      if (autoEmbed.isPresent()) {
+        autoEmbedPaths.add(path);
       }
       // Geo values are GeoJSON documents with no declared children to enumerate, so they cannot
       // be copied into the materialized view alongside a generated vector at the same path.
@@ -858,34 +803,25 @@ public final class SearchIndexDefinition implements IndexDefinition {
       // A document or embeddedDocuments alternative cannot share its field with autoEmbed: the
       // raw document value and the generated vector cannot both live at the source path. Scalar
       // alternatives are fine (dual role).
-      autoEmbed.ifPresent(
-          definition -> {
-            if (definition.path().equals(path)
-                && (fieldDefinition.documentFieldDefinition().isPresent()
-                    || fieldDefinition.embeddedDocumentsFieldDefinition().isPresent())) {
-              conflictingPaths.add(path);
-            }
-          });
+      if (autoEmbed.isPresent()
+          && (fieldDefinition.documentFieldDefinition().isPresent()
+              || fieldDefinition.embeddedDocumentsFieldDefinition().isPresent())) {
+        conflictingPaths.add(path);
+      }
       fieldDefinition
           .documentFieldDefinition()
           .ifPresent(
               document ->
                   collectDeclaredPathsAndAutoEmbedPaths(
-                      document.fields(),
-                      Optional.of(path),
-                      underEmbeddedDocuments,
-                      conflictingPaths,
-                      autoEmbedPaths));
+                      document.fields(), Optional.of(path), conflictingPaths, autoEmbedPaths));
+      // No autoEmbed check is needed beneath embeddedDocuments: EmbeddedDocumentsFieldDefinition
+      // rejects AUTO_EMBED anywhere in its subtree before this validation runs.
       fieldDefinition
           .embeddedDocumentsFieldDefinition()
           .ifPresent(
               embedded ->
                   collectDeclaredPathsAndAutoEmbedPaths(
-                      embedded.fields(),
-                      Optional.of(path),
-                      /* underEmbeddedDocuments= */ true,
-                      conflictingPaths,
-                      autoEmbedPaths));
+                      embedded.fields(), Optional.of(path), conflictingPaths, autoEmbedPaths));
     }
   }
 
@@ -896,27 +832,9 @@ public final class SearchIndexDefinition implements IndexDefinition {
       throw new BsonParseException(
           String.format(
               "autoEmbed path(s) %s conflict with a document-shaped mapping: document,"
-                  + " embeddedDocuments, and geo fields cannot be autoEmbed sources, and autoEmbed"
-                  + " is not supported under embeddedDocuments",
+                  + " embeddedDocuments, and geo fields cannot be autoEmbed sources",
               conflicts),
           Optional.empty());
-    }
-  }
-
-  private static void collectDuplicateAutoEmbedPaths(
-      DocumentFieldDefinition document, Set<FieldPath> seen, Set<FieldPath> duplicates) {
-    for (FieldDefinition fieldDefinition : document.fields().values()) {
-      fieldDefinition
-          .searchAutoEmbedFieldDefinition()
-          .ifPresent(
-              autoEmbed -> {
-                if (!seen.add(autoEmbed.path())) {
-                  duplicates.add(autoEmbed.path());
-                }
-              });
-      fieldDefinition
-          .documentFieldDefinition()
-          .ifPresent(nested -> collectDuplicateAutoEmbedPaths(nested, seen, duplicates));
     }
   }
 

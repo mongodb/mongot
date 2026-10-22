@@ -4,6 +4,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Var;
 import com.mongodb.client.model.changestream.TruncatedArray;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
+import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -108,10 +110,11 @@ public class ChangeStreamsTest {
     @Test
     public void searchAutoEmbedPath_nestedDeclaration_applies() {
       SearchIndexDefinition definition =
-          createNestedSearchAutoEmbedDefinition(FieldPath.parse("content.body"));
+          createNestedSearchAutoEmbedDefinition(FieldPath.parse("nested.content.body"));
       var description =
           new UpdateDescription(
-              Collections.emptyList(), new BsonDocument("content.body", new BsonString("updated")));
+              Collections.emptyList(),
+              new BsonDocument("nested.content.body", new BsonString("updated")));
 
       assertAppliesToDefinition(description, definition);
     }
@@ -644,37 +647,39 @@ public class ChangeStreamsTest {
 
     private static SearchIndexDefinition createSearchAutoEmbedDefinition(
         boolean dynamic, FieldPath path) {
-      SearchAutoEmbedFieldDefinition autoEmbed =
-          new SearchAutoEmbedFieldDefinition("voyage-3-large", path);
       return SearchIndexDefinitionBuilder.builder()
           .defaultMetadata()
-          .mappings(
-              DocumentFieldDefinitionBuilder.builder()
-                  .dynamic(dynamic)
-                  .field(
-                      "embedding",
-                      FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
-                  .build())
+          .mappings(withAutoEmbedAtPath(path, dynamic))
           .build();
     }
 
     private static SearchIndexDefinition createNestedSearchAutoEmbedDefinition(FieldPath path) {
-      SearchAutoEmbedFieldDefinition autoEmbed =
-          new SearchAutoEmbedFieldDefinition("voyage-3-large", path);
-      var nestedMappings =
-          DocumentFieldDefinitionBuilder.builder()
-              .dynamic(false)
-              .field(
-                  "embedding", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
-              .build();
       return SearchIndexDefinitionBuilder.builder()
           .defaultMetadata()
-          .mappings(
-              DocumentFieldDefinitionBuilder.builder()
-                  .dynamic(false)
-                  .field(
-                      "nested", FieldDefinitionBuilder.builder().document(nestedMappings).build())
-                  .build())
+          .mappings(withAutoEmbedAtPath(path, false))
+          .build();
+    }
+
+    private static DocumentFieldDefinition withAutoEmbedAtPath(
+        FieldPath path, boolean rootDynamic) {
+      return withAutoEmbedAtPath(
+          ImmutableList.copyOf(path.getSegments()), /* index= */ 0, rootDynamic);
+    }
+
+    private static DocumentFieldDefinition withAutoEmbedAtPath(
+        ImmutableList<String> segments, int index, boolean rootDynamic) {
+      String segment = segments.get(index);
+      FieldDefinition field =
+          index == segments.size() - 1
+              ? FieldDefinitionBuilder.builder()
+                  .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                  .build()
+              : FieldDefinitionBuilder.builder()
+                  .document(withAutoEmbedAtPath(segments, index + 1, /* rootDynamic= */ false))
+                  .build();
+      return DocumentFieldDefinitionBuilder.builder()
+          .dynamic(index == 0 && rootDynamic)
+          .field(segment, field)
           .build();
     }
 

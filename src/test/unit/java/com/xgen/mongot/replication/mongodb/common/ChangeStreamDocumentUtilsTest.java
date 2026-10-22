@@ -454,9 +454,7 @@ public class ChangeStreamDocumentUtilsTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("summary")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field("meta", FieldDefinitionBuilder.builder().document(metaMappings).build())
             .build();
@@ -490,9 +488,7 @@ public class ChangeStreamDocumentUtilsTest {
                 .field(
                     "embedding",
                     FieldDefinitionBuilder.builder()
-                        .searchAutoEmbed(
-                            new SearchAutoEmbedFieldDefinition(
-                                "voyage-3-large", FieldPath.parse("summary")))
+                        .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                         .build())
                 .build(),
             List.of(BsonDocument.parse("{\"$set\": {\"summary\": \"$title\"}}")));
@@ -530,9 +526,7 @@ public class ChangeStreamDocumentUtilsTest {
                 .field(
                     "embedding",
                     FieldDefinitionBuilder.builder()
-                        .searchAutoEmbed(
-                            new SearchAutoEmbedFieldDefinition(
-                                "voyage-3-large", FieldPath.parse("summary")))
+                        .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                         .build())
                 .field(
                     "items",
@@ -616,36 +610,34 @@ public class ChangeStreamDocumentUtilsTest {
   }
 
   private static DocumentFieldDefinition staticSearchMappings(boolean nestedDynamic) {
-    var embedDeclarations =
+    var mappingsBuilder =
         DocumentFieldDefinitionBuilder.builder()
-            .dynamic(nestedDynamic)
+            .dynamic(false)
             .field(
-                "summaryEmbedding",
+                "summary",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("summary")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
-                "languageEmbedding",
+                "language",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("language")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
-                "itemEmbedding",
+                "itemText",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("itemText")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
-            .build();
-    return DocumentFieldDefinitionBuilder.builder()
-        .dynamic(false)
-        .field("embeddings", FieldDefinitionBuilder.builder().document(embedDeclarations).build())
-        .field(
-            "category", FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())
-        .build();
+            .field(
+                "category",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build());
+    if (nestedDynamic) {
+      mappingsBuilder.field(
+          "dynamicMeta",
+          FieldDefinitionBuilder.builder()
+              .document(DocumentFieldDefinitionBuilder.builder().dynamic(true).build())
+              .build());
+    }
+    return mappingsBuilder.build();
   }
 }

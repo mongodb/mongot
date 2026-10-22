@@ -471,10 +471,9 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embeddingA",
+                "viewTextA",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextA")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                     .build())
             .build();
     SearchIndexDefinition indexDefinition = searchView(mappings, basePipeline());
@@ -659,15 +658,19 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
 
   private static SearchIndexDefinition staticSearchViewWithNestedComputedEmbed(
       List<BsonDocument> pipeline) {
-    DocumentFieldDefinition mappings =
+    DocumentFieldDefinition items =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
+                "text",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("items.text")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                     .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("items", FieldDefinitionBuilder.builder().document(items).build())
             .field(
                 "category",
                 FieldDefinitionBuilder.builder()
@@ -682,16 +685,14 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(true)
             .field(
-                "embeddingA",
+                "viewTextA",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextA")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                     .build())
             .field(
-                "embeddingB",
+                "viewTextB",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextB")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                     .build())
             .build();
     return searchView(mappings, pipeline);
@@ -712,16 +713,14 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embeddingA",
+                "viewTextA",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextA")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                     .build())
             .field(
-                "embeddingB",
+                "viewTextB",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextB")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                     .build())
             .field("meta", FieldDefinitionBuilder.builder().document(meta).build())
             .field(
@@ -744,16 +743,14 @@ public class ChangeStreamDocumentUtilsSearchViewPartialUpdateTest {
     return DocumentFieldDefinitionBuilder.builder()
         .dynamic(false)
         .field(
-            "embeddingA",
+            "viewTextA",
             FieldDefinitionBuilder.builder()
-                .searchAutoEmbed(
-                    new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextA")))
+                .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                 .build())
         .field(
-            "embeddingB",
+            "viewTextB",
             FieldDefinitionBuilder.builder()
-                .searchAutoEmbed(
-                    new SearchAutoEmbedFieldDefinition(MODEL, FieldPath.parse("viewTextB")))
+                .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(MODEL))
                 .build())
         .field(
             "category",

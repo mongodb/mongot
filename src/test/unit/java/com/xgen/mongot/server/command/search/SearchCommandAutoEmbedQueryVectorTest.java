@@ -61,7 +61,7 @@ public class SearchCommandAutoEmbedQueryVectorTest {
   private static final UUID COLLECTION_UUID = UUID.randomUUID();
   private static final String INDEX_NAME = "default";
   private static final int DIMENSIONS = 4;
-  private static final FieldPath QUERY_PATH = FieldPath.parse("desc_embedding");
+  private static final FieldPath QUERY_PATH = FieldPath.parse("description");
   private static final FieldPath PLAIN_VECTOR_PATH = FieldPath.parse("plain_vector");
   private static final String QUERY_VECTOR_JSON = "[0.1,0.2,0.3,0.4]";
 
@@ -75,14 +75,14 @@ public class SearchCommandAutoEmbedQueryVectorTest {
 
   @Test
   public void queryVectorOnAutoEmbedField_isRetargetedToMaterializedViewPath() throws Exception {
-    FieldPath matViewPath = FieldPath.parse("_autoEmbed.desc_embedding");
+    FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
     Fixture fixture =
         fixture(QUERY_PATH, VectorAutoEmbedQuantization.FLOAT, Map.of(QUERY_PATH, matViewPath));
 
     VectorSearchCriteria criteria = translate(fixture, QUERY_PATH);
 
     // This is the same validation the Lucene query factory runs before it builds the vector query.
-    // Before the fix it throws: desc_embedding must be indexed as "vector".
+    // Before the fix it throws: description must be indexed as "vector".
     validate(fixture.derivedDefinition, criteria);
 
     assertThat(criteria.path()).isEqualTo(matViewPath);
@@ -92,8 +92,8 @@ public class SearchCommandAutoEmbedQueryVectorTest {
 
   @Test
   public void queryVectorOnAutoEmbedField_mapsTheAutoEmbedSourcePath() throws Exception {
-    // Production schema shape: the field is queried as "desc_embedding" but embeds source field
-    // "description", so the materialized-view path must be resolved from the source path.
+    // GA schema shape: the auto-embed key is the source path ("description"), and the
+    // materialized-view path is resolved from that source path.
     FieldPath sourcePath = FieldPath.parse("description");
     FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
     Fixture fixture =
@@ -108,7 +108,7 @@ public class SearchCommandAutoEmbedQueryVectorTest {
 
   @Test
   public void floatQueryVectorOnScalarAutoEmbedField_isRejected() throws Exception {
-    FieldPath matViewPath = FieldPath.parse("_autoEmbed.desc_embedding");
+    FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
     Fixture fixture =
         fixture(QUERY_PATH, VectorAutoEmbedQuantization.SCALAR, Map.of(QUERY_PATH, matViewPath));
 
@@ -120,7 +120,7 @@ public class SearchCommandAutoEmbedQueryVectorTest {
 
   @Test
   public void queryVectorOnRegularVectorField_isLeftUnchanged() throws Exception {
-    FieldPath matViewPath = FieldPath.parse("_autoEmbed.desc_embedding");
+    FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
     Fixture fixture =
         fixture(QUERY_PATH, VectorAutoEmbedQuantization.FLOAT, Map.of(QUERY_PATH, matViewPath));
 
@@ -133,7 +133,7 @@ public class SearchCommandAutoEmbedQueryVectorTest {
 
   @Test
   public void emptyQueryOnAutoEmbedField_isRejected() throws Exception {
-    FieldPath matViewPath = FieldPath.parse("_autoEmbed.desc_embedding");
+    FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
     Fixture fixture =
         fixture(QUERY_PATH, VectorAutoEmbedQuantization.FLOAT, Map.of(QUERY_PATH, matViewPath));
     SearchQuery query =
@@ -194,7 +194,6 @@ public class SearchCommandAutoEmbedQueryVectorTest {
       FieldPath sourcePath, VectorAutoEmbedQuantization quantization) {
     SearchAutoEmbedFieldDefinition autoEmbedField =
         new SearchAutoEmbedFieldDefinition(
-            sourcePath,
             new VectorAutoEmbedFieldSpecification(
                 DIMENSIONS,
                 VectorSimilarity.DOT_PRODUCT,
@@ -207,7 +206,7 @@ public class SearchCommandAutoEmbedQueryVectorTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                QUERY_PATH.toString(),
+                sourcePath.toString(),
                 FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
             .field(
                 PLAIN_VECTOR_PATH.toString(),

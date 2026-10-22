@@ -7,14 +7,12 @@ import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
-import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -50,7 +48,6 @@ public class AutoEmbeddingIndexValidator {
       case SearchIndexDefinition searchIndex -> {
         validateSearchReservedAutoEmbedNamespace(searchIndex);
         validateSearchNoMixedVectorTypes(searchIndex);
-        validateSearchUniqueAutoEmbedPaths(searchIndex);
         validateNoConflictingAutoEmbedSourcePaths(searchIndex);
       }
     }
@@ -148,26 +145,6 @@ public class AutoEmbeddingIndexValidator {
     }
   }
 
-  /**
-   * Collects auto-embed declarations at any {@code document} nesting depth, in field-hierarchy
-   * order. A field's auto-embed and {@code document} type alternatives are processed independently,
-   * mirroring the auto-embed mapping walk.
-   */
-  private static List<SearchAutoEmbedFieldDefinition> getAutoEmbeddingFieldDefinitions(
-      SearchIndexDefinition newIndex) {
-    List<SearchAutoEmbedFieldDefinition> autoEmbedFields = new ArrayList<>();
-    collectAutoEmbedFields(newIndex.getMappings(), autoEmbedFields);
-    return autoEmbedFields;
-  }
-
-  private static void collectAutoEmbedFields(
-      DocumentFieldDefinition document, List<SearchAutoEmbedFieldDefinition> out) {
-    for (FieldDefinition fieldDef : document.fields().values()) {
-      fieldDef.searchAutoEmbedFieldDefinition().ifPresent(out::add);
-      fieldDef.documentFieldDefinition().ifPresent(nested -> collectAutoEmbedFields(nested, out));
-    }
-  }
-
   private static void validateNoMixedVectorTypes(VectorIndexDefinition vectorIndex)
       throws InvalidIndexDefinitionException {
     @Var boolean hasRegularVectorField = false;
@@ -228,31 +205,10 @@ public class AutoEmbeddingIndexValidator {
   }
 
   /**
-   * Rejects duplicate auto-embed {@code path} declarations with a clean validation error. The
-   * definition itself constructs fine (model resolution keeps the last declaration), so this
-   * community-path check is the user-facing rejection for definitions built directly rather than
-   * parsed from BSON.
-   */
-  private static void validateSearchUniqueAutoEmbedPaths(SearchIndexDefinition searchIndex)
-      throws InvalidIndexDefinitionException {
-    Set<FieldPath> seen = new HashSet<>();
-    Set<FieldPath> duplicates = new LinkedHashSet<>();
-    for (SearchAutoEmbedFieldDefinition autoEmbed : getAutoEmbeddingFieldDefinitions(searchIndex)) {
-      if (!seen.add(autoEmbed.path())) {
-        duplicates.add(autoEmbed.path());
-      }
-    }
-    if (!duplicates.isEmpty()) {
-      throw new InvalidIndexDefinitionException(
-          String.format("Multiple autoEmbed fields declare the same path: %s", duplicates));
-    }
-  }
-
-  /**
    * Rejects auto-embed {@code path}s that conflict with a document-shaped mapping: {@code geo}
-   * paths, document-shaped alternatives on the same field, or an autoEmbed declared under {@code
-   * embeddedDocuments}. A text-valued or scalar declaration on the same field is allowed (dual
-   * role): the materialized view copies the raw value alongside the generated vector.
+   * paths or document-shaped alternatives on the same field. A text-valued or scalar declaration on
+   * the same field is allowed (dual role): the materialized view copies the raw value alongside the
+   * generated vector.
    */
   private static void validateNoConflictingAutoEmbedSourcePaths(SearchIndexDefinition searchIndex)
       throws InvalidIndexDefinitionException {
@@ -262,8 +218,7 @@ public class AutoEmbeddingIndexValidator {
       throw new InvalidIndexDefinitionException(
           String.format(
               "autoEmbed path(s) %s conflict with a document-shaped mapping: document,"
-                  + " embeddedDocuments, and geo fields cannot be autoEmbed sources, and autoEmbed"
-                  + " is not supported under embeddedDocuments",
+                  + " embeddedDocuments, and geo fields cannot be autoEmbed sources",
               conflicts));
     }
   }

@@ -202,13 +202,12 @@ public class EmbeddedDocumentsFieldDefinitionTest {
     public void testAutoEmbedType() {
       FieldDefinition fields =
           FieldDefinitionBuilder.builder()
-              .searchAutoEmbed(
-                  new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content")))
+              .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
               .build();
 
       try {
         EmbeddedDocumentsFieldDefinition.create(
-            new DynamicDefinition.Boolean(false), Map.of("a", fields), Optional.empty());
+            new DynamicDefinition.Boolean(false), Map.of("content", fields), Optional.empty());
         Assert.fail("should throw");
       } catch (IllegalEmbeddedFieldException e) {
         Assert.assertEquals(
@@ -224,15 +223,12 @@ public class EmbeddedDocumentsFieldDefinitionTest {
     public void testAutoEmbedTypeNestedUnderDocument() {
       FieldDefinition autoEmbedField =
           FieldDefinitionBuilder.builder()
-              .searchAutoEmbed(
-                  new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content")))
+              .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
               .build();
       FieldDefinition documentField =
           FieldDefinitionBuilder.builder()
               .document(
-                  DocumentFieldDefinitionBuilder.builder()
-                      .field("embedding", autoEmbedField)
-                      .build())
+                  DocumentFieldDefinitionBuilder.builder().field("content", autoEmbedField).build())
               .build();
 
       try {

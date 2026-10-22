@@ -336,9 +336,7 @@ public class SearchQueryFactoryContextTest {
                     .field(
                         fieldName,
                         FieldDefinitionBuilder.builder()
-                            .searchAutoEmbed(
-                                new SearchAutoEmbedFieldDefinition(
-                                    "voyage-3-large", FieldPath.parse("content")))
+                            .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                             .build())
                     .build())
             .build();

@@ -68,7 +68,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 public class SearchAutoEmbeddingHelperTest {
 
   private static final Vector QUERY_VECTOR = Vector.fromFloats(new float[] {1f, 2f, 3f}, NATIVE);
-  private static final FieldPath EMBEDDING_PATH = FieldPath.parse("embedding");
+  private static final FieldPath EMBEDDING_PATH = FieldPath.parse("content");
   private static final Map<FieldPath, FieldPath> AUTO_EMBED_FIELDS_MAPPING =
       Map.of(FieldPath.parse("content"), FieldPath.parse("_autoEmbed.content"));
 
@@ -133,7 +133,7 @@ public class SearchAutoEmbeddingHelperTest {
             .limit(10)
             .numCandidates(100)
             .query(new VectorSearchQueryInput.Text("test query"))
-            .path(EMBEDDING_PATH)
+            .path(FieldPath.parse("content"))
             .build();
 
     SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
@@ -163,7 +163,6 @@ public class SearchAutoEmbeddingHelperTest {
     setupRegistry();
     SearchAutoEmbedFieldDefinition autoEmbedField =
         new SearchAutoEmbedFieldDefinition(
-            FieldPath.parse("content"),
             new VectorAutoEmbedFieldSpecification(
                 256,
                 VectorSimilarity.COSINE,
@@ -175,8 +174,7 @@ public class SearchAutoEmbeddingHelperTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                "content", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
             .build();
     SearchIndexDefinition searchDef =
         SearchIndexDefinitionBuilder.builder()
@@ -200,7 +198,7 @@ public class SearchAutoEmbeddingHelperTest {
             .limit(10)
             .numCandidates(100)
             .query(new VectorSearchQueryInput.Text("test query"))
-            .path(EMBEDDING_PATH)
+            .path(FieldPath.parse("content"))
             .build();
 
     SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
@@ -226,32 +224,29 @@ public class SearchAutoEmbeddingHelperTest {
 
   @Test
   public void testEmbedAndReplaceCriteria_nestedPath_success() throws Exception {
-    // A nested auto-embed field (parent.embedding) must resolve through the field hierarchy, not
+    // A nested auto-embed field (parent.content) must resolve through the field hierarchy, not
     // the top-level-only fields() map.
     SearchIndexDefinition searchDef = nestedAutoEmbeddingSearchDefinition();
     Supplier<EmbeddingServiceManager> embeddingSupplier =
         mockEmbeddingServiceManager(new VectorOrError(QUERY_VECTOR));
+    Map<FieldPath, FieldPath> nestedMapping =
+        Map.of(FieldPath.parse("parent.content"), FieldPath.parse("_autoEmbed.parent.content"));
 
     VectorSearchCriteria criteria =
         ApproximateVectorQueryCriteriaBuilder.builder()
             .limit(10)
             .numCandidates(100)
             .query(new VectorSearchQueryInput.Text("test query"))
-            .path(FieldPath.parse("parent.embedding"))
+            .path(FieldPath.parse("parent.content"))
             .build();
 
     VectorSearchCriteria result =
         SearchAutoEmbeddingHelper.embedAndReplaceCriteria(
-            criteria,
-            "test query",
-            Optional.empty(),
-            searchDef,
-            AUTO_EMBED_FIELDS_MAPPING,
-            embeddingSupplier);
+            criteria, "test query", Optional.empty(), searchDef, nestedMapping, embeddingSupplier);
 
     assertThat(result.queryVector()).isPresent();
     assertThat(result.queryVector().get()).isEqualTo(QUERY_VECTOR);
-    assertThat(result.path()).isEqualTo(FieldPath.parse("_autoEmbed.content"));
+    assertThat(result.path()).isEqualTo(FieldPath.parse("_autoEmbed.parent.content"));
   }
 
   @Test
@@ -500,13 +495,12 @@ public class SearchAutoEmbeddingHelperTest {
 
   private static SearchIndexDefinition nestedAutoEmbeddingSearchDefinition() {
     SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+        new SearchAutoEmbedFieldDefinition("voyage-3-large");
     DocumentFieldDefinition innerDoc =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                "content", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
             .build();
     DocumentFieldDefinition mappings =
         DocumentFieldDefinitionBuilder.builder()
@@ -526,13 +520,12 @@ public class SearchAutoEmbeddingHelperTest {
   private static SearchIndexDefinition autoEmbeddingSearchDefinition(
       String database, String indexName, String collectionName) {
     SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+        new SearchAutoEmbedFieldDefinition("voyage-3-large");
     DocumentFieldDefinition mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                "content", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
             .build();
     return SearchIndexDefinitionBuilder.builder()
         .indexId(new ObjectId())

@@ -42,7 +42,6 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.index.version.SynonymMappingId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.analyzer.definition.OverriddenBaseAnalyzerDefinitionBuilder;
@@ -409,7 +408,6 @@ public class SearchIndex {
   public static SearchIndexDefinition mockAutoEmbeddingSearchDefinition(ObjectId indexId) {
     SearchAutoEmbedFieldDefinition autoEmbedField =
         new SearchAutoEmbedFieldDefinition(
-            FieldPath.parse("content"),
             new VectorAutoEmbedFieldSpecification(
                 1024,
                 VectorSimilarity.DOT_PRODUCT,
@@ -421,8 +419,7 @@ public class SearchIndex {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                "content", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
             .build();
     return SearchIndexDefinitionBuilder.builder()
         .indexId(indexId)

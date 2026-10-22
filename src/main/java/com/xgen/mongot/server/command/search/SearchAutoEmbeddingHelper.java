@@ -13,7 +13,6 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.autoembedding.AutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndex;
-import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -194,7 +193,7 @@ final class SearchAutoEmbeddingHelper {
 
     // Retarget the query at the materialized-view field path that holds the embedded vector; the
     // derived search index keys the auto-embed field by that path, not the user-facing path.
-    FieldPath matViewPath = getMatViewFieldPath(autoEmbed.path(), autoEmbeddingFieldsMapping);
+    FieldPath matViewPath = getMatViewFieldPath(path, autoEmbeddingFieldsMapping);
     return criteria.withQueryVector(result.vector.get()).withPath(matViewPath);
   }
 
@@ -231,7 +230,7 @@ final class SearchAutoEmbeddingHelper {
     Vector reconciled =
         AutoEmbedQueryVectorReconciler.reconcile(
             queryVector, autoEmbed.get().specification().autoEmbedQuantization(), path);
-    FieldPath matViewPath = getMatViewFieldPath(autoEmbed.get().path(), autoEmbeddingFieldsMapping);
+    FieldPath matViewPath = getMatViewFieldPath(path, autoEmbeddingFieldsMapping);
     return criteria.withQueryVector(reconciled).withPath(matViewPath);
   }
 
@@ -241,10 +240,6 @@ final class SearchAutoEmbeddingHelper {
    */
   private static Optional<SearchAutoEmbedFieldDefinition> resolveAutoEmbedField(
       SearchIndexDefinition searchDef, FieldPath path) {
-    // getRootFields() is keyed by full dotted FieldPath, so nested paths (e.g. a.b) resolve too,
-    // unlike the top-level-only fields() map.
-    return Optional.ofNullable(
-            searchDef.getMappings().fieldHierarchyContext().getRootFields().get(path))
-        .flatMap(FieldDefinition::searchAutoEmbedFieldDefinition);
+    return searchDef.getAutoEmbedFields().get(path);
   }
 }

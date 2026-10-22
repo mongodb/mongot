@@ -30,7 +30,6 @@ import com.xgen.mongot.index.version.Generation;
 import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.index.version.MaterializedViewGenerationId;
 import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
@@ -171,7 +170,6 @@ public class MaterializedViewIndex {
       ObjectId indexId, long indexDefinitionVersion) {
     SearchAutoEmbedFieldDefinition autoEmbedField =
         new SearchAutoEmbedFieldDefinition(
-            FieldPath.parse("field"),
             new VectorAutoEmbedFieldSpecification(
                 1024,
                 VectorSimilarity.DOT_PRODUCT,
@@ -190,7 +188,7 @@ public class MaterializedViewIndex {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "field_embed",
+                    "field",
                     FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
                 .build())
         .definitionVersion(indexDefinitionVersion)

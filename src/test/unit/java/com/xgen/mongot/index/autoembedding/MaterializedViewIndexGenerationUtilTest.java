@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
@@ -475,7 +474,7 @@ public class MaterializedViewIndexGenerationUtilTest {
   // ---- Search index ----
 
   private static final SearchAutoEmbedFieldDefinition SEARCH_AUTO_EMBED_FIELD =
-      new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+      new SearchAutoEmbedFieldDefinition("voyage-3-large");
 
   private static SearchIndexDefinitionBuilder baseSearchBuilder(long defVersion) {
     return SearchIndexDefinitionBuilder.builder()
@@ -495,7 +494,7 @@ public class MaterializedViewIndexGenerationUtilTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(dynamic)
                 .field(
-                    "content_embed",
+                    "content",
                     FieldDefinitionBuilder.builder()
                         .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                         .build())
@@ -513,7 +512,7 @@ public class MaterializedViewIndexGenerationUtilTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "content_embed",
+                    "content",
                     FieldDefinitionBuilder.builder()
                         .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                         .build())
@@ -564,7 +563,6 @@ public class MaterializedViewIndexGenerationUtilTest {
       VectorAutoEmbedQuantization quantization,
       VectorIndexingAlgorithm indexingAlgorithm) {
     return new SearchAutoEmbedFieldDefinition(
-        FieldPath.parse("content"),
         new VectorAutoEmbedFieldSpecification(
             numDimensions, similarity, quantization, indexingAlgorithm, modelName, "text"));
   }
@@ -590,7 +588,7 @@ public class MaterializedViewIndexGenerationUtilTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "content_embed",
+                    "content",
                     FieldDefinitionBuilder.builder()
                         .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                         .build())
@@ -620,7 +618,7 @@ public class MaterializedViewIndexGenerationUtilTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "content_embed",
+                    "content",
                     FieldDefinitionBuilder.builder()
                         .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                         .build())
@@ -654,7 +652,7 @@ public class MaterializedViewIndexGenerationUtilTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "content_embed",
+                    "content",
                     FieldDefinitionBuilder.builder()
                         .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                         .build())
@@ -690,7 +688,7 @@ public class MaterializedViewIndexGenerationUtilTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "content_embed",
+                    "content",
                     FieldDefinitionBuilder.builder()
                         .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                         .build())
@@ -717,11 +715,9 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
-                            .searchAutoEmbed(
-                                new SearchAutoEmbedFieldDefinition(
-                                    "voyage-3-small", FieldPath.parse("content")))
+                            .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-small"))
                             .build())
                     .build())
             .build();
@@ -733,7 +729,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(
             1L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -742,7 +738,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
             2L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.COSINE,
@@ -758,7 +754,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(
             1L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -767,7 +763,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
             2L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -784,7 +780,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(
             1L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -793,7 +789,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
             2L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -809,7 +805,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(
             1L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -818,7 +814,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
             2L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -834,7 +830,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(
             1L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -843,7 +839,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
             2L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 256,
                 VectorSimilarity.DOT_PRODUCT,
@@ -859,7 +855,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def1 =
         searchDefWithAutoEmbedField(
             1L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 "voyage-3-large",
                 512,
@@ -869,7 +865,7 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
             2L,
-            "content_embed",
+            "content",
             searchAutoEmbedField(
                 "voyage-3-small",
                 512,
@@ -890,7 +886,7 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
@@ -920,7 +916,7 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(true)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
@@ -941,11 +937,9 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(true)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
-                            .searchAutoEmbed(
-                                new SearchAutoEmbedFieldDefinition(
-                                    "voyage-3-small", FieldPath.parse("content")))
+                            .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-small"))
                             .build())
                     .build())
             .build();
@@ -962,7 +956,7 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
@@ -981,7 +975,7 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
@@ -1040,7 +1034,7 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
@@ -1136,13 +1130,13 @@ public class MaterializedViewIndexGenerationUtilTest {
   }
 
   @Test
-  public void skipInitialSync_search_autoEmbedDestinationKeyRenamed_returnsTrue() {
-    // The embed mapping is keyed by path, not the destination field name, so renaming the
-    // destination field (same source and model) leaves the materialized embeddings valid.
+  public void skipInitialSync_search_sameSourcePathAndModel_returnsTrue() {
+    // The embed mapping is keyed by the source path, which is the mapping key in GA syntax: two
+    // definitions that name the same source and model share the materialized-view content.
     SearchIndexDefinition def1 =
-        searchDefWithAutoEmbedField(1L, "content_embed", SEARCH_AUTO_EMBED_FIELD);
+        searchDefWithAutoEmbedField(1L, "content", SEARCH_AUTO_EMBED_FIELD);
     SearchIndexDefinition def2 =
-        searchDefWithAutoEmbedField(2L, "embedding", SEARCH_AUTO_EMBED_FIELD);
+        searchDefWithAutoEmbedField(2L, "content", SEARCH_AUTO_EMBED_FIELD);
     assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
   }
 
@@ -1150,12 +1144,10 @@ public class MaterializedViewIndexGenerationUtilTest {
   public void skipInitialSync_search_autoEmbedPathChanged_returnsFalse() {
     // Embedding a different source field changes the materialized embeddings.
     SearchIndexDefinition def1 =
-        searchDefWithAutoEmbedField(1L, "content_embed", SEARCH_AUTO_EMBED_FIELD);
+        searchDefWithAutoEmbedField(1L, "content", SEARCH_AUTO_EMBED_FIELD);
     SearchIndexDefinition def2 =
         searchDefWithAutoEmbedField(
-            2L,
-            "content_embed",
-            new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("body")));
+            2L, "body", new SearchAutoEmbedFieldDefinition("voyage-3-large"));
     assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
   }
 
@@ -1169,16 +1161,14 @@ public class MaterializedViewIndexGenerationUtilTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
                             .searchAutoEmbed(SEARCH_AUTO_EMBED_FIELD)
                             .build())
                     .field(
-                        "title_embed",
+                        "title",
                         FieldDefinitionBuilder.builder()
-                            .searchAutoEmbed(
-                                new SearchAutoEmbedFieldDefinition(
-                                    "voyage-3-large", FieldPath.parse("title")))
+                            .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                             .build())
                     .build())
             .build();
@@ -1231,78 +1221,6 @@ public class MaterializedViewIndexGenerationUtilTest {
     SearchIndexDefinition def2 = searchDefWithMultiTypeDocumentFields(true);
     assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
     assertTrue(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
-  }
-
-  @Test
-  public void skipInitialSync_search_deepDeclaredChildUnderEmbedSource_resyncs() {
-    // A declared child beneath an embed source is new MV content even under a dynamic root: the
-    // embed-source carve-out means the value is only copied once explicitly declared.
-    DocumentFieldDefinition details =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "text",
-                FieldDefinitionBuilder.builder()
-                    .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .build();
-    DocumentFieldDefinition description =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field("details", FieldDefinitionBuilder.builder().document(details).build())
-            .build();
-    DocumentFieldDefinitionBuilder mappingsBuilder =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(true)
-            .field(
-                "desc_embed",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
-                    .build());
-    SearchIndexDefinition def1 = baseSearchBuilder(1L).mappings(mappingsBuilder.build()).build();
-    SearchIndexDefinition def2 =
-        baseSearchBuilder(2L)
-            .mappings(
-                mappingsBuilder
-                    .field(
-                        "description",
-                        FieldDefinitionBuilder.builder().document(description).build())
-                    .build())
-            .build();
-    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
-    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
-  }
-
-  @Test
-  public void skipInitialSync_search_literalDottedChildUnderEmbedSource_resyncs() {
-    // A root literal dotted key ("description.text") resolves to a nested path under the embed
-    // source; declaring it is new MV content and requires a resync even in dynamic mode.
-    DocumentFieldDefinitionBuilder mappingsBuilder =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(true)
-            .field(
-                "description_embed",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
-                    .build());
-    SearchIndexDefinition def1 = baseSearchBuilder(1L).mappings(mappingsBuilder.build()).build();
-    SearchIndexDefinition def2 =
-        baseSearchBuilder(2L)
-            .mappings(
-                mappingsBuilder
-                    .field(
-                        "description.text",
-                        FieldDefinitionBuilder.builder()
-                            .string(StringFieldDefinitionBuilder.builder().build())
-                            .build())
-                    .build())
-            .build();
-    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def1, def2));
-    assertFalse(MaterializedViewIndexGenerationUtil.skipInitialSync(def2, def1));
   }
 
   @Test

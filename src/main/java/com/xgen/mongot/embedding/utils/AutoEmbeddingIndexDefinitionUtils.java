@@ -7,6 +7,7 @@ import static com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator.getMa
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.Var;
+import com.xgen.mongot.index.definition.AutoEmbedFieldSet;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.DynamicDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
@@ -181,6 +182,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
     Map<FieldPath, SearchIndexVectorFieldDefinition> hoistedVectorFields = new LinkedHashMap<>();
     collectDerivedSearchFields(
         rawMappings.fields(),
+        Optional.empty(),
         schemaMetadata,
         rawMappings.dynamic().isEnabled(),
         derivedFields,
@@ -214,11 +216,13 @@ public class AutoEmbeddingIndexDefinitionUtils {
    */
   private static void collectDerivedSearchFields(
       Map<String, FieldDefinition> fields,
+      Optional<FieldPath> prefix,
       MaterializedViewSchemaMetadata schemaMetadata,
       boolean underDynamicMapping,
       Map<String, FieldDefinition> out,
       Map<FieldPath, SearchIndexVectorFieldDefinition> hoistedVectorFields) {
     for (Map.Entry<String, FieldDefinition> entry : fields.entrySet()) {
+      FieldPath path = AutoEmbedFieldSet.mappingKeyPath(prefix, entry.getKey());
       FieldDefinition fieldDef = entry.getValue();
       var autoEmbed = fieldDef.searchAutoEmbedFieldDefinition();
       var document = fieldDef.documentFieldDefinition();
@@ -228,7 +232,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
         // carries only the vector definition: the field's other type alternatives describe the
         // declaration path, not the mat-view path holding the vector.
         FieldPath matViewPath =
-            getMatViewFieldPath(autoEmbedDef.path(), schemaMetadata.autoEmbeddingFieldsMapping());
+            getMatViewFieldPath(path, schemaMetadata.autoEmbeddingFieldsMapping());
         hoistedVectorFields.put(
             matViewPath,
             new SearchIndexVectorFieldDefinition(
@@ -241,6 +245,7 @@ public class AutoEmbeddingIndexDefinitionUtils {
         Map<String, FieldDefinition> childFields = new LinkedHashMap<>();
         collectDerivedSearchFields(
             documentDef.fields(),
+            Optional.of(path),
             schemaMetadata,
             underDynamicMapping || documentDef.dynamic().isEnabled(),
             childFields,

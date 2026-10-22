@@ -27,7 +27,6 @@ import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
 import com.xgen.mongot.index.status.IndexStatus;
 import com.xgen.mongot.index.status.SynonymStatus;
 import com.xgen.mongot.index.synonym.SynonymDetailedStatus;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.config.manager.ConfigStateMocks;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
@@ -376,8 +375,7 @@ public class AllPresentIndexesTest {
     ObjectId indexId = new ObjectId();
 
     // Raw user-facing search auto-embed definition: contains the auto-embed field, no synonyms.
-    SearchAutoEmbedFieldDefinition autoEmbed =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("field"));
+    SearchAutoEmbedFieldDefinition autoEmbed = new SearchAutoEmbedFieldDefinition("voyage-3-large");
     SearchIndexDefinition rawDef =
         SearchIndexDefinitionBuilder.builder()
             .defaultMetadata()
@@ -386,7 +384,7 @@ public class AllPresentIndexesTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "field_embed",
+                        "field",
                         FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
                     .build())
             .build();
@@ -435,8 +433,7 @@ public class AllPresentIndexesTest {
   public void testAutoEmbeddingSearchIndex_IndexInformationCarriesSynonymsFromDerivedIndex() {
     ObjectId indexId = new ObjectId();
 
-    SearchAutoEmbedFieldDefinition autoEmbed =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("field"));
+    SearchAutoEmbedFieldDefinition autoEmbed = new SearchAutoEmbedFieldDefinition("voyage-3-large");
     SearchIndexDefinition rawDef =
         SearchIndexDefinitionBuilder.builder()
             .defaultMetadata()
@@ -445,7 +442,7 @@ public class AllPresentIndexesTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "field_embed",
+                        "field",
                         FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
                     .build())
             .build();

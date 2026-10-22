@@ -955,11 +955,9 @@ public class SearchIndexDefinitionTest {
                   DocumentFieldDefinitionBuilder.builder()
                       .dynamic(false)
                       .field(
-                          "embedding",
+                          "content",
                           FieldDefinitionBuilder.builder()
-                              .searchAutoEmbed(
-                                  new SearchAutoEmbedFieldDefinition(
-                                      "voyage-3-large", FieldPath.parse("content")))
+                              .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                               .build())
                       .build())
               .build()
@@ -974,8 +972,15 @@ public class SearchIndexDefinitionTest {
               .toBson()
               .getDocument("mappings")
               .getDocument("fields")
-              .getDocument("embedding")
+              .getDocument("content")
               .get("type"));
+      Assert.assertFalse(
+          parsed
+              .toBson()
+              .getDocument("mappings")
+              .getDocument("fields")
+              .getDocument("content")
+              .containsKey("path"));
     }
 
     @Test
@@ -995,11 +1000,9 @@ public class SearchIndexDefinitionTest {
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)
               .field(
-                  "title_embedding",
+                  "title",
                   FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("title")))
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .field("parent", nestedAutoEmbedField())
               .build();
@@ -1007,95 +1010,30 @@ public class SearchIndexDefinitionTest {
       Assert.assertEquals(
           Map.of(
               FieldPath.parse("title"), "voyage-3-large",
-              FieldPath.parse("content"), "voyage-3-large"),
+              FieldPath.parse("parent.content"), "voyage-3-large"),
           def.getModelNamePerPath());
     }
 
     @Test
-    public void getModelNamePerPath_autoEmbedAndDocumentAlternatives_collectsBoth() {
-      // A field declared as both an auto-embed and a document with its own nested auto-embed
-      // (search mappings may declare several types per field): both source fields must be
-      // collected or the nested one is never embedded.
-      DocumentFieldDefinition nested =
-          DocumentFieldDefinitionBuilder.builder()
-              .dynamic(false)
-              .field(
-                  "nested_embedding",
-                  FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("deep")))
-                      .build())
-              .build();
+    public void getModelNamePerPath_literalDottedKey_keepsSingleMappingKeySegment() {
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)
               .field(
-                  "combo",
+                  "parent.content",
                   FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("top")))
-                      .document(nested)
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .build();
       var def = definitionBuilderWithMappings(mappings).build();
-      Assert.assertEquals(
-          Map.of(
-              FieldPath.parse("top"), "voyage-3-large",
-              FieldPath.parse("deep"), "voyage-3-large"),
-          def.getModelNamePerPath());
+
+      FieldPath sourcePath = def.getAutoEmbedFields().byPath().keySet().iterator().next();
+      Assert.assertTrue(sourcePath.isAtRoot());
+      Assert.assertEquals("parent.content", sourcePath.getLeaf());
     }
 
     @Test
-    public void construction_duplicateAutoEmbedPaths_keepsLastWithoutThrowing() {
-      // Duplicate paths are rejected at the definition boundaries (fromBson and the
-      // community validator); construction itself must not throw a raw duplicate-key error.
-      DocumentFieldDefinition mappings =
-          DocumentFieldDefinitionBuilder.builder()
-              .dynamic(false)
-              .field(
-                  "first_embed",
-                  FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("content")))
-                      .build())
-              .field("parent", nestedAutoEmbedField())
-              .build();
-      var def = definitionBuilderWithMappings(mappings).build();
-      Assert.assertEquals(
-          Map.of(FieldPath.parse("content"), "voyage-3-large"), def.getModelNamePerPath());
-    }
-
-    @Test
-    public void fromBson_duplicateAutoEmbedPaths_throwsParseError() {
-      // A nested and a top-level declaration sharing a path must fail as a clean parse
-      // error rather than an IllegalArgumentException from map construction.
-      var def = definitionBuilderWithMappings(nestedAutoEmbedMappings()).build();
-      BsonDocument bson = def.toBson();
-      bson.getDocument("mappings")
-          .getDocument("fields")
-          .put(
-              "duplicate_embed",
-              BsonDocument.parse(
-                  "{'type': 'autoEmbed', 'model': 'voyage-3-large',"
-                      + " 'modality': 'text', 'path': 'content'}"));
-      try {
-        SearchIndexDefinition.fromBson(bson);
-        Assert.fail("expected BsonParseException");
-      } catch (BsonParseException e) {
-        Assert.assertTrue(
-            "message should name the duplicate path: " + e.getMessage(),
-            e.getMessage().contains("path") && e.getMessage().contains("content"));
-      }
-    }
-
-    @Test
-    public void fromBson_pathOverlapsDeclaredTextField_isAccepted() throws Exception {
-      // A path may be both an autoEmbed source and an explicitly declared text field (dual role):
-      // the pipeline embeds the source value and the MV copies the raw value so the text mapping is
-      // populated.
+    public void fromBson_sameKeyTextAndAutoEmbed_isAccepted() throws Exception {
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)
@@ -1103,13 +1041,7 @@ public class SearchIndexDefinitionTest {
                   "content",
                   FieldDefinitionBuilder.builder()
                       .string(StringFieldDefinitionBuilder.builder().build())
-                      .build())
-              .field(
-                  "content_embed",
-                  FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("content")))
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .build();
       BsonDocument bson = definitionBuilderWithMappings(mappings).build().toBson();
@@ -1117,98 +1049,70 @@ public class SearchIndexDefinitionTest {
       SearchIndexDefinition parsed = SearchIndexDefinition.fromBson(bson);
 
       Assert.assertTrue(parsed.getMappings().fields().containsKey("content"));
-      Assert.assertEquals(
-          FieldPath.parse("content"),
-          parsed
-              .getMappings()
-              .fields()
-              .get("content_embed")
-              .searchAutoEmbedFieldDefinition()
-              .orElseThrow()
-              .path());
+      Assert.assertTrue(
+          parsed.getMappings().fields().get("content").stringFieldDefinition().isPresent());
+      Assert.assertTrue(parsed.getAutoEmbedFields().get(FieldPath.parse("content")).isPresent());
     }
 
     @Test
-    public void fromBson_pathOverlapsOwnScalarAlternative_isAccepted() throws Exception {
-      // Dual role: one declaration may carry a text alternative and an autoEmbed; the scalar and
-      // the generated vector share the field key as their query path.
+    public void fromBson_sameKeyNumberAndAutoEmbed_isAccepted() throws Exception {
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)
               .field(
-                  "title",
+                  "price",
                   FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("title")))
-                      .string(StringFieldDefinitionBuilder.builder().build())
+                      .number(NumericFieldDefinitionBuilder.builder().buildNumberField())
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .build();
       BsonDocument bson = definitionBuilderWithMappings(mappings).build().toBson();
 
       SearchIndexDefinition parsed = SearchIndexDefinition.fromBson(bson);
 
-      FieldDefinition parsedTitle = parsed.getMappings().fields().get("title");
-      Assert.assertTrue(parsedTitle.stringFieldDefinition().isPresent());
-      Assert.assertEquals(
-          FieldPath.parse("title"),
-          parsedTitle.searchAutoEmbedFieldDefinition().orElseThrow().path());
+      Assert.assertTrue(
+          parsed.getMappings().fields().get("price").numberFieldDefinition().isPresent());
+      Assert.assertTrue(parsed.getAutoEmbedFields().get(FieldPath.parse("price")).isPresent());
     }
 
     @Test
-    public void fromBson_autoEmbedPathEqualsFieldNameOnlyType_isAccepted() throws Exception {
-      // The auto-embed field name may equal its own source path as long as the declaration has no
-      // other type alternative.
+    public void fromBson_sameKeyDocumentAndAutoEmbed_throwsParseError() {
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)
               .field(
                   "description",
                   FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("description")))
+                      .document(DocumentFieldDefinitionBuilder.builder().dynamic(false).build())
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .build();
       BsonDocument bson = definitionBuilderWithMappings(mappings).build().toBson();
 
-      SearchIndexDefinition parsed = SearchIndexDefinition.fromBson(bson);
+      BsonParseException exception =
+          Assert.assertThrows(BsonParseException.class, () -> SearchIndexDefinition.fromBson(bson));
 
-      Assert.assertEquals(
-          FieldPath.parse("description"),
-          parsed
-              .getMappings()
-              .fields()
-              .get("description")
-              .searchAutoEmbedFieldDefinition()
-              .orElseThrow()
-              .path());
+      Assert.assertTrue(exception.getMessage().contains("description"));
     }
 
     @Test
-    public void collectDeclaredPathsAndAutoEmbedPaths_scalarFieldSharingSourcePath_isNotConflict() {
-      // Dual role: the scalar mapping is a separate field, so the shared source path is allowed.
+    public void fromBson_sameKeyGeoAndAutoEmbed_throwsParseError() {
       DocumentFieldDefinition mappings =
           DocumentFieldDefinitionBuilder.builder()
               .dynamic(false)
               .field(
-                  "description",
+                  "location",
                   FieldDefinitionBuilder.builder()
-                      .string(StringFieldDefinitionBuilder.builder().build())
-                      .build())
-              .field(
-                  "desc_embedding",
-                  FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("description")))
+                      .geo(GeoFieldDefinitionBuilder.builder().build())
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .build();
+      BsonDocument bson = definitionBuilderWithMappings(mappings).build().toBson();
 
-      CollectedPaths collected = collectPaths(mappings);
+      BsonParseException exception =
+          Assert.assertThrows(BsonParseException.class, () -> SearchIndexDefinition.fromBson(bson));
 
-      assertEquals(Set.of(), collected.conflictingPaths());
-      assertEquals(Set.of(FieldPath.parse("description")), collected.autoEmbedPaths());
+      Assert.assertTrue(exception.getMessage().contains("location"));
     }
 
     @Test
@@ -1220,9 +1124,7 @@ public class SearchIndexDefinitionTest {
               .field(
                   "title",
                   FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("title")))
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .string(StringFieldDefinitionBuilder.builder().build())
                       .build())
               .build();
@@ -1242,9 +1144,7 @@ public class SearchIndexDefinitionTest {
               .field(
                   "description",
                   FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("description")))
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .number(NumericFieldDefinitionBuilder.builder().buildNumberField())
                       .build())
               .build();
@@ -1256,37 +1156,33 @@ public class SearchIndexDefinitionTest {
     }
 
     @Test
-    public void collectDeclaredPathsAndAutoEmbedPaths_scalarUnderEmbeddedDocuments_isConflict() {
-      // Auto-embed beneath embeddedDocuments is unsupported (AUTO_EMBED is an illegal
-      // embeddedDocuments subfield type), so an auto-embed path pointing into the subtree stays
-      // conflicting even when the leaf itself is a scalar.
-      EmbeddedDocumentsFieldDefinition embedded =
-          EmbeddedDocumentsFieldDefinitionBuilder.builder()
-              .dynamic(false)
-              .field(
-                  "comment",
-                  FieldDefinitionBuilder.builder()
-                      .string(StringFieldDefinitionBuilder.builder().build())
-                      .build())
-              .build();
-      DocumentFieldDefinition mappings =
-          DocumentFieldDefinitionBuilder.builder()
-              .dynamic(false)
-              .field(
-                  "reviews", FieldDefinitionBuilder.builder().embeddedDocuments(embedded).build())
-              .field(
-                  "reviews_embed",
-                  FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("reviews.comment")))
-                      .build())
-              .build();
+    public void fromBson_autoEmbedUnderEmbeddedDocuments_throwsParseError() {
+      BsonDocument bson =
+          definitionBuilderWithMappings(BASIC_MAPPINGS).build().toBson().clone().toBsonDocument();
+      bson.getDocument("mappings")
+          .put(
+              "fields",
+              BsonDocument.parse(
+                  """
+                  {
+                    "reviews": {
+                      "type": "embeddedDocuments",
+                      "dynamic": false,
+                      "fields": {
+                        "comment": [
+                          {"type": "string"},
+                          {"type": "autoEmbed", "model": "voyage-3-large", "modality": "text"}
+                        ]
+                      }
+                    }
+                  }
+                  """));
 
-      CollectedPaths collected = collectPaths(mappings);
+      BsonParseException exception =
+          Assert.assertThrows(BsonParseException.class, () -> SearchIndexDefinition.fromBson(bson));
 
-      assertEquals(Set.of(FieldPath.parse("reviews.comment")), collected.conflictingPaths());
-      assertEquals(Set.of(FieldPath.parse("reviews.comment")), collected.autoEmbedPaths());
+      Assert.assertTrue(exception.getMessage().contains("autoEmbed"));
+      Assert.assertTrue(exception.getMessage().contains("embeddedDocuments"));
     }
 
     @Test
@@ -1301,13 +1197,7 @@ public class SearchIndexDefinitionTest {
                   "title",
                   FieldDefinitionBuilder.builder()
                       .string(StringFieldDefinitionBuilder.builder().build())
-                      .build())
-              .field(
-                  "title_embedding",
-                  FieldDefinitionBuilder.builder()
-                      .searchAutoEmbed(
-                          new SearchAutoEmbedFieldDefinition(
-                              "voyage-3-large", FieldPath.parse("parent.title")))
+                      .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                       .build())
               .build();
       DocumentFieldDefinition mappings =
@@ -1360,11 +1250,9 @@ public class SearchIndexDefinitionTest {
               DocumentFieldDefinitionBuilder.builder()
                   .dynamic(false)
                   .field(
-                      "embedding",
+                      "content",
                       FieldDefinitionBuilder.builder()
-                          .searchAutoEmbed(
-                              new SearchAutoEmbedFieldDefinition(
-                                  "voyage-3-large", FieldPath.parse("content")))
+                          .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                           .build())
                   .build())
           .build();

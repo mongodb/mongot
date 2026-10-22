@@ -3,7 +3,6 @@ package com.xgen.mongot.index.definition;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.load;
 
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.TestUtils;
@@ -207,8 +206,11 @@ public class DocumentFieldDefinitionTest {
     public void testContainsSearchAutoEmbedField() {
       FieldDefinition autoEmbed =
           FieldDefinitionBuilder.builder()
-              .searchAutoEmbed(
-                  new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content")))
+              .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+              .build();
+      FieldDefinition nestedAutoEmbed =
+          FieldDefinitionBuilder.builder()
+              .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
               .build();
       FieldDefinition plain =
           FieldDefinitionBuilder.builder()
@@ -216,7 +218,7 @@ public class DocumentFieldDefinitionTest {
               .build();
 
       DocumentFieldDefinition topLevel =
-          DocumentFieldDefinitionBuilder.builder().field("embedding", autoEmbed).build();
+          DocumentFieldDefinitionBuilder.builder().field("content", autoEmbed).build();
       Assert.assertTrue("top-level auto-embed", topLevel.containsSearchAutoEmbedField());
 
       DocumentFieldDefinition nested =
@@ -226,7 +228,7 @@ public class DocumentFieldDefinitionTest {
                   FieldDefinitionBuilder.builder()
                       .document(
                           DocumentFieldDefinitionBuilder.builder()
-                              .field("embedding", autoEmbed)
+                              .field("content", nestedAutoEmbed)
                               .build())
                       .build())
               .build();

@@ -2190,16 +2190,16 @@ public class ChangeStreamDocumentUtilsFilterOnlyUpdateTest {
   }
 
   private static SearchIndexDefinition searchAutoEmbedIndex() {
-    SearchAutoEmbedFieldDefinition autoEmbed =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("body"));
     return SearchIndexDefinitionBuilder.builder()
         .defaultMetadata()
         .mappings(
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "embedding",
-                    FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
+                    "body",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                        .build())
                 .field(
                     "category",
                     FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build())

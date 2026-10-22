@@ -7,7 +7,6 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.Map;
@@ -41,7 +40,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
               "type": "autoEmbed",
               "model": "voyage-3-large",
               "modality": "text",
-              "path": "content",
               "numDimensions": 256,
               "similarity": "cosine",
               "quantization": "scalar",
@@ -52,7 +50,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
 
     SearchAutoEmbedFieldDefinition definition = parse(bson);
 
-    assertThat(definition.path()).isEqualTo(FieldPath.parse("content"));
     assertThat(definition.specification().numDimensions()).isEqualTo(256);
     assertThat(definition.specification().similarity()).isEqualTo(VectorSimilarity.COSINE);
     assertThat(definition.specification().autoEmbedQuantization())
@@ -71,8 +68,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
             {
               "type": "autoEmbed",
               "model": "Voyage-3-Large",
-              "modality": "TEXT",
-              "path": "content"
+              "modality": "TEXT"
             }
             """);
 
@@ -99,7 +95,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> new SearchAutoEmbedFieldDefinition(FieldPath.parse("content"), specification));
+            () -> new SearchAutoEmbedFieldDefinition(specification));
 
     assertThat(exception.getMessage()).contains("binaryNoRescore");
     assertThat(exception.getMessage()).contains("euclidean");
@@ -119,7 +115,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
     IllegalArgumentException exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> new SearchAutoEmbedFieldDefinition(FieldPath.parse("content"), specification));
+            () -> new SearchAutoEmbedFieldDefinition(specification));
 
     assertThat(exception.getMessage()).contains("multiple of 8");
   }
@@ -128,7 +124,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
   public void toBson_roundTrip_preservesAdvancedVectorConfigs() throws Exception {
     SearchAutoEmbedFieldDefinition original =
         new SearchAutoEmbedFieldDefinition(
-            FieldPath.parse("content"),
             new VectorAutoEmbedFieldSpecification(
                 256,
                 VectorSimilarity.COSINE,
@@ -141,7 +136,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
     SearchAutoEmbedFieldDefinition roundTripped = parse(original.toBson());
     BsonDocument roundTrippedBson = roundTripped.fieldTypeToBson();
 
-    assertThat(roundTripped).isEqualTo(original);
+    assertThat(roundTripped.fieldTypeToBson()).isEqualTo(original.fieldTypeToBson());
     assertThat(roundTrippedBson.getInt32("numDimensions").getValue()).isEqualTo(256);
     assertThat(roundTrippedBson.getString("similarity").getValue()).isEqualTo("cosine");
     assertThat(roundTrippedBson.getString("quantization").getValue()).isEqualTo("scalar");
@@ -160,8 +155,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
             {
               "type": "autoEmbed",
               "model": "voyage-3-large",
-              "modality": "text",
-              "path": "content"
+              "modality": "text"
             }
             """);
 
@@ -173,6 +167,25 @@ public class SearchAutoEmbedFieldDefinitionTest {
     assertThat(serialized.getString("quantization").getValue()).isEqualTo("float");
     assertThat(serialized.containsKey("indexingMethod")).isFalse();
     assertThat(serialized.containsKey("hnswOptions")).isFalse();
+    assertThat(serialized.containsKey("path")).isFalse();
+  }
+
+  @Test
+  public void fromBson_explicitPath_throwsParseError() {
+    BsonDocument bson =
+        BsonDocument.parse(
+            """
+            {
+              "type": "autoEmbed",
+              "model": "voyage-3-large",
+              "modality": "text",
+              "path": "content"
+            }
+            """);
+
+    BsonParseException exception = assertThrows(BsonParseException.class, () -> parse(bson));
+
+    assertThat(exception.getMessage()).contains("path");
   }
 
   @Test
@@ -183,8 +196,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
             {
               "type": "autoEmbed",
               "model": "voyage-3-large",
-              "modality": "text",
-              "path": "content"
+              "modality": "text"
             }
             """);
     SearchAutoEmbedFieldDefinition definition = parse(bson);
@@ -210,8 +222,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
             {
               "type": "autoEmbed",
               "model": "voyage-4-lite",
-              "modality": "text",
-              "path": "content"
+              "modality": "text"
             }
             """);
 
@@ -240,7 +251,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
               "type": "autoEmbed",
               "model": "voyage-3-large",
               "modality": "text",
-              "path": "content",
               "numDimensions": 256,
               "quantization": "binary"
             }
@@ -262,8 +272,7 @@ public class SearchAutoEmbedFieldDefinitionTest {
             {
               "type": "autoEmbed",
               "model": "unregistered-model",
-              "modality": "text",
-              "path": "content"
+              "modality": "text"
             }
             """);
 
@@ -281,7 +290,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
               "type": "autoEmbed",
               "model": "voyage-3-large",
               "modality": "text",
-              "path": "content",
               "indexingMethod": "flat",
               "hnswOptions": {"maxEdges": 32}
             }
@@ -301,7 +309,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
               "type": "autoEmbed",
               "model": "voyage-3-large",
               "modality": "text",
-              "path": "content",
               "numDimensions": 256,
               "quantization": "binaryNoRescore"
             }
@@ -323,7 +330,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
               "type": "autoEmbed",
               "model": "voyage-3-large",
               "modality": "text",
-              "path": "content",
               "numDimensions": 256,
               "similarity": "cosine",
               "quantization": "binaryNoRescore"
@@ -345,7 +351,6 @@ public class SearchAutoEmbedFieldDefinitionTest {
               "type": "autoEmbed",
               "model": "voyage-3-large",
               "modality": "text",
-              "path": "content",
               "numDimensions": 255,
               "quantization": "binary"
             }

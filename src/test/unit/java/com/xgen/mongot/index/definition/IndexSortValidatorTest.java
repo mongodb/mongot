@@ -1,9 +1,11 @@
 package com.xgen.mongot.index.definition;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.google.common.collect.ImmutableList;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.query.sort.EmbeddedSortScope;
 import com.xgen.mongot.index.query.sort.MetaSortField;
 import com.xgen.mongot.index.query.sort.MetaSortOptions;
@@ -252,6 +254,45 @@ public class IndexSortValidatorTest {
     assertEquals(types, result);
   }
 
+  @Test
+  public void validateSortFieldsAreSortable_withAutoEmbedField_throwsException() {
+    Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
+    staticFields.put("field1", createAutoEmbedFieldDefinition());
+
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)));
+
+    try {
+      IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
+      fail("Expected BsonParseException");
+    } catch (BsonParseException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("{field1=[AUTO_EMBED]}"));
+    }
+  }
+
+  @Test
+  public void validateSortFieldsAreSortable_withStringAndAutoEmbedField_throwsException() {
+    Trie<String, FieldDefinition> staticFields = new PatriciaTrie<>();
+    staticFields.put("field1", createStringAndAutoEmbedFieldDefinition());
+
+    Sort sort =
+        new Sort(
+            ImmutableList.of(
+                new MongotSortField(
+                    FieldPath.newRoot("field1"), UserFieldSortOptions.DEFAULT_ASC)));
+
+    try {
+      IndexSortValidator.validateSortFieldsAreSortable(sort, staticFields);
+      fail("Expected BsonParseException");
+    } catch (BsonParseException e) {
+      assertTrue(e.getMessage(), e.getMessage().contains("AUTO_EMBED"));
+      assertTrue(e.getMessage(), e.getMessage().contains("STRING"));
+    }
+  }
+
   // Helper methods to create field definitions
   private FieldDefinition createTokenFieldDefinition() {
     return FieldDefinitionBuilder.builder()
@@ -290,5 +331,27 @@ public class IndexSortValidatorTest {
         .token(TokenFieldDefinitionBuilder.builder().build())
         .autocomplete(AutocompleteFieldDefinitionBuilder.builder().build())
         .build();
+  }
+
+  private FieldDefinition createAutoEmbedFieldDefinition() {
+    return FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedDefinition()).build();
+  }
+
+  private FieldDefinition createStringAndAutoEmbedFieldDefinition() {
+    return FieldDefinitionBuilder.builder()
+        .string(StringFieldDefinitionBuilder.builder().build())
+        .searchAutoEmbed(autoEmbedDefinition())
+        .build();
+  }
+
+  private static SearchAutoEmbedFieldDefinition autoEmbedDefinition() {
+    return new SearchAutoEmbedFieldDefinition(
+        new VectorAutoEmbedFieldSpecification(
+            1024,
+            VectorSimilarity.DOT_PRODUCT,
+            VectorAutoEmbedQuantization.FLOAT,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+            "voyage-3-large",
+            "text"));
   }
 }

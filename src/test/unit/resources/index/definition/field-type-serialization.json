@@ -19,8 +19,7 @@
         "modality": "text",
         "numDimensions": 1024,
         "similarity": "dotProduct",
-        "quantization": "float",
-        "path": "description"
+        "quantization": "float"
       }
     },
     {

@@ -211,8 +211,7 @@ public class SearchAutoEmbedPassthroughDefinitionTest {
   @Test
   public void autoEmbedInsideEmbeddedDocuments_isRejectedOnUserDefinitionRoundTrip()
       throws Exception {
-    var nestedAutoEmbed =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("reviews.text"));
+    var nestedAutoEmbed = new SearchAutoEmbedFieldDefinition("voyage-3-large");
     FieldDefinition nestedField =
         FieldDefinitionBuilder.builder().searchAutoEmbed(nestedAutoEmbed).build();
     assertThrows(
@@ -307,16 +306,14 @@ public class SearchAutoEmbedPassthroughDefinitionTest {
                             .build())
                     .build())
             .build();
-    var autoEmbed =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("description"));
+    var autoEmbed = new SearchAutoEmbedFieldDefinition("voyage-3-large");
     DocumentFieldDefinition mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field("title", title)
             .field("subtitle", subtitle)
             .field(
-                "desc_embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
+                "description", FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
             .field("category", category)
             .field("price", price)
             .field("launched", launched)

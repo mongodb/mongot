@@ -29,9 +29,8 @@ import java.util.function.Predicate;
  *       explicitly declared children.
  * </ul>
  *
- * <p>Embed-field keys are the auto-embed source fields (as declared by {@code
- * SearchAutoEmbedFieldDefinition.path()}), so they align with the paths seen in a source document
- * during ingestion.
+ * <p>Embed-field keys are the mapping-key paths of the auto-embed declarations, so they align with
+ * the paths seen in a source document during ingestion.
  */
 public record SearchIndexAutoEmbedFieldMapping(
     DynamicDefinition dynamic,
@@ -111,12 +110,10 @@ public record SearchIndexAutoEmbedFieldMapping(
   public boolean isPassthrough(FieldPath path) {
     if (this.explicitPassthroughPaths.contains(path)) {
       // Dual role: an embed source that is also explicitly declared as a non-embed field is copied
-      // to the MV so the declared mapping is populated, alongside the generated vector, e.g.
-      // "description": {"type": "string"} and "desc_embedding": {"type": "autoEmbed", "path":
-      // "description", "model": "voyage-4-lite", "modality": "text"}. Explicit declarations also
-      // win under an embed source, so mixed-shape sources (a field that is a string in one
-      // document and an object with declared children in another) keep their lexical mappings
-      // populated.
+      // to the MV so the declared mapping is populated alongside the generated vector, for example
+      // "description": [{"type": "string"}, {"type": "autoEmbed", "model": "voyage-4-lite",
+      // "modality": "text"}]. Explicit declarations also win under an embed source, so mixed-shape
+      // sources keep their lexical mappings populated.
       return true;
     }
     if (hasEmbedAncestor(path) || isEmbed(path)) {
@@ -145,10 +142,9 @@ public record SearchIndexAutoEmbedFieldMapping(
    * {@code AutoEmbeddingDocumentUtils} that iterate {@code fieldMap()} for stale-MV detection see
    * both embed and passthrough declarations.
    *
-   * <p>When an explicit passthrough path overlaps an embed source field (e.g. a regular text field
-   * named "content" alongside an auto-embed field whose {@code path} is also "content"), the embed
-   * entry wins in this map. The passthrough role is still reported by {@link
-   * #isPassthrough(FieldPath)} so the raw value is copied to the MV alongside the generated vector.
+   * <p>When an explicit passthrough path is also an embed source (dual role), the embed entry wins
+   * in this map. The passthrough role is still reported by {@link #isPassthrough(FieldPath)} so the
+   * raw value is copied to the MV alongside the generated vector.
    *
    * <p>Dynamic-mode passthroughs are open-ended (anything not embed is passthrough) and cannot be
    * enumerated here, so dynamic mode returns embed-only. See TODO(CLOUDP-384026).

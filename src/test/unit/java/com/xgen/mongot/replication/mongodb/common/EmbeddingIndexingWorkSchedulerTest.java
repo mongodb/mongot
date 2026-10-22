@@ -1662,14 +1662,21 @@ public class EmbeddingIndexingWorkSchedulerTest {
         schedulerForMaterializedViewIndex(
             Suppliers.ofInstance(embeddingServiceManager), generationId);
 
-    SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse(indexId + ".a"));
+    DocumentFieldDefinition indexRootMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "a",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                    .build())
+            .build();
     DocumentFieldDefinition mappings =
         DocumentFieldDefinitionBuilder.builder()
-            .dynamic(true)
+            .dynamic(false)
             .field(
-                "embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                indexId.toString(),
+                FieldDefinitionBuilder.builder().document(indexRootMappings).build())
             .build();
     SearchIndexDefinition searchIndexDefinition =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
@@ -1740,18 +1747,14 @@ public class EmbeddingIndexingWorkSchedulerTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("title")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
-                "summaryVector",
+                "summary",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("summary")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchIndexDefinition =
@@ -1831,10 +1834,9 @@ public class EmbeddingIndexingWorkSchedulerTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embeddingB",
+                "viewTextB",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition("voyage-3-large", sourcePath))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition indexDefinition =
@@ -1910,20 +1912,26 @@ public class EmbeddingIndexingWorkSchedulerTest {
         schedulerForMaterializedViewIndex(
             Suppliers.ofInstance(embeddingServiceManager), generationId);
 
-    SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition(
-            "voyage-3-large", FieldPath.parse(indexId + ".parent.a"));
-    DocumentFieldDefinition parentDoc =
+    DocumentFieldDefinition parentMappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
-                FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
+                "a",
+                FieldDefinitionBuilder.builder()
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                    .build())
+            .build();
+    DocumentFieldDefinition indexRootMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("parent", FieldDefinitionBuilder.builder().document(parentMappings).build())
             .build();
     DocumentFieldDefinition mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
-            .field("parent", FieldDefinitionBuilder.builder().document(parentDoc).build())
+            .field(
+                indexId.toString(),
+                FieldDefinitionBuilder.builder().document(indexRootMappings).build())
             .build();
     SearchIndexDefinition searchIndexDefinition =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();

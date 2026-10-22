@@ -3,12 +3,10 @@ package com.xgen.mongot.index.definition;
 import static com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification.DEFAULT_MODALITY;
 
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
-import com.xgen.mongot.util.bson.parser.FieldPathField;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -17,8 +15,8 @@ import org.bson.BsonDocument;
 /**
  * Represents an auto-embed field definition within a search index.
  *
- * <p>This field type specifies that text from a field path should be automatically embedded using
- * the configured embedding model, then indexed for vector search.
+ * <p>This field type specifies that text at the field's mapping path should be automatically
+ * embedded using the configured embedding model, then indexed for vector search.
  */
 public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition {
 
@@ -33,25 +31,20 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
                         ? java.util.Optional.empty()
                         : java.util.Optional.of("must be '" + DEFAULT_MODALITY + "'"))
             .required();
-    static final Field.Required<FieldPath> PATH =
-        Field.builder("path").classField(FieldPathField::parse, FieldPathField::encode).required();
   }
 
-  private final FieldPath path;
   private final VectorAutoEmbedFieldSpecification specification;
 
-  public SearchAutoEmbedFieldDefinition(String modelName, String modality, FieldPath path) {
-    this(path, resolveSpecificationFromModelConfig(modelName, modality));
+  public SearchAutoEmbedFieldDefinition(String modelName, String modality) {
+    this(resolveSpecificationFromModelConfig(modelName, modality));
   }
 
-  public SearchAutoEmbedFieldDefinition(String modelName, FieldPath path) {
-    this(modelName, DEFAULT_MODALITY, path);
+  public SearchAutoEmbedFieldDefinition(String modelName) {
+    this(modelName, DEFAULT_MODALITY);
   }
 
   /** Creates a Search auto-embed definition with an explicit, already-resolved specification. */
-  public SearchAutoEmbedFieldDefinition(
-      FieldPath path, VectorAutoEmbedFieldSpecification specification) {
-    this.path = path;
+  public SearchAutoEmbedFieldDefinition(VectorAutoEmbedFieldSpecification specification) {
     this.specification = validateResolvedSpecification(specification);
   }
 
@@ -71,10 +64,6 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
 
   public String modality() {
     return this.specification.modality();
-  }
-
-  public FieldPath path() {
-    return this.path;
   }
 
   public VectorAutoEmbedFieldSpecification specification() {
@@ -111,14 +100,12 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
             VectorFieldSpecification.Fields.HNSW_OPTIONS,
             hnswOptions(this.specification.indexingAlgorithm()),
             VectorIndexingAlgorithm.HnswIndexingAlgorithm.DEFAULT_HNSW_OPTIONS)
-        .field(Fields.PATH, this.path)
         .build();
   }
 
   static SearchAutoEmbedFieldDefinition fromBson(DocumentParser parser) throws BsonParseException {
     String modelName = parser.getField(Fields.MODEL).unwrap().toLowerCase(Locale.ROOT);
     String modality = parser.getField(Fields.MODALITY).unwrap().toLowerCase(Locale.ROOT);
-    FieldPath path = parser.getField(Fields.PATH).unwrap();
 
     var indexingMethod = parser.getField(VectorFieldSpecification.Fields.INDEXING_ALGORITHM);
     Optional<VectorFieldSpecification.HnswOptions> hnswOptions =
@@ -146,7 +133,7 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
             modelName,
             modality);
 
-    return new SearchAutoEmbedFieldDefinition(path, specification);
+    return new SearchAutoEmbedFieldDefinition(specification);
   }
 
   /** Rejects resolved settings that the vector field cannot index. */
@@ -196,12 +183,11 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
     if (!(o instanceof SearchAutoEmbedFieldDefinition that)) {
       return false;
     }
-    return Objects.equals(this.path, that.path)
-        && Objects.equals(this.specification, that.specification);
+    return Objects.equals(this.specification, that.specification);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(this.path, this.specification);
+    return Objects.hash(this.specification);
   }
 }

@@ -4,6 +4,7 @@ java_test_suite(
     name = "definition",
     srcs = [
         "AnalyzerBoundSearchIndexDefinitionTest.java",
+        "AutoEmbedFieldSetTest.java",
         "AutocompleteFieldDefinitionTest.java",
         "BooleanFieldDefinitionTest.java",
         "DateFacetFieldDefinitionTest.java",

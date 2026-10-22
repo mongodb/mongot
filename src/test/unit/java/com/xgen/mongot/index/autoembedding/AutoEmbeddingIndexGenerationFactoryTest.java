@@ -120,7 +120,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
   public void derivedIndexDefinitionGeneration_searchIndex_buildsSearchDerivedDefinition() {
     ObjectId indexId = new ObjectId();
     SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+        new SearchAutoEmbedFieldDefinition("voyage-3-large");
     SearchIndexDefinition searchDef =
         SearchIndexDefinitionBuilder.builder()
             .defaultMetadata()
@@ -133,7 +133,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
                     .build())
             .build();
@@ -160,7 +160,6 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
     UUID collectionUuid = UUID.randomUUID();
     SearchAutoEmbedFieldDefinition oldField =
         new SearchAutoEmbedFieldDefinition(
-            FieldPath.parse("title"),
             new VectorAutoEmbedFieldSpecification(
                 512,
                 VectorSimilarity.DOT_PRODUCT,
@@ -170,7 +169,6 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
                 "text"));
     SearchAutoEmbedFieldDefinition newField =
         new SearchAutoEmbedFieldDefinition(
-            FieldPath.parse("title"),
             new VectorAutoEmbedFieldSpecification(
                 512,
                 VectorSimilarity.COSINE,
@@ -180,9 +178,9 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
                 "voyage-3-large",
                 "text"));
     SearchIndexDefinition oldDefinition =
-        searchAutoEmbedDefinition(indexId, collectionUuid, 1L, oldField);
+        searchAutoEmbedDefinition(indexId, collectionUuid, 1L, FieldPath.parse("title"), oldField);
     SearchIndexDefinition newDefinition =
-        searchAutoEmbedDefinition(indexId, collectionUuid, 2L, newField);
+        searchAutoEmbedDefinition(indexId, collectionUuid, 2L, FieldPath.parse("title"), newField);
 
     assertTrue(
         "Lucene-only update must reuse the existing materialized view",
@@ -212,6 +210,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
       ObjectId indexId,
       UUID collectionUuid,
       long definitionVersion,
+      FieldPath autoEmbedPath,
       SearchAutoEmbedFieldDefinition autoEmbedField) {
     return SearchIndexDefinitionBuilder.builder()
         .defaultMetadata()
@@ -225,7 +224,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
             DocumentFieldDefinitionBuilder.builder()
                 .dynamic(false)
                 .field(
-                    "content_embed",
+                    autoEmbedPath.toString(),
                     FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
                 .build())
         .build();
@@ -834,7 +833,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
 
   private static SearchIndexDefinitionGeneration autoEmbedSearchGen() {
     SearchAutoEmbedFieldDefinition autoEmbedField =
-        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("content"));
+        new SearchAutoEmbedFieldDefinition("voyage-3-large");
     SearchIndexDefinition searchDef =
         SearchIndexDefinitionBuilder.builder()
             .defaultMetadata()
@@ -847,7 +846,7 @@ public class AutoEmbeddingIndexGenerationFactoryTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbedField).build())
                     .build())
             .build();

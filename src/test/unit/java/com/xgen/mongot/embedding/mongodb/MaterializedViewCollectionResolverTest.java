@@ -1232,7 +1232,6 @@ public class MaterializedViewCollectionResolverTest {
   }
 
   private static String hashFor(VectorAutoEmbedFieldSpecification specification) {
-    FieldPath path = FieldPath.parse("content");
     SearchIndexDefinition definition =
         SearchIndexDefinitionBuilder.builder()
             .defaultMetadata()
@@ -1245,10 +1244,9 @@ public class MaterializedViewCollectionResolverTest {
                 DocumentFieldDefinitionBuilder.builder()
                     .dynamic(false)
                     .field(
-                        "content_embed",
+                        "content",
                         FieldDefinitionBuilder.builder()
-                            .searchAutoEmbed(
-                                new SearchAutoEmbedFieldDefinition(path, specification))
+                            .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(specification))
                             .build())
                     .build())
             .build();

@@ -168,8 +168,7 @@ public class MaterializedViewPassthroughRoundTripTest {
 
   private static com.xgen.mongot.index.definition.FieldDefinition autoEmbedProbe() {
     return FieldDefinitionBuilder.builder()
-        .searchAutoEmbed(
-            new SearchAutoEmbedFieldDefinition(AUTO_EMBED_MODEL, FieldPath.parse("probeSource")))
+        .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(AUTO_EMBED_MODEL))
         .build();
   }
 }

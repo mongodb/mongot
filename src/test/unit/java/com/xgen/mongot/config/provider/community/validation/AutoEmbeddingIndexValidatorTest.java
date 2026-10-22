@@ -508,8 +508,7 @@ public class AutoEmbeddingIndexValidatorTest {
             VectorAutoEmbedFieldSpecification.DEFAULT_MODALITY);
     SearchIndexDefinition searchIndex =
         createSearchIndexWithAutoEmbedFields(
-            new SearchAutoEmbedFieldDefinition(
-                FieldPath.parse("content"), unregisteredSpecification));
+            new SearchAutoEmbedFieldDefinition(unregisteredSpecification));
 
     InvalidIndexDefinitionException exception =
         assertThrows(
@@ -523,7 +522,7 @@ public class AutoEmbeddingIndexValidatorTest {
   @Test
   public void validateSearchIndexWithMixedVectorTypes_throwsException() {
     SearchAutoEmbedFieldDefinition autoEmbedDef =
-        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL, FieldPath.parse("content"));
+        new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL);
     var knnVectorDef =
         KnnVectorFieldDefinitionBuilder.builder()
             .dimensions(1024)
@@ -571,9 +570,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .field(
                 "generated", FieldDefinitionBuilder.builder().document(generatedNamespace).build())
@@ -612,9 +609,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .field(
                 "_autoEmbed", FieldDefinitionBuilder.builder().document(reservedNamespace).build())
@@ -646,9 +641,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("text")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .build();
     var mappings =
@@ -694,9 +687,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "autoEmbedField",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .field(
                 "sections",
@@ -711,111 +702,6 @@ public class AutoEmbeddingIndexValidatorTest {
             () -> AutoEmbeddingIndexValidator.validate(searchIndex));
 
     assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
-  }
-
-  @Test
-  public void validateSearchIndexWithDuplicatePaths_throwsException() {
-    // A nested and a top-level declaration sharing a path: construction keeps the last
-    // model, and this community-path validation is the clean user-facing rejection.
-    var nested =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
-                    .build())
-            .build();
-    var mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
-            .field(
-                "top_embed",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
-                    .build())
-            .build();
-    SearchIndexDefinition searchIndex =
-        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
-
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
-
-    assertThat(exception.getMessage()).contains("same path");
-    assertThat(exception.getMessage()).contains("content");
-  }
-
-  @Test
-  public void validateSearchIndexWithPathOverlappingDeclaredTextField_isAccepted()
-      throws InvalidIndexDefinitionException {
-    // Dual role: a text declaration sharing an autoEmbed source path is allowed; the MV copies the
-    // raw value alongside the generated vector.
-    var mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "content",
-                FieldDefinitionBuilder.builder()
-                    .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .field(
-                "content_embed",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
-                    .build())
-            .build();
-    SearchIndexDefinition searchIndex =
-        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
-
-    AutoEmbeddingIndexValidator.validate(searchIndex);
-  }
-
-  @Test
-  public void validateSearchIndexWithAutoEmbedSourceUnderEmbeddedDocuments_throwsException() {
-    // Auto-embed beneath embeddedDocuments is unsupported: the source path is declared inside the
-    // embeddedDocuments subtree.
-    var embeddedDocs =
-        EmbeddedDocumentsFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "comment",
-                FieldDefinitionBuilder.builder()
-                    .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .build();
-    var mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "reviews", FieldDefinitionBuilder.builder().embeddedDocuments(embeddedDocs).build())
-            .field(
-                "reviews_embed",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("reviews.comment")))
-                    .build())
-            .build();
-    SearchIndexDefinition searchIndex =
-        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
-
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
-
-    assertThat(exception.getMessage())
-        .contains("autoEmbed is not supported under embeddedDocuments");
-    assertThat(exception.getMessage()).contains("reviews.comment");
   }
 
   @Test
@@ -838,9 +724,7 @@ public class AutoEmbeddingIndexValidatorTest {
                 "description",
                 FieldDefinitionBuilder.builder()
                     .document(docField)
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("description")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .build();
     SearchIndexDefinition searchIndex =
@@ -866,13 +750,7 @@ public class AutoEmbeddingIndexValidatorTest {
                 "location",
                 FieldDefinitionBuilder.builder()
                     .geo(GeoFieldDefinitionBuilder.builder().build())
-                    .build())
-            .field(
-                "location_embed",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("location")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .build();
     SearchIndexDefinition searchIndex =
@@ -898,9 +776,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("title")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .string(StringFieldDefinitionBuilder.builder().build())
                     .build())
             .build();
@@ -920,9 +796,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "description",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("description")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .number(NumericFieldDefinitionBuilder.builder().buildNumberField())
                     .build())
             .build();
@@ -933,8 +807,7 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   private SearchIndexDefinition createSearchIndexWithAutoEmbed(String modelName) {
-    return createSearchIndexWithAutoEmbedFields(
-        new SearchAutoEmbedFieldDefinition(modelName, FieldPath.parse("content")));
+    return createSearchIndexWithAutoEmbedFields(new SearchAutoEmbedFieldDefinition(modelName));
   }
 
   private SearchIndexDefinition createSearchIndexWithAutoEmbedFields(
@@ -956,9 +829,7 @@ public class AutoEmbeddingIndexValidatorTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            REGISTERED_MODEL, FieldPath.parse("content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
                     .build())
             .field(fieldName, fieldDefinition)
             .build();

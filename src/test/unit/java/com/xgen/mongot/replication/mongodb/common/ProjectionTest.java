@@ -7,7 +7,6 @@ import static org.junit.Assert.assertEquals;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.StoredSourceDefinition;
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.mongot.index.definition.BooleanFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DateFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -241,20 +240,17 @@ public class ProjectionTest {
   }
 
   @Test
-  public void testSearchAutoEmbedProjectsPathNotDeclaredName() {
-    // CLOUDP-353553 (A2 shape): the autoEmbed field name ("embedding") differs from its path
-    // ("body"). Embedding reads the text from the path, so the projection must include
-    // "body"; otherwise the source text is stripped from the scanned document and no vector is
-    // generated.
+  public void testSearchAutoEmbedProjectsSourcePath() {
+    // CLOUDP-353553: the auto-embed key is the source path ("body"). Embedding reads the text
+    // from that path, so the projection must include "body"; otherwise the source text is
+    // stripped from the scanned document and no vector is generated.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
+                "body",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("body")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     var definition =
@@ -270,7 +266,8 @@ public class ProjectionTest {
 
   @Test
   public void testNestedSearchAutoEmbedProjectsPath() {
-    // B1 shape: nested-only autoEmbed. The path "product.description" must be projected.
+    // Nested-only autoEmbed: the source path is the full dotted key ("product.description") and
+    // must be projected.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
@@ -281,12 +278,10 @@ public class ProjectionTest {
                         DocumentFieldDefinitionBuilder.builder()
                             .dynamic(false)
                             .field(
-                                "desc_embedding",
+                                "description",
                                 FieldDefinitionBuilder.builder()
                                     .searchAutoEmbed(
-                                        new SearchAutoEmbedFieldDefinition(
-                                            "voyage-3-large",
-                                            FieldPath.parse("product.description")))
+                                        new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                                     .build())
                             .build())
                     .build())
@@ -304,19 +299,16 @@ public class ProjectionTest {
   }
 
   @Test
-  public void testSearchAutoEmbedWithScalarAlternativeProjectsBothPaths() {
-    // D2 shape: one field carries both an autoEmbed (path "body") and a scalar string
-    // alternative. The declared field name ("title", scalar data) AND the path ("body",
-    // embed text) must both be projected.
+  public void testSearchAutoEmbedWithScalarAlternativeProjectsSourcePath() {
+    // Dual role: one key ("body") carries both an autoEmbed and a scalar string alternative, so
+    // the single shared path must be projected to keep the scalar data and the embed text.
     var mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "title",
+                "body",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("body")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .string(StringFieldDefinitionBuilder.builder().build())
                     .build())
             .build();
@@ -327,7 +319,6 @@ public class ProjectionTest {
             .build();
 
     var keys = getDocument(Projection.forRegularQuery(definition)).keySet();
-    assertThat(keys).contains("title");
     assertThat(keys).contains("body");
   }
 

@@ -1,9 +1,9 @@
 package com.xgen.mongot.index.definition;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.xgen.testing.BsonDeserializationTestSuite.fromDocument;
 import static com.xgen.testing.BsonSerializationTestSuite.load;
 
-import com.xgen.mongot.util.FieldPath;
 import com.xgen.testing.BsonDeserializationTestSuite;
 import com.xgen.testing.BsonSerializationTestSuite;
 import com.xgen.testing.TestUtils;
@@ -90,9 +90,18 @@ public class FieldTypeDefinitionTest {
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<FieldTypeDefinition> autoEmbed() {
+      // The source path is derived from the enclosing mapping key, so a bare field-type parse
+      // has no source path of its own.
+      SearchAutoEmbedFieldDefinition resolved =
+          new SearchAutoEmbedFieldDefinition("voyage-3-large");
       return BsonDeserializationTestSuite.TestSpec.valid(
           "autoEmbed",
-          new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("description")));
+          definition -> {
+            assertThat(definition).isInstanceOf(SearchAutoEmbedFieldDefinition.class);
+            SearchAutoEmbedFieldDefinition autoEmbedDefinition =
+                (SearchAutoEmbedFieldDefinition) definition;
+            assertThat(autoEmbedDefinition.fieldTypeToBson()).isEqualTo(resolved.fieldTypeToBson());
+          });
     }
 
     private static BsonDeserializationTestSuite.ValidSpec<FieldTypeDefinition> bool() {
@@ -237,8 +246,7 @@ public class FieldTypeDefinitionTest {
 
     private static BsonSerializationTestSuite.TestSpec<FieldTypeDefinition> autoEmbed() {
       return BsonSerializationTestSuite.TestSpec.create(
-          "autoEmbed",
-          new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("description")));
+          "autoEmbed", new SearchAutoEmbedFieldDefinition("voyage-3-large"));
     }
 
     private static BsonSerializationTestSuite.TestSpec<FieldTypeDefinition> bool() {

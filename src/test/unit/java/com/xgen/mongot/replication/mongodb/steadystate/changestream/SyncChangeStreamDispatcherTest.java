@@ -147,10 +147,9 @@ public class SyncChangeStreamDispatcherTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition("voyage-3-large", sourcePath))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition indexDefinition =

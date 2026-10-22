@@ -75,11 +75,7 @@ public sealed interface AutoEmbedFieldMapping
    *     "dynamic": false,
    *     "fields": {
    *       "title": { "type": "string" },
-   *       "embedding": {
-   *         "type": "autoEmbed",
-   *         "model": "voyage-4-lite",
-   *         "path": "body"
-   *       }
+   *       "body": {"type": "autoEmbed", "model": "voyage-4-lite", "modality": "text"}
    *     }
    *   }
    * }

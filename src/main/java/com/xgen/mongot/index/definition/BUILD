@@ -4,6 +4,7 @@ java_library(
     name = "definition",
     srcs = [
         "AnalyzerBoundSearchIndexDefinition.java",
+        "AutoEmbedFieldSet.java",
         "AutocompleteFieldDefinition.java",
         "BooleanFieldDefinition.java",
         "DateFacetFieldDefinition.java",

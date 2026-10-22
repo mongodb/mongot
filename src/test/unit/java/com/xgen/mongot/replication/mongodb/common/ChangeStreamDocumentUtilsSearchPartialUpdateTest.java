@@ -669,9 +669,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "summaryVector",
+                "summary",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", SUMMARY))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "label",
@@ -683,9 +683,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", TITLE))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "category",
@@ -707,9 +707,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(true)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", TITLE))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
@@ -722,9 +722,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", TITLE))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field("profile", FieldDefinitionBuilder.builder().document(profile).build())
             .build();
@@ -745,9 +745,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", TITLE))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "category",
@@ -774,9 +774,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", TITLE))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "category",
@@ -812,9 +812,9 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "titleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large", TITLE))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field("items", FieldDefinitionBuilder.builder().embeddedDocuments(items).build())
             .build();
@@ -822,16 +822,19 @@ public class ChangeStreamDocumentUtilsSearchPartialUpdateTest {
   }
 
   private static SearchIndexDefinition arrayEmbedSearchIndex() {
-    DocumentFieldDefinition mappings =
+    DocumentFieldDefinition items =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "itemTitleVector",
+                "title",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("items.title")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
+            .build();
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("items", FieldDefinitionBuilder.builder().document(items).build())
             .field(
                 "category",
                 FieldDefinitionBuilder.builder()

@@ -485,11 +485,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(true)
             .field(
-                "embedding",
+                "content",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "active",
@@ -594,13 +592,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 "description",
                 FieldDefinitionBuilder.builder()
                     .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .field(
-                "desc_embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
@@ -646,59 +638,6 @@ public class AutoEmbeddingDocumentUtilsTest {
                             new BsonDocument(
                                 "content", new BsonString(computeTextHash("embed me")))))),
         mvDoc);
-  }
-
-  @Test
-  public void buildMaterializedViewDocumentEvent_dualRoleDeclaredOutsideDynamicDocument_copiesText()
-      throws IOException {
-    // The dual-role scalar sits inside a dynamic document while the autoEmbed declaration lives at
-    // the root; the raw value must still be copied.
-    SearchIndexDefinition searchDef = dualRoleDeclaredOutsideDynamicDocumentSearchDef();
-    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
-    Vector vector = Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
-    BsonDocument bsonDoc =
-        BsonDocument.parse("{\"_id\": \"anId\", \"parent\": {\"content\": \"embed me\"}}");
-    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
-    DocumentEvent rawEvent =
-        DocumentEvent.createInsert(
-            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
-
-    DocumentEvent result =
-        buildMaterializedViewDocumentEvent(
-            rawEvent,
-            mapping,
-            ImmutableMap.of(FieldPath.parse("parent.content"), ImmutableMap.of("embed me", vector)),
-            DYNAMIC_PARENT_SCHEMA_METADATA);
-
-    assertEquals(
-        "embed me",
-        result.getDocument().get().getDocument("parent").getString("content").getValue());
-  }
-
-  /** Dynamic parent document with a dual-role scalar; the autoEmbed is declared at the root. */
-  private static SearchIndexDefinition dualRoleDeclaredOutsideDynamicDocumentSearchDef() {
-    DocumentFieldDefinition parent =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(true)
-            .field(
-                "content",
-                FieldDefinitionBuilder.builder()
-                    .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .build();
-    DocumentFieldDefinition mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field("parent", FieldDefinitionBuilder.builder().document(parent).build())
-            .field(
-                "embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("parent.content")))
-                    .build())
-            .build();
-    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
   }
 
   @Test
@@ -763,110 +702,6 @@ public class AutoEmbeddingDocumentUtilsTest {
   }
 
   @Test
-  public void buildMaterializedViewDocumentEvent_documentSourceWithDeclaredChild_copiesChild()
-      throws IOException {
-    // Mixed-shape source: "description" is a document whose declared string child must reach the
-    // MV even though the parent is the embed source (object-shaped documents embed nothing).
-    SearchIndexDefinition searchDef = documentSourceWithDeclaredChildSearchDef();
-    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
-    BsonDocument bsonDoc =
-        BsonDocument.parse("{\"_id\": \"anId\", \"description\": {\"text\": \"lexical me\"}}");
-    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
-    DocumentEvent rawEvent =
-        DocumentEvent.createInsert(
-            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
-
-    DocumentEvent result =
-        buildMaterializedViewDocumentEvent(
-            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
-
-    assertEquals(
-        new BsonDocument("description", new BsonDocument("text", new BsonString("lexical me"))),
-        result.getDocument().get().clone());
-  }
-
-  /**
-   * Static root; {@code description} is a document with a declared string child and is also the
-   * auto-embed source (mixed-shape source).
-   */
-  private static SearchIndexDefinition documentSourceWithDeclaredChildSearchDef() {
-    DocumentFieldDefinition description =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "text",
-                FieldDefinitionBuilder.builder()
-                    .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .build();
-    DocumentFieldDefinition mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field("description", FieldDefinitionBuilder.builder().document(description).build())
-            .field(
-                "desc_embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
-                    .build())
-            .build();
-    return SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
-  }
-
-  /** Static parent document containing a dual-role source path. */
-  @Test
-  public void deepDeclaredChildUnderDynamicRootCopiesChild() throws IOException {
-    // Dynamic root; description = static document{details{text}}; autoEmbed sources description.
-    DocumentFieldDefinition details =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field(
-                "text",
-                FieldDefinitionBuilder.builder()
-                    .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .build();
-    DocumentFieldDefinition description =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(false)
-            .field("details", FieldDefinitionBuilder.builder().document(details).build())
-            .build();
-    DocumentFieldDefinition mappings =
-        DocumentFieldDefinitionBuilder.builder()
-            .dynamic(true)
-            .field("description", FieldDefinitionBuilder.builder().document(description).build())
-            .field(
-                "desc_embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
-                    .build())
-            .build();
-    SearchIndexDefinition searchDef =
-        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
-    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
-    BsonDocument bsonDoc =
-        BsonDocument.parse(
-            "{\"_id\": \"anId\", \"description\": {\"details\": {\"text\": \"lexical me\"}}}");
-    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
-    DocumentEvent rawEvent =
-        DocumentEvent.createInsert(
-            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
-
-    DocumentEvent result =
-        buildMaterializedViewDocumentEvent(
-            rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
-
-    assertEquals(
-        new BsonDocument(
-            "description",
-            new BsonDocument("details", new BsonDocument("text", new BsonString("lexical me")))),
-        result.getDocument().get().clone());
-  }
-
-  @Test
   public void buildMaterializedViewDocumentEvent_dynamicSourceWithObjectValue_noEmptyContainer()
       throws IOException {
     // Dynamic root; the embed source holds an object and has no declared children. Nothing under
@@ -877,9 +712,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             .field(
                 "description",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchDef =
@@ -900,31 +733,24 @@ public class AutoEmbeddingDocumentUtilsTest {
   }
 
   @Test
-  public void buildMaterializedViewDocumentEvent_literalDottedChildUnderEmbedSource_copiesChild()
+  public void buildMaterializedViewDocumentEvent_literalDottedSource_copiesRawValue()
       throws IOException {
-    // A root literal dotted key ("description.text") resolves to the nested path; its declared
-    // value must reach the MV even though the parent is the undeclared embed source.
+    // A dotted mapping key is a literal BSON field name, not a nested document path.
     DocumentFieldDefinition mappings =
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "description",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("description")))
-                    .build())
-            .field(
                 "description.text",
                 FieldDefinitionBuilder.builder()
                     .string(StringFieldDefinitionBuilder.builder().build())
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchDef =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
     AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
     BsonDocument bsonDoc =
-        BsonDocument.parse("{\"_id\": \"anId\", \"description\": {\"text\": \"lexical me\"}}");
+        BsonDocument.parse("{\"_id\": \"anId\", \"description.text\": \"lexical me\"}");
     RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
     DocumentEvent rawEvent =
         DocumentEvent.createInsert(
@@ -935,7 +761,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             rawEvent, mapping, ImmutableMap.of(), DUAL_ROLE_SCHEMA_METADATA);
 
     assertEquals(
-        new BsonDocument("description", new BsonDocument("text", new BsonString("lexical me"))),
+        new BsonDocument("description.text", new BsonString("lexical me")),
         result.getDocument().get().clone());
   }
 
@@ -947,13 +773,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 "content",
                 FieldDefinitionBuilder.builder()
                     .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .field(
-                "embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     DocumentFieldDefinition mappings =
@@ -973,13 +793,7 @@ public class AutoEmbeddingDocumentUtilsTest {
                 "content",
                 FieldDefinitionBuilder.builder()
                     .string(StringFieldDefinitionBuilder.builder().build())
-                    .build())
-            .field(
-                "embedding",
-                FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("parent.content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     DocumentFieldDefinition mappings =
@@ -1090,11 +904,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(true)
             .field(
-                "embedding",
+                "content",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchDef =
@@ -1176,11 +988,9 @@ public class AutoEmbeddingDocumentUtilsTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(false)
             .field(
-                "embedding",
+                "content",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("content")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "active",
@@ -1225,11 +1035,18 @@ public class AutoEmbeddingDocumentUtilsTest {
         DocumentFieldDefinitionBuilder.builder()
             .dynamic(true)
             .field(
-                "items_embed",
+                "items",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("parent.items.text")))
+                    .document(
+                        DocumentFieldDefinitionBuilder.builder()
+                            .dynamic(false)
+                            .field(
+                                "text",
+                                FieldDefinitionBuilder.builder()
+                                    .searchAutoEmbed(
+                                        new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                                    .build())
+                            .build())
                     .build())
             .build();
     DocumentFieldDefinition mappings =
@@ -2630,9 +2447,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("absentSource")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchDef =
@@ -2664,9 +2479,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("absentSource")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "kept",
@@ -2733,9 +2546,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("text")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchDef =
@@ -2783,8 +2594,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             .field(
                 "embedding",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition("voyage-3-large", FieldPath.parse("a")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .build();
     SearchIndexDefinition searchDef =
@@ -2808,9 +2618,7 @@ public class AutoEmbeddingDocumentUtilsTest {
             .field(
                 "text",
                 FieldDefinitionBuilder.builder()
-                    .searchAutoEmbed(
-                        new SearchAutoEmbedFieldDefinition(
-                            "voyage-3-large", FieldPath.parse("text")))
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
                     .build())
             .field(
                 "meta",
