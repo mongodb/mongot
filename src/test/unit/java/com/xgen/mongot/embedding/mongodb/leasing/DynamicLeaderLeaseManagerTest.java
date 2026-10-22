@@ -670,6 +670,58 @@ public class DynamicLeaderLeaseManagerTest {
   }
 
   @Test
+  public void tryAcquireLeadership_reclaimFilter_retryArmRequiresThisAttemptsEpoch()
+      throws Exception {
+    // Arrange - reclaim our own still-valid lease (restart-like), from a snapshot whose epoch
+    // differs from every lease version in play, so an epoch term copied from a lease version
+    // cannot pass.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    Lease snapshot =
+        leaseWithEpochGreaterThanVersion(generationId, HOSTNAME, Instant.now().plusSeconds(30));
+    setupFindLeaseFromDatabase(snapshot);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+
+    // Act
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    // Assert - the retry arm must name the epoch this attempt writes (withNewTenure over the
+    // snapshot), so it cannot also match a different same-host write that bumped the version by
+    // one, such as an in-flight checkpoint from this host's previous tenure.
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    assertThat(epochEqValues(filterCaptor.getValue().toBsonDocument()))
+        .containsExactly(Math.max(snapshot.epoch() + 1, snapshot.leaseVersion() + 1));
+  }
+
+  @Test
+  public void tryAcquireLeadership_takeoverFilter_retryArmRequiresThisAttemptsEpoch()
+      throws Exception {
+    // Arrange - take over another host's expired lease.
+    MaterializedViewIndexGeneration indexGeneration = createTestIndexGeneration();
+    MaterializedViewGenerationId generationId = indexGeneration.getGenerationId();
+    this.leaseManager.add(indexGeneration);
+    Lease snapshot =
+        leaseWithEpochGreaterThanVersion(
+            generationId, OTHER_HOSTNAME, Instant.now().minusSeconds(60));
+    setupFindLeaseFromDatabase(snapshot);
+    setupSuccessfulLeaseUpdate();
+    this.leaseManager.pollFollowerStatuses();
+
+    // Act
+    assertThat(this.leaseManager.tryAcquireLeadership(generationId)).isTrue();
+
+    // Assert - the takeover's retry arm carries the same epoch term; the expiry term on the
+    // normal arm is unchanged (covered further by the CLOUDP-449935 test above).
+    ArgumentCaptor<Bson> filterCaptor = ArgumentCaptor.forClass(Bson.class);
+    verify(this.mockCollection).replaceOne(filterCaptor.capture(), any(BsonDocument.class));
+    assertThat(epochEqValues(filterCaptor.getValue().toBsonDocument()))
+        .containsExactly(Math.max(snapshot.epoch() + 1, snapshot.leaseVersion() + 1));
+  }
+
+  @Test
   public void heartbeat_flagOffRenewalFilter_carriesTheSnapshotEpoch() throws Exception {
     // Arrange - leader with a near-expiry lease whose epoch differs from every lease version in
     // play; the flag-off whole-document renewal must fence on that snapshot's epoch, so a write

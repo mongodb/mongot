@@ -2452,7 +2452,8 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
             generationId,
             currentLease.leaseVersion(),
             newLease.leaseVersion(),
-            !isReclaimingOwnLease);
+            !isReclaimingOwnLease,
+            newLease.epoch());
 
     var result =
         this.operationExecutor.execute(
@@ -2516,12 +2517,14 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
    * @param currentLeaseVersion the expected current lease version
    * @param newLeaseVersion the new lease version after update
    * @param requireLeaseExpired whether the normal branch must also match a still-expired lease
+   * @param newEpoch the tenure epoch this attempt writes
    */
   private Bson createAcquireLeaseFilter(
       MaterializedViewGenerationId generationId,
       long currentLeaseVersion,
       long newLeaseVersion,
-      boolean requireLeaseExpired) {
+      boolean requireLeaseExpired,
+      long newEpoch) {
     // Normal case: version matches expected (we're taking over).
     @Var Bson normalMatch = Filters.eq(Lease.Fields.LEASE_VERSION.getName(), currentLeaseVersion);
     if (requireLeaseExpired) {
@@ -2536,10 +2539,17 @@ public class DynamicLeaderLeaseManager implements LeaseManager {
         Filters.eq("_id", getLeaseKey(generationId)),
         Filters.or(
             normalMatch,
-            // Idempotent case: we already wrote but didn't get response
+            // Idempotent case: we already wrote but didn't get response. The retry arm
+            // recognizes only this attempt's own landed write, identified by the epoch it
+            // wrote: a bare leaseVersion + owner match cannot distinguish it from any other
+            // same-host write that bumped the version by one -- for example an in-flight
+            // checkpoint from this host's previous tenure, whose replace would rewind the
+            // lease to this stale snapshot. Strict equality, no absent-field arm: the write
+            // this arm exists to recognize is our own, and Lease#toBson always writes epoch.
             Filters.and(
                 Filters.eq(Lease.Fields.LEASE_VERSION.getName(), newLeaseVersion),
-                Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname))));
+                Filters.eq(Lease.Fields.LEASE_OWNER.getName(), this.hostname),
+                Filters.eq(Lease.Fields.EPOCH.getName(), newEpoch))));
   }
 
   /**
