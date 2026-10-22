@@ -71,6 +71,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -151,6 +153,105 @@ public class ChangeStreamManagerTest {
     Assert.assertTrue(
         ChangeStreamManager.createPartitionTracker(config, ChangeStreamUtils.PRE_BATCH_RESUME_INFO)
             .isEmpty());
+  }
+
+  @Test
+  public void createSync_parallelReadersDisabled_doesNotCreateReaderPool() throws Exception {
+    var registries = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    var config =
+        SteadyStateReplicationConfig.builder()
+            .setNumConcurrentChangeStreams(1)
+            .setMaxInFlightEmbeddingGetMores(1)
+            .setChangeStreamQueryMaxTimeMs(1000)
+            .setChangeStreamCursorMaxTimeSec(1000)
+            .setEnableParallelChangeStreamReaders(false)
+            .build();
+
+    var partitionReaderExecutor =
+        ChangeStreamManager.createPartitionReaderExecutor(registries, config, true);
+    var manager =
+        ChangeStreamManager.createSync(
+            registries,
+            mock(ChangeStreamMongoClientFactory.class),
+            partitionReaderExecutor,
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            config,
+            this.context.getIndexManagerFactory(),
+            true,
+            false,
+            Optional.empty());
+
+    try {
+      assertThat(partitionReaderExecutor).isEmpty();
+      assertThat(
+              registries.meterRegistry().getMeters().stream()
+                  .map(meter -> meter.getId())
+                  .filter(
+                      id ->
+                          id.getName().startsWith("partitioned-change-stream-reader")
+                              || "partitioned-change-stream-reader".equals(id.getTag("name")))
+                  .toList())
+          .isEmpty();
+    } finally {
+      manager.shutdown().get(5, TimeUnit.SECONDS);
+    }
+  }
+
+  @Test
+  public void createSync_partitionReaderPool_limitsConcurrencyAndShutsDown() throws Exception {
+    var registries = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    var firstStarted = new CountDownLatch(1);
+    var releaseFirst = new CountDownLatch(1);
+    var config =
+        SteadyStateReplicationConfig.builder()
+            .setNumConcurrentChangeStreams(1)
+            .setMaxInFlightEmbeddingGetMores(1)
+            .setChangeStreamQueryMaxTimeMs(1000)
+            .setChangeStreamCursorMaxTimeSec(1000)
+            .setEnableParallelChangeStreamReaders(true)
+            .setNumParallelChangeStreamReaders(3)
+            .build();
+    var partitionReaderExecutor =
+        ChangeStreamManager.createPartitionReaderExecutor(registries, config, true);
+    var manager =
+        ChangeStreamManager.createSync(
+            registries,
+            mock(ChangeStreamMongoClientFactory.class),
+            partitionReaderExecutor,
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            config,
+            this.context.getIndexManagerFactory(),
+            true,
+            false,
+            Optional.empty());
+    Executor executor = partitionReaderExecutor.orElseThrow();
+    try {
+      var first =
+          CompletableFuture.runAsync(
+              () -> {
+                firstStarted.countDown();
+                try {
+                  assertThat(releaseFirst.await(5, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException e) {
+                  throw new AssertionError(e);
+                }
+              },
+              executor);
+      assertThat(firstStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+      var second = CompletableFuture.supplyAsync(() -> "completed", executor);
+
+      assertThat(second.isDone()).isFalse();
+      releaseFirst.countDown();
+      first.get(5, TimeUnit.SECONDS);
+      assertThat(second.get(5, TimeUnit.SECONDS)).isEqualTo("completed");
+    } finally {
+      releaseFirst.countDown();
+      manager.shutdown().get(5, TimeUnit.SECONDS);
+    }
+    Assert.assertThrows(RejectedExecutionException.class, () -> executor.execute(() -> {}));
   }
 
   @Test

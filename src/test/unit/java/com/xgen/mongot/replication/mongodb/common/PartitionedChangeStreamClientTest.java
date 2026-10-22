@@ -211,7 +211,7 @@ public class PartitionedChangeStreamClientTest {
       assertThat(result.getRawEvents()).hasSize(1);
       assertThat(result.getRawEvents().getFirst()).isAnyOf(event(1), event(2));
     }
-    verify(this.fetchExecutor).shutdown();
+    verify(this.fetchExecutor, never()).shutdown();
     verify(this.fetchExecutor, times(0)).shutdownNow();
   }
 
@@ -339,7 +339,7 @@ public class PartitionedChangeStreamClientTest {
       verify(second, never()).getNext();
       verify(first).close();
       verify(second).close();
-      verify(this.fetchExecutor).shutdown();
+      verify(this.fetchExecutor, never()).shutdown();
     } finally {
       client.close();
     }
@@ -421,7 +421,7 @@ public class PartitionedChangeStreamClientTest {
       verify(first).close();
       verify(second).close();
       assertThat(readersClosed.await(10, TimeUnit.SECONDS)).isTrue();
-      verify(this.fetchExecutor).shutdown();
+      verify(this.fetchExecutor, never()).shutdown();
       verify(this.fetchExecutor, times(0)).shutdownNow();
     } finally {
       releaseFetch.countDown();
@@ -453,7 +453,7 @@ public class PartitionedChangeStreamClientTest {
           .isEqualTo("Change stream client is closed");
       verify(reader).close();
       assertThat(readerClosed.await(10, TimeUnit.SECONDS)).isTrue();
-      verify(this.fetchExecutor).shutdown();
+      verify(this.fetchExecutor, never()).shutdown();
       verify(this.fetchExecutor, times(0)).shutdownNow();
       client.close();
 
@@ -515,7 +515,7 @@ public class PartitionedChangeStreamClientTest {
   }
 
   @Test
-  public void close_sharedMongoClient_leavesOtherClientUsable() throws Exception {
+  public void close_sharedMongoClientAndExecutor_leavesOtherClientUsable() throws Exception {
     var first = reader(batch(10));
     var second = reader(batch(20, event(19)));
     var firstClient =
@@ -524,6 +524,7 @@ public class PartitionedChangeStreamClientTest {
             token(0),
             this.mongoClient,
             (mongoClient, partition, start) -> first,
+            this.executor,
             SteadyStateException::wrapIfThrows);
     try (var secondClient =
         PartitionedChangeStreamClient.resume(
@@ -531,7 +532,9 @@ public class PartitionedChangeStreamClientTest {
             token(0),
             this.mongoClient,
             (mongoClient, partition, start) -> second,
+            this.executor,
             SteadyStateException::wrapIfThrows)) {
+      this.caller.submit(firstClient::getNext).get(10, TimeUnit.SECONDS);
       firstClient.close();
       var result = this.caller.submit(secondClient::getNext).get(10, TimeUnit.SECONDS);
 
@@ -539,6 +542,7 @@ public class PartitionedChangeStreamClientTest {
       verify(first).close();
       verify(second, never()).close();
       verify(this.mongoClient, never()).close();
+      assertThat(this.executor.isShutdown()).isFalse();
     } finally {
       firstClient.close();
     }
@@ -547,7 +551,7 @@ public class PartitionedChangeStreamClientTest {
   }
 
   @Test
-  public void getNext_twoLongPollingReaders_doesNotDelayThirdReader() throws Exception {
+  public void getNext_poolSaturated_queuesReaderUntilWorkerAvailable() throws Exception {
     var started = new CountDownLatch(2);
     var releaseFetch = new CountDownLatch(1);
     var unblocked = new CountDownLatch(2);
@@ -555,10 +559,11 @@ public class PartitionedChangeStreamClientTest {
     var first = blockedReader(started, releaseFetch, unblocked, readersClosed);
     var second = blockedReader(started, releaseFetch, unblocked, readersClosed);
     var third = reader(batch(130, event(127)));
+    var thirdStarted = new CountDownLatch(1);
     when(third.getNext())
         .thenAnswer(
             unused -> {
-              assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+              thirdStarted.countDown();
               return batch(130, event(127));
             });
     var readers = List.of(first, second, third);
@@ -568,15 +573,18 @@ public class PartitionedChangeStreamClientTest {
             token(128),
             this.mongoClient,
             (mongoClient, partition, start) -> readers.get(partition.partitionId()),
+            this.executor,
             SteadyStateException::wrapIfThrows);
     try {
       var next = this.caller.submit(client::getNext);
-      var result = next.get(10, TimeUnit.SECONDS);
+      assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+      verify(third, never()).getNext();
 
-      assertThat(result.getRawEvents()).containsExactly(event(127));
-      // the reader's real token, not the starting token(128)
-      assertThat(result.getPostBatchResumeToken()).isEqualTo(token(130));
-      assertThat(unblocked.getCount()).isEqualTo(2);
+      releaseFetch.countDown();
+
+      next.get(10, TimeUnit.SECONDS);
+      assertThat(thirdStarted.await(10, TimeUnit.SECONDS)).isTrue();
+      verify(third).getNext();
     } finally {
       client.close();
       releaseFetch.countDown();
@@ -603,6 +611,7 @@ public class PartitionedChangeStreamClientTest {
               timestamps.add(start);
               return readers.get(partition.partitionId());
             },
+            this.executor,
             SteadyStateException::wrapIfThrows)) {
       assertThat(partitions)
           .containsExactly(new ChangeStreamPartition(0, 2), new ChangeStreamPartition(1, 2))
@@ -633,6 +642,7 @@ public class PartitionedChangeStreamClientTest {
                       }
                       throw failure;
                     },
+                    this.executor,
                     SteadyStateException::wrapIfThrows));
 
     assertThat(thrown).isSameInstanceAs(failure);
@@ -652,6 +662,7 @@ public class PartitionedChangeStreamClientTest {
                 (mongoClient, partition, start) -> {
                   throw new AssertionError("Reader creation must not start");
                 },
+                this.executor,
                 SteadyStateException::wrapIfThrows));
 
     verify(this.mongoClient, never()).close();

@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -45,13 +46,15 @@ class ChangeStreamMongoClientFactory {
   private final boolean enableSplitLargeChangeStreamEvents;
   private final boolean enableParallelChangeStreamReaders;
   private final int numParallelChangeStreamReaders;
+  private final Optional<Executor> partitionReaderExecutor;
 
   private ChangeStreamMongoClientFactory(
       BatchMongoClient mongoClient,
       SessionRefresher sessionRefresher,
       ChangeStreamModeSelector modeSelector,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      SteadyStateReplicationConfig replicationConfig) {
+      SteadyStateReplicationConfig replicationConfig,
+      Optional<Executor> partitionReaderExecutor) {
     this.mongoClient = mongoClient;
     this.sessionRefresher = sessionRefresher;
     this.modeSelector = modeSelector;
@@ -70,6 +73,7 @@ class ChangeStreamMongoClientFactory {
     this.enableParallelChangeStreamReaders =
         replicationConfig.getEnableParallelChangeStreamReaders();
     this.numParallelChangeStreamReaders = replicationConfig.getNumParallelChangeStreamReaders();
+    this.partitionReaderExecutor = partitionReaderExecutor;
   }
 
   static ChangeStreamMongoClientFactory create(
@@ -77,13 +81,19 @@ class ChangeStreamMongoClientFactory {
       BatchMongoClient mongoClient,
       ChangeStreamModeSelector modeSelector,
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      SteadyStateReplicationConfig replicationConfig) {
+      SteadyStateReplicationConfig replicationConfig,
+      Optional<Executor> partitionReaderExecutor) {
     Check.argIsPositive(
         replicationConfig.getChangeStreamQueryMaxTimeMs(), "changeStreamQueryMaxTimeMs");
     Check.argIsPositive(
         replicationConfig.getChangeStreamCursorMaxTimeSec(), "changeStreamCursorMaxTimeSec");
     return new ChangeStreamMongoClientFactory(
-        mongoClient, sessionRefresher, modeSelector, meterAndFtdcRegistry, replicationConfig);
+        mongoClient,
+        sessionRefresher,
+        modeSelector,
+        meterAndFtdcRegistry,
+        replicationConfig,
+        partitionReaderExecutor);
   }
 
   /**
@@ -228,6 +238,7 @@ class ChangeStreamMongoClientFactory {
         resumeInfo.getResumeToken(),
         this.mongoClient,
         readerFactory,
+        this.partitionReaderExecutor.orElseThrow(),
         SteadyStateException::wrapIfThrows);
   }
 

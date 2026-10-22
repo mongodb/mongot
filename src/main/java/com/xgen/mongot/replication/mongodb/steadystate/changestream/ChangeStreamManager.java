@@ -31,6 +31,7 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
 import com.xgen.mongot.util.concurrent.Executors;
+import com.xgen.mongot.util.concurrent.NamedExecutorService;
 import com.xgen.mongot.util.concurrent.NamedScheduledExecutorService;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -61,6 +62,7 @@ public class ChangeStreamManager {
   private final IndexingWorkSchedulerFactory indexingWorkSchedulerFactory;
   private final ChangeStreamIndexManagerFactory indexManagerFactory;
   private final ChangeStreamDispatcher dispatcher;
+  private final Optional<NamedExecutorService> partitionReaderExecutor;
   private final ChangeStreamModeSelector modeSelector;
   private final Optional<ActivityObserverFactory> activityObserverFactory;
   private final PartitionTrackerFactory partitionTrackerFactory;
@@ -96,12 +98,14 @@ public class ChangeStreamManager {
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       ChangeStreamIndexManagerFactory indexManagerFactory,
       ChangeStreamDispatcher dispatcher,
+      Optional<NamedExecutorService> partitionReaderExecutor,
       ChangeStreamModeSelector modeSelector,
       Optional<ActivityObserverFactory> activityObserverFactory,
       PartitionTrackerFactory partitionTrackerFactory) {
     this.indexingWorkSchedulerFactory = indexingWorkSchedulerFactory;
     this.indexManagerFactory = indexManagerFactory;
     this.dispatcher = dispatcher;
+    this.partitionReaderExecutor = partitionReaderExecutor;
     this.modeSelector = modeSelector;
     this.activityObserverFactory = activityObserverFactory;
     this.partitionTrackerFactory = partitionTrackerFactory;
@@ -193,17 +197,23 @@ public class ChangeStreamManager {
       boolean enableChangeStreamPriorityScheduling,
       Optional<ActivityObserverFactory> activityObserverFactory) {
 
-    ChangeStreamMongoClientFactory syncMongoClientFactory =
+    // Create the pool first so we can pass it directly to the factory.
+    Optional<NamedExecutorService> partitionReaderExecutor =
+        createPartitionReaderExecutor(
+            meterAndFtdcRegistry, replicationConfig, enableLifecycleAttributionMetrics);
+    ChangeStreamMongoClientFactory mongoClientFactory =
         ChangeStreamMongoClientFactory.create(
             sessionRefresher,
             syncBatchMongoClient,
             modeSelector,
             meterAndFtdcRegistry,
-            replicationConfig);
+            replicationConfig,
+            partitionReaderExecutor.map(executor -> executor));
 
     return createSync(
         meterAndFtdcRegistry,
-        syncMongoClientFactory,
+        mongoClientFactory,
+        partitionReaderExecutor,
         modeSelector,
         indexingWorkSchedulerFactory,
         replicationConfig,
@@ -225,6 +235,7 @@ public class ChangeStreamManager {
     return createSync(
         meterAndFtdcRegistry,
         syncMongoClientFactory,
+        createPartitionReaderExecutor(meterAndFtdcRegistry, replicationConfig, true),
         modeSelector,
         indexingWorkSchedulerFactory,
         replicationConfig,
@@ -246,6 +257,7 @@ public class ChangeStreamManager {
     return createSync(
         meterAndFtdcRegistry,
         syncMongoClientFactory,
+        createPartitionReaderExecutor(meterAndFtdcRegistry, replicationConfig, true),
         modeSelector,
         indexingWorkSchedulerFactory,
         replicationConfig,
@@ -267,6 +279,7 @@ public class ChangeStreamManager {
     return createSync(
         meterAndFtdcRegistry,
         syncMongoClientFactory,
+        createPartitionReaderExecutor(meterAndFtdcRegistry, replicationConfig, true),
         modeSelector,
         indexingWorkSchedulerFactory,
         replicationConfig,
@@ -276,9 +289,11 @@ public class ChangeStreamManager {
         Optional.empty());
   }
 
-  private static ChangeStreamManager createSync(
+  @VisibleForTesting
+  static ChangeStreamManager createSync(
       MeterAndFtdcRegistry meterAndFtdcRegistry,
-      ChangeStreamMongoClientFactory syncMongoClientFactory,
+      ChangeStreamMongoClientFactory mongoClientFactory,
+      Optional<NamedExecutorService> partitionReaderExecutor,
       ChangeStreamModeSelector modeSelector,
       IndexingWorkSchedulerFactory indexingWorkSchedulerFactory,
       SteadyStateReplicationConfig replicationConfig,
@@ -303,7 +318,7 @@ public class ChangeStreamManager {
     ChangeStreamDispatcher syncDispatcher =
         new SyncChangeStreamDispatcher(
             meterAndFtdcRegistry.meterRegistry(),
-            syncMongoClientFactory,
+            mongoClientFactory,
             taskExecutor,
             replicationConfig.getReplicationType(),
             replicationConfig.getRetryThrottledGetMoreOnSameCursor());
@@ -315,9 +330,39 @@ public class ChangeStreamManager {
         indexingWorkSchedulerFactory,
         indexManagerFactory,
         syncDispatcher,
+        partitionReaderExecutor,
         modeSelector,
         activityObserverFactory,
         partitionTrackerFactory);
+  }
+
+  /** Creates the shared reader pool only when parallel readers are enabled. */
+  @VisibleForTesting
+  static Optional<NamedExecutorService> createPartitionReaderExecutor(
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      SteadyStateReplicationConfig replicationConfig,
+      boolean enableLifecycleAttributionMetrics) {
+    // Sized to numConcurrentChangeStreams so in-flight getMores never exceed the sync client's
+    // connection pool, which uses the same value.
+    Optional<NamedExecutorService> partitionReaderExecutor =
+        replicationConfig.getEnableParallelChangeStreamReaders()
+            ? Optional.of(
+                Executors.fixedSizeThreadPool(
+                    replicationConfig.getReplicationType().metricsNamespacePrefix
+                        + "partitioned-change-stream-reader",
+                    replicationConfig.getNumConcurrentChangeStreams(),
+                    meterAndFtdcRegistry.meterRegistry()))
+            : Optional.empty();
+    if (enableLifecycleAttributionMetrics) {
+      partitionReaderExecutor.ifPresent(
+          executor ->
+              meterAndFtdcRegistry
+                  .threadPoolResourceBindings()
+                  .forSubsystem(replicationConfig.getReplicationType().resourceAttributionSubsystem)
+                  .register(executor, meterAndFtdcRegistry.meterRegistry()));
+    }
+
+    return partitionReaderExecutor;
   }
 
   /**
@@ -494,6 +539,8 @@ public class ChangeStreamManager {
 
       // First shut down the dispatcher thread so no more work gets scheduled.
       this.dispatcher.shutdown();
+      // The dispatcher has drained and closed its clients; no readers can be submitted now.
+      this.partitionReaderExecutor.ifPresent(Executors::shutdownOrFail);
 
       List<CompletableFuture<?>> futures =
           this.indexManagers.values().stream()

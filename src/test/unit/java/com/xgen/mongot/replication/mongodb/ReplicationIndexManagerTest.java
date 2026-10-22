@@ -100,7 +100,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -1427,35 +1426,27 @@ public class ReplicationIndexManagerTest {
 
   @Test
   public void staleIndexCommit_runsAfterStateAlreadyTransitionedToShutDown() throws Exception {
-    // Reviewer question: does staleIndex()'s final commit (which MaterializedViewGenerator's
-    // runIndexerOperation() override only treats as an ordinary demotion once getState() ==
-    // SHUT_DOWN) actually run while the state is still STEADY_STATE_SHUT_DOWN, the state
-    // handleSteadyStateException() left it in before the async hop into
-    // handleSteadyStateExceptionAfterManagerShutdown()? Empirically: no. staleIndex() calls
-    // shutDownReplicationOnStaleIndex() -- which transitions to SHUT_DOWN -- before its own commit,
-    // synchronously, still holding the monitor handleSteadyStateExceptionAfterManagerShutdown()
-    // acquired; nothing releases it in between.
     var featureFlags =
         FeatureFlags.withDefaults()
             .enable(Feature.STALE_STATE_TRANSITION)
             .enable(Feature.RETAIN_FAILED_INDEX_DATA_ON_DISK)
             .enable(Feature.REMOVE_ABSENT_INDEXES_BEFORE_INITIALIZATION)
             .build();
-    try (Mocks mocks =
-        Mocks.exceptionalSteadyState(
-            new IllegalArgumentException("invalid field name"), featureFlags)) {
-      AtomicReference<State> stateAtCommit = new AtomicReference<>();
+    var steadyStateFuture = new CompletableFuture<Void>();
+    try (Mocks mocks = Mocks.steadyState(steadyStateFuture, featureFlags)) {
+      var stateAtCommit = new CompletableFuture<State>();
       doAnswer(
               invocation -> {
-                stateAtCommit.set(mocks.manager.getState());
+                stateAtCommit.complete(mocks.manager.getState());
                 return null;
               })
           .when(mocks.documentIndexer)
           .commit();
 
-      await().atMost(Duration.ofSeconds(5)).until(() -> stateAtCommit.get() != null);
+      // Install the callback before triggering the failure that commits the stale status.
+      steadyStateFuture.completeExceptionally(new IllegalArgumentException("invalid field name"));
 
-      assertEquals(State.SHUT_DOWN, stateAtCommit.get());
+      assertEquals(State.SHUT_DOWN, stateAtCommit.get(5, TimeUnit.SECONDS));
     }
   }
 
@@ -1493,14 +1484,15 @@ public class ReplicationIndexManagerTest {
             .enable(Feature.RETAIN_FAILED_INDEX_DATA_ON_DISK)
             .enable(Feature.REMOVE_ABSENT_INDEXES_BEFORE_INITIALIZATION)
             .build();
+    var steadyStateFuture = new CompletableFuture<Void>();
     AtomicBoolean haltCalled = new AtomicBoolean(false);
     Crash.setHaltHandlerForTesting(exitCode -> haltCalled.set(true));
-    try (Mocks mocks =
-        Mocks.exceptionalSteadyState(
-            new IllegalArgumentException("invalid field name"), featureFlags)) {
+    try (Mocks mocks = Mocks.steadyState(steadyStateFuture, featureFlags)) {
       doThrow(new MaterializedViewNonTransientException("fenced", reason))
           .when(mocks.documentIndexer)
           .commit();
+
+      steadyStateFuture.completeExceptionally(new IllegalArgumentException("invalid field name"));
 
       await().atMost(Duration.ofSeconds(30)).until(haltCalled::get);
     } finally {
@@ -2557,6 +2549,20 @@ public class ReplicationIndexManagerTest {
                   RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
           HANGING_INITIAL_SYNC_QUEUE,
           exceptionalSteadyStateManager(t),
+          HANGING_SYNONYM_MANAGER,
+          Optional.empty(),
+          Optional.empty(),
+          Optional.of(featureFlags));
+    }
+
+    static Mocks steadyState(CompletableFuture<Void> steadyStateFuture, FeatureFlags featureFlags)
+        throws Exception {
+      return create(
+          Optional.of(
+              IndexCommitUserData.createChangeStreamResume(
+                  RESUME_INFO, IndexFormatVersion.CURRENT.versionNumber)),
+          HANGING_INITIAL_SYNC_QUEUE,
+          ignored -> steadyStateFuture,
           HANGING_SYNONYM_MANAGER,
           Optional.empty(),
           Optional.empty(),

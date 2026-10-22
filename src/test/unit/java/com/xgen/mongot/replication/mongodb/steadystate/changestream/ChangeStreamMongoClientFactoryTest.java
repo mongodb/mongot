@@ -27,6 +27,7 @@ import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStream
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.replication.mongodb.ChangeStreamUtils;
+import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
@@ -52,7 +53,8 @@ public class ChangeStreamMongoClientFactoryTest {
                 .setChangeStreamQueryMaxTimeMs(1000)
                 .setChangeStreamCursorMaxTimeSec(1000)
                 .setEnableParallelChangeStreamReaders(false)
-                .build());
+                .build(),
+            Optional.empty());
 
     ChangeStreamMongoClient<?> client =
         factory.resumeTimedModeAwareChangeStream(
@@ -77,7 +79,8 @@ public class ChangeStreamMongoClientFactoryTest {
                 .setChangeStreamCursorMaxTimeSec(1000)
                 .setEnableParallelChangeStreamReaders(true)
                 .setNumParallelChangeStreamReaders(3)
-                .build());
+                .build(),
+            Optional.of(Runnable::run));
 
     ChangeStreamMongoClient<?> client =
         factory.resumeTimedModeAwareChangeStream(
@@ -161,7 +164,8 @@ public class ChangeStreamMongoClientFactoryTest {
             .setChangeStreamCursorMaxTimeSec(1000)
             .setEnableParallelChangeStreamReaders(true)
             .setNumParallelChangeStreamReaders(partitions)
-            .build());
+            .build(),
+        Optional.of(Runnable::run));
   }
 
   private static ChangeStreamResumeInfo placeholderResumeInfo(MongoNamespace namespace) {

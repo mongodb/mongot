@@ -4,7 +4,6 @@ import static com.xgen.mongot.util.Check.checkArg;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,8 +12,6 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -25,11 +22,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * PartitionedChangeStreamClient reads one collection's change stream as N separate partitions, all
- * at the same time, and exposes them through the same getNext() interface as an ordinary change
- * stream. Each call returns one batch from whichever partition has finished fetching. The batch is
- * tagged with that partition and carries that partition's own resume token. Partitions move forward
- * independently: a slow partition does not hold up the others.
+ * PartitionedChangeStreamClient reads one collection's change stream as N separate partitions and
+ * exposes them through the same getNext() interface as an ordinary change stream. Each call returns
+ * one batch from whichever partition has finished fetching. The batch is tagged with that partition
+ * and carries that partition's own resume token. Partitions are scheduled independently, up to the
+ * shared executor's capacity.
  *
  * <p>Each document belongs to exactly one reader. Batches retain that reader's order, while readers
  * advance independently. Reader creation must apply the partition filter and reassemble split
@@ -63,8 +60,8 @@ public class PartitionedChangeStreamClient<E extends Exception>
   /** Completed readers in completion order, or an empty entry to wake getNext() on closure. */
   private final BlockingQueue<Optional<Reader<E>>> completedReaders;
 
-  /** Dedicated to this client, with one worker available for every partition. */
-  private final ExecutorService executor;
+  /** Shared across clients and owned by the ChangeStreamManager. */
+  private final Executor executor;
 
   private final WrapIfThrows<E> exceptionWrapper;
 
@@ -82,9 +79,10 @@ public class PartitionedChangeStreamClient<E extends Exception>
    * <p>Takes ownership of the created readers. The supplied Mongo client is shared and remains open
    * when this client closes. Closing a reader aborts any active fetch.
    *
-   * <p>Creates a dedicated executor with one worker per partition so long-polling readers cannot
-   * prevent other partitions from starting their reads. At most one fetch or buffered batch per
-   * reader is retained, including between {@link #getNext()} calls. This client owns the executor.
+   * <p>Uses the supplied executor without taking ownership. It must be separate from the executor
+   * calling {@link #getNext()}, which waits for a reader to finish. At most one fetch or buffered
+   * batch per reader is retained, including between {@link #getNext()} calls. Readers may wait for
+   * a worker when the shared pool is busy.
    *
    * <p>If initialization fails, closes any readers already created before propagating the failure.
    */
@@ -93,6 +91,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
       BsonDocument resumeToken,
       BatchMongoClient mongoClient,
       ReaderFactory<E> readerFactory,
+      Executor executor,
       WrapIfThrows<E> exceptionWrapper)
       throws E {
     return exceptionWrapper.wrapIfThrows(
@@ -106,14 +105,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
                   readerFactory.create(
                       mongoClient, new ChangeStreamPartition(id, partitionCount), start));
             }
-            return new PartitionedChangeStreamClient<>(
-                clients,
-                Executors.newFixedThreadPool(
-                    partitionCount,
-                    new ThreadFactoryBuilder()
-                        .setNameFormat("partitioned-change-stream-reader-%d")
-                        .build()),
-                exceptionWrapper);
+            return new PartitionedChangeStreamClient<>(clients, executor, exceptionWrapper);
           } catch (Exception | Error failure) {
             for (var client : clients) {
               try {
@@ -130,13 +122,13 @@ public class PartitionedChangeStreamClient<E extends Exception>
   }
 
   /**
-   * Takes ownership of preconfigured readers and their executor. Tests can supply an executor to
-   * control fetch scheduling; production callers use {@link #resume} to size the pool.
+   * Takes ownership of preconfigured readers and borrows their executor. Tests can control fetch
+   * scheduling; production callers use {@link #resume}.
    */
   @VisibleForTesting
   PartitionedChangeStreamClient(
       List<ChangeStreamMongoClient<E>> clients,
-      ExecutorService executor,
+      Executor executor,
       WrapIfThrows<E> exceptionWrapper) {
     checkArg(!clients.isEmpty(), "clients must contain at least one reader");
     var readers = new ArrayList<Reader<E>>();
@@ -239,8 +231,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
   /**
    * Closes this client's change stream readers, leaving the shared Mongo client open. Closing a
    * reader may abort an active fetch. This method does not wait for active reads, and reader
-   * cleanup failures are logged. Repeated calls have no effect. The executor shuts down without
-   * interrupting or waiting for its workers.
+   * cleanup failures are logged. Repeated calls have no effect. The shared executor remains open.
    */
   @Override
   public void close() {
@@ -248,10 +239,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
       return;
     }
     this.completedReaders.clear();
-    // Optional.empty() is a shutdown marker. Wake getNext() blocked in completedReaders.take(),
-    // even if every in-flight fetch is stalled and cannot signal completion.
     this.completedReaders.add(Optional.empty());
-    this.executor.shutdown();
     this.readers.forEach(Reader::close);
   }
 
