@@ -203,6 +203,9 @@ maven.install(
         ("com.google.guava", "guava-testlib", "33.7.2-jre"),
         ("com.pholser", "junit-quickcheck-core", "1.0"),
         ("com.pholser", "junit-quickcheck-generators", "1.0"),
+        # Force ognl (transitive via junit-quickcheck-core) to 3.4.13 to address
+        # CVE-2026-113730 / GHSA-crwc-vw2r-qr6m
+        ("ognl", "ognl", "3.4.13"),
         ("com.github.docker-java", "docker-java-core", "3.7.1"),
         ("com.github.docker-java", "docker-java-api", "3.7.1"),
         ("com.github.docker-java", "docker-java-transport", "3.7.1"),

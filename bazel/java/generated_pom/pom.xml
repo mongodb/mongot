@@ -1150,7 +1150,7 @@
 <dependency>
   <groupId>ognl</groupId>
   <artifactId>ognl</artifactId>
-  <version>3.1.12</version>
+  <version>3.4.13</version>
 </dependency>
 <dependency>
   <groupId>org.antlr</groupId>
@@ -1490,7 +1490,7 @@
 <dependency>
   <groupId>org.javassist</groupId>
   <artifactId>javassist</artifactId>
-  <version>3.28.0-GA</version>
+  <version>3.33.0-GA</version>
 </dependency>
 <dependency>
   <groupId>org.jetbrains</groupId>
