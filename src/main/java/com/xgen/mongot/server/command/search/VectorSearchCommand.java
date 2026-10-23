@@ -60,6 +60,7 @@ import com.xgen.mongot.server.command.CommandFactory;
 import com.xgen.mongot.server.command.search.definition.request.CursorOptionsDefinition;
 import com.xgen.mongot.server.command.search.definition.request.ExplainDefinition;
 import com.xgen.mongot.server.command.search.definition.request.VectorSearchCommandDefinition;
+import com.xgen.mongot.server.executors.LoadSheddingRejectedException;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.BsonUtils;
@@ -292,6 +293,9 @@ public class VectorSearchCommand implements Command {
       this.metrics.vectorQueriesTimedOut.increment();
       return MessageUtils.createError(
           Errors.MAX_TIME_MS_EXPIRED, Objects.requireNonNull(e.getMessage()));
+    } catch (LoadSheddingRejectedException e) {
+      // Let the server handler return the overload error code and retry labels.
+      throw e;
     } catch (Exception e) {
       // Unwrap RuntimeExceptions to check if they mask a user-facing InvalidQueryException.
       if (e instanceof RuntimeException && e.getCause() instanceof InvalidQueryException) {

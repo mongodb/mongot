@@ -180,8 +180,7 @@ public class BulkheadCommandExecutor implements Closeable {
           "Query rejected due to executor capacity limits: poolSize={}, queueCapacity={}",
           poolSize,
           queueCapacity);
-      throw new LoadSheddingRejectedException(
-          "Query rejected: search server is currently at capacity. Please try again later.");
+      throw LoadSheddingRejectedException.serverAtCapacity();
     };
   }
 

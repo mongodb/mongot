@@ -44,6 +44,7 @@ import java.util.concurrent.CompletableFuture;
 import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonInt64;
+import org.bson.BsonString;
 import org.bson.RawBsonDocument;
 import org.bson.codecs.BsonDocumentCodec;
 import org.bson.types.ObjectId;
@@ -534,7 +535,7 @@ public class ServerCallHandlerTest {
   }
 
   @Test
-  public void onNext_loadSheddingWithFlagOff_repliesWithInBandError() {
+  public void onNext_loadSheddingWithFlagOff_repliesWithOverloadCodeAndLabels() {
     var observer = mockObserver();
     var handler =
         new FailingCallHandler(
@@ -544,12 +545,20 @@ public class ServerCallHandlerTest {
             /* isShadow */ false,
             /* envoyInRequestPath */ true,
             observer,
-            new LoadSheddingRejectedException("Server is at capacity"));
+            LoadSheddingRejectedException.serverAtCapacity());
 
     handler.onNext(REQUEST);
 
-    verify(observer).onNext(any());
     verify(observer, never()).onError(any());
+    RawBsonDocument reply = capturedReply(observer);
+    assertThat(reply.getString("errmsg").getValue())
+        .isEqualTo(
+            "Query rejected: search server is currently at capacity. Please try again later.");
+    assertThat(reply.getInt32("code").getValue()).isEqualTo(489);
+    assertThat(reply.getString("codeName").getValue())
+        .isEqualTo("SearchRequestRejectedDueToOverload");
+    assertThat(reply.getArray("errorLabels"))
+        .containsExactly(new BsonString("SystemOverloadedError"), new BsonString("RetryableError"));
   }
 
   @Test

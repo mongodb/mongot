@@ -60,6 +60,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/server/command/search",
         "//src/main/java/com/xgen/mongot/server/command/search/definition",
         "//src/main/java/com/xgen/mongot/server/command/search/definition/request",
+        "//src/main/java/com/xgen/mongot/server/executors",
         "//src/main/java/com/xgen/mongot/server/message",
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",

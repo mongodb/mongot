@@ -12,7 +12,15 @@ import java.util.concurrent.RejectedExecutionException;
  */
 public class LoadSheddingRejectedException extends RejectedExecutionException {
 
+  static final String SERVER_AT_CAPACITY_MESSAGE =
+      "Query rejected: search server is currently at capacity. Please try again later.";
+
   public LoadSheddingRejectedException(String message) {
     super(message);
+  }
+
+  /** Returns a capacity rejection with a consistent message across query limits. */
+  public static LoadSheddingRejectedException serverAtCapacity() {
+    return new LoadSheddingRejectedException(SERVER_AT_CAPACITY_MESSAGE);
   }
 }

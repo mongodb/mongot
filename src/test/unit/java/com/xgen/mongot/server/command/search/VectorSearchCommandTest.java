@@ -69,6 +69,7 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.index.version.UserIndexVersion;
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
+import com.xgen.mongot.server.executors.LoadSheddingRejectedException;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.ErrorType;
 import com.xgen.mongot.util.FieldPath;
@@ -526,6 +527,48 @@ public class VectorSearchCommandTest {
             .append("codeName", new BsonString("MaxTimeMSExpired"))
             .append("errmsg", new BsonString("operation exceeded time limit")),
         result);
+  }
+
+  @Test
+  public void run_readerOverloaded_propagatesRejectionWithoutRecordingInternalFailure()
+      throws Exception {
+    var mocks = new Mocks();
+    var registry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    LoadSheddingRejectedException rejection = LoadSheddingRejectedException.serverAtCapacity();
+    when(mocks.reader.query(any(), any())).thenThrow(rejection);
+
+    VectorSearchCommand command =
+        new VectorSearchCommand(
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(
+                    VectorQueryBuilder.builder()
+                        .index(INDEX_NAME)
+                        .criteria(
+                            ApproximateVectorQueryCriteriaBuilder.builder()
+                                .limit(LIMIT)
+                                .numCandidates(NUM_CANDIDATES)
+                                .queryVector(QUERY_VECTOR)
+                                .path(PATH)
+                                .build())
+                        .build())
+                .build(),
+            mocks.catalog,
+            mocks.initializedIndexCatalog,
+            new IncompatibleIndexes(TestMeterRegistry.get()),
+            bootstrapperMetadata(),
+            MOCK_EMBEDDING_SERVICE,
+            new VectorSearchCommand.Metrics(new MetricsFactory("search_metrics", registry)),
+            mocks.cursorManager,
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
+
+    var thrown = Assert.assertThrows(LoadSheddingRejectedException.class, command::run);
+
+    Assert.assertSame(rejection, thrown);
+    Assert.assertNull(
+        registry.find("search_metrics.vectorSearchCommandInternalFailures").counter());
   }
 
   @Test
