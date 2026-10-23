@@ -10,11 +10,13 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingProvider;
 import com.xgen.mongot.index.definition.BooleanFieldDefinition;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexVectorFieldDefinition;
+import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
@@ -37,6 +39,7 @@ import com.xgen.testing.mongot.index.definition.KnnVectorFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.NumericFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.TypeSetDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorDataFieldDefinitionBuilder;
 import java.time.Instant;
 import java.util.List;
@@ -116,6 +119,34 @@ public class AutoEmbeddingIndexValidatorTest {
 
     assertThat(exception.getMessage()).contains("are not supported");
     assertThat(exception.getMessage()).contains(neverRegisteredModel);
+  }
+
+  @Test
+  public void validateIndexWithNoModelsRegistered_namesEmptyCatalog() {
+    // The rejection lists the supported models; with nothing configured it has to say so instead
+    // of printing an empty list.
+    EmbeddingModelCatalog.clear();
+    VectorIndexDefinition indexWithModel = createVectorIndexWithModel(UNREGISTERED_MODEL);
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(indexWithModel));
+
+    assertThat(exception.getMessage()).contains("none (embedding service not configured)");
+  }
+
+  @Test
+  public void validateIndexWithoutAutoEmbedFields_throwsIllegalArgument() {
+    // Callers gate on isAutoEmbeddingIndex(); the guard keeps a future caller honest.
+    SearchIndexDefinition plainIndex =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .mappings(DocumentFieldDefinitionBuilder.builder().dynamic(false).build())
+            .build();
+
+    assertThrows(
+        IllegalArgumentException.class, () -> AutoEmbeddingIndexValidator.validate(plainIndex));
   }
 
   @Test
@@ -520,7 +551,28 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateSearchIndexWithMixedVectorTypes_throwsException() {
+  public void validateDefinitionShape_skipsModelRegistrationCheck()
+      throws InvalidIndexDefinitionException {
+    VectorAutoEmbedFieldSpecification unregisteredSpecification =
+        new VectorAutoEmbedFieldSpecification(
+            1024,
+            VectorSimilarity.DOT_PRODUCT,
+            VectorAutoEmbedQuantization.FLOAT,
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+            UNREGISTERED_MODEL,
+            VectorAutoEmbedFieldSpecification.DEFAULT_MODALITY);
+    SearchIndexDefinition searchIndex =
+        createSearchIndexWithAutoEmbedFields(
+            new SearchAutoEmbedFieldDefinition(unregisteredSpecification));
+
+    // The Atlas conf-call path validates shape only; an unregistered model surfaces during
+    // replication as MODEL_NOT_REGISTERED instead of invalidating the definition.
+    AutoEmbeddingIndexValidator.validateDefinitionShape(searchIndex);
+  }
+
+  @Test
+  public void validateSearchIndexWithMixedVectorTypes_succeeds()
+      throws InvalidIndexDefinitionException {
     SearchAutoEmbedFieldDefinition autoEmbedDef =
         new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL);
     var knnVectorDef =
@@ -539,16 +591,13 @@ public class AutoEmbeddingIndexValidatorTest {
     SearchIndexDefinition searchIndex =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
 
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
-
-    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+    AutoEmbeddingIndexValidator.validateDefinitionShape(searchIndex);
   }
 
   @Test
-  public void validateSearchIndexWithDocumentVectorCollision_throwsException() {
+  public void validateSearchIndexWithNestedRegularVector_succeeds()
+      throws InvalidIndexDefinitionException {
     var vectorSpec =
         new VectorFieldSpecification(
             1024,
@@ -578,12 +627,8 @@ public class AutoEmbeddingIndexValidatorTest {
     SearchIndexDefinition searchIndex =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
 
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
-
-    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+    AutoEmbeddingIndexValidator.validateDefinitionShape(searchIndex);
   }
 
   @Test
@@ -627,9 +672,9 @@ public class AutoEmbeddingIndexValidatorTest {
   }
 
   @Test
-  public void validateSearchIndexWithNestedAutoEmbedAndTopLevelVector_throwsException() {
-    // Nested auto-embed + top-level regular vector: the mixed-type check must see auto-embed
-    // declarations at any nesting depth.
+  public void validateSearchIndexWithNestedAutoEmbedAndTopLevelVector_succeeds()
+      throws InvalidIndexDefinitionException {
+    // Search indexes allow pre-computed vectors alongside nested auto-embedding fields.
     var knnVectorDef =
         KnnVectorFieldDefinitionBuilder.builder()
             .dimensions(1024)
@@ -653,19 +698,14 @@ public class AutoEmbeddingIndexValidatorTest {
     SearchIndexDefinition searchIndex =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
 
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
-
-    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+    AutoEmbeddingIndexValidator.validateDefinitionShape(searchIndex);
   }
 
   @Test
-  public void validateSearchIndexWithAutoEmbedAndVectorUnderEmbeddedDocuments_throwsException() {
-    // A regular vector inside an embeddedDocuments field (the canonical nested pre-computed
-    // vector shape; knnVector is illegal there but the vector type is allowed) must trip the
-    // mixed-type check alongside a top-level auto-embed.
+  public void validateSearchIndexWithAutoEmbedAndVectorUnderEmbeddedDocuments_succeeds()
+      throws InvalidIndexDefinitionException {
+    // Regular vectors under embeddedDocuments may coexist with auto-embedding outside that scope.
     var vectorSpec =
         new VectorFieldSpecification(
             1024,
@@ -696,12 +736,8 @@ public class AutoEmbeddingIndexValidatorTest {
     SearchIndexDefinition searchIndex =
         SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
 
-    InvalidIndexDefinitionException exception =
-        assertThrows(
-            InvalidIndexDefinitionException.class,
-            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
-
-    assertThat(exception.getMessage()).contains("cannot mix regular vector fields");
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+    AutoEmbeddingIndexValidator.validateDefinitionShape(searchIndex);
   }
 
   @Test
@@ -806,6 +842,158 @@ public class AutoEmbeddingIndexValidatorTest {
     AutoEmbeddingIndexValidator.validate(searchIndex);
   }
 
+  @Test
+  public void validateSearchIndexWithRootDynamicMappings_throwsException() {
+    // Dynamic mappings are supported for ordinary Search indexes, but an auto-embedding index is
+    // served from a generated materialized view; MMS rejects dynamic at any level and the community
+    // path must agree.
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field("embedding", autoEmbedField())
+            .build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () ->
+                AutoEmbeddingIndexValidator.validate(
+                    searchIndexWithMappings("dynamic-root", mappings)));
+
+    assertThat(exception.getMessage()).contains("cannot use dynamic mappings at any level");
+    assertThat(exception.getMessage()).contains("dynamic-root");
+  }
+
+  @Test
+  public void validateSearchIndexWithNestedDynamicMappings_throwsException() {
+    var nested = DocumentFieldDefinitionBuilder.builder().dynamic(true).build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("embedding", autoEmbedField())
+            .field("parent", FieldDefinitionBuilder.builder().document(nested).build())
+            .build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () ->
+                AutoEmbeddingIndexValidator.validate(
+                    searchIndexWithMappings("dynamic-nested", mappings)));
+
+    assertThat(exception.getMessage()).contains("cannot use dynamic mappings at any level");
+  }
+
+  @Test
+  public void validateSearchIndexWithTypeSetDynamicMappings_throwsException() {
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic("dynamicTypeSet")
+            .field("embedding", autoEmbedField())
+            .build();
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .name("dynamic-type-set")
+            .mappings(mappings)
+            .typeSets(
+                TypeSetDefinitionBuilder.builder()
+                    .name("dynamicTypeSet")
+                    .addType(StringFieldDefinitionBuilder.builder().build())
+                    .build())
+            .build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("cannot use dynamic mappings at any level");
+  }
+
+  @Test
+  public void validateSearchIndexWithDynamicMappingsUnderEmbeddedDocuments_throwsException() {
+    var embedded = EmbeddedDocumentsFieldDefinitionBuilder.builder().dynamic(true).build();
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("embedding", autoEmbedField())
+            .field("sections", FieldDefinitionBuilder.builder().embeddedDocuments(embedded).build())
+            .build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () ->
+                AutoEmbeddingIndexValidator.validate(
+                    searchIndexWithMappings("dynamic-embedded", mappings)));
+
+    assertThat(exception.getMessage()).contains("cannot use dynamic mappings at any level");
+  }
+
+  @Test
+  public void validateSearchIndexWithStoredSourceTrue_throwsException() {
+    assertStoredSourceRejected(StoredSourceDefinition.createIncludeAll(), "stored-source-true");
+  }
+
+  @Test
+  public void validateSearchIndexWithStoredSourceIncludePaths_throwsException() {
+    assertStoredSourceRejected(
+        StoredSourceDefinition.create(StoredSourceDefinition.Mode.INCLUSION, List.of("title")),
+        "stored-source-include");
+  }
+
+  @Test
+  public void validateSearchIndexWithStoredSourceExcludePaths_throwsException() {
+    assertStoredSourceRejected(
+        StoredSourceDefinition.create(StoredSourceDefinition.Mode.EXCLUSION, List.of("title")),
+        "stored-source-exclude");
+  }
+
+  @Test
+  public void validateSearchIndexWithStoredSourceFalse_succeeds()
+      throws InvalidIndexDefinitionException {
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .mappings(searchAutoEmbedMappings())
+            .storedSource(StoredSourceDefinition.createExcludeAll())
+            .build();
+
+    AutoEmbeddingIndexValidator.validate(searchIndex);
+  }
+
+  /**
+   * Every rule rejects through {@link InvalidIndexDefinitionException}. The Atlas conf-call intake
+   * catches that (and parse errors) per definition, so an unchecked exception here would take the
+   * host down instead of quarantining the one index.
+   */
+  @Test
+  public void validate_everyViolationThrowsCheckedException() {
+    List<SearchIndexDefinition> violatingIndexes =
+        List.of(
+            searchIndexWithMappings(
+                "dynamic",
+                DocumentFieldDefinitionBuilder.builder()
+                    .dynamic(true)
+                    .field("embedding", autoEmbedField())
+                    .build()),
+            SearchIndexDefinitionBuilder.builder()
+                .defaultMetadata()
+                .name("stored-source")
+                .mappings(searchAutoEmbedMappings())
+                .storedSource(StoredSourceDefinition.createIncludeAll())
+                .build(),
+            createSearchIndexWithAutoEmbedAndField(
+                "_autoEmbed",
+                FieldDefinitionBuilder.builder().bool(new BooleanFieldDefinition()).build()));
+
+    for (SearchIndexDefinition index : violatingIndexes) {
+      assertThrows(
+          InvalidIndexDefinitionException.class, () -> AutoEmbeddingIndexValidator.validate(index));
+    }
+  }
+
   private SearchIndexDefinition createSearchIndexWithAutoEmbed(String modelName) {
     return createSearchIndexWithAutoEmbedFields(new SearchAutoEmbedFieldDefinition(modelName));
   }
@@ -846,5 +1034,47 @@ public class AutoEmbeddingIndexValidatorTest {
     assertThat(exception.getMessage()).contains(invalidPath);
     assertThat(exception.getMessage()).contains("_autoEmbed");
     assertThat(exception.getMessage()).contains("reserved");
+  }
+
+  private static FieldDefinition autoEmbedField() {
+    return FieldDefinitionBuilder.builder()
+        .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(REGISTERED_MODEL))
+        .build();
+  }
+
+  private static DocumentFieldDefinition searchAutoEmbedMappings() {
+    return DocumentFieldDefinitionBuilder.builder()
+        .dynamic(false)
+        .field("embedding", autoEmbedField())
+        .build();
+  }
+
+  private static SearchIndexDefinition searchIndexWithMappings(
+      String name, DocumentFieldDefinition mappings) {
+    return SearchIndexDefinitionBuilder.builder()
+        .defaultMetadata()
+        .name(name)
+        .mappings(mappings)
+        .build();
+  }
+
+  private static void assertStoredSourceRejected(
+      StoredSourceDefinition storedSource, String indexName) {
+    SearchIndexDefinition searchIndex =
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .name(indexName)
+            .mappings(searchAutoEmbedMappings())
+            .storedSource(storedSource)
+            .build();
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception.getMessage()).contains("cannot use storedSource");
+    assertThat(exception.getMessage()).contains(indexName);
+    assertThat(exception.getMessage()).contains("remove storedSource or the autoEmbed field");
   }
 }

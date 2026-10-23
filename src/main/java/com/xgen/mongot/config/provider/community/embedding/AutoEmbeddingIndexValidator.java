@@ -3,8 +3,8 @@ package com.xgen.mongot.config.provider.community.embedding;
 import com.google.common.collect.ImmutableSet;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
-import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.HierarchicalFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
@@ -17,7 +17,12 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Validator for auto-embedding indexes on community.
+ * Validator for auto-embedding index definitions, shared by both deployment surfaces.
+ *
+ * <p>Community/on-prem index management commands run these checks at create and update time. The
+ * Atlas conf-call intake runs them on every definition of every conf call, so a rule added here
+ * also applies to definitions that are already live on Atlas: a new rule that could reject a live
+ * definition needs a rollout plan before it ships.
  *
  * <p>These validations are ONLY applied to auto-embedding indexes (indexes that contain TEXT or
  * AUTO_EMBED field types).
@@ -26,20 +31,33 @@ public class AutoEmbeddingIndexValidator {
   private static final String RESERVED_AUTO_EMBED_NAMESPACE = "_autoEmbed";
 
   /**
-   * Runs validations for auto-embedding indexes on community. Works for both vector and search
-   * index definitions.
+   * Runs validations for auto-embedding indexes. Works for both vector and search definitions.
    *
    * @throws InvalidIndexDefinitionException if the index violates restrictions
    * @throws IllegalArgumentException if called on a non-auto-embedding index
    */
   public static void validate(IndexDefinition indexDefinition)
       throws InvalidIndexDefinitionException {
+    validateEmbeddingModelsAreRegistered(indexDefinition);
+    validateDefinitionShape(indexDefinition);
+  }
+
+  /**
+   * Runs the auto-embedding mapping-shape validations without requiring the referenced models to be
+   * registered. The Atlas conf-call path uses this so a lagging or partially populated model
+   * catalog cannot invalidate a live index; an unregistered model surfaces as MODEL_NOT_REGISTERED
+   * during replication, which retries once the catalog catches up.
+   *
+   * @throws InvalidIndexDefinitionException if the index violates restrictions
+   * @throws IllegalArgumentException if called on a non-auto-embedding index
+   */
+  public static void validateDefinitionShape(IndexDefinition indexDefinition)
+      throws InvalidIndexDefinitionException {
     if (!indexDefinition.isAutoEmbeddingIndex()) {
       throw new IllegalArgumentException(
           "Unable to invoke validations on non auto-embedding indexes");
     }
 
-    validateEmbeddingModelsAreRegistered(indexDefinition);
     switch (indexDefinition) {
       case VectorIndexDefinition vectorIndex -> {
         validateVectorReservedAutoEmbedNamespace(vectorIndex);
@@ -47,8 +65,9 @@ public class AutoEmbeddingIndexValidator {
       }
       case SearchIndexDefinition searchIndex -> {
         validateSearchReservedAutoEmbedNamespace(searchIndex);
-        validateSearchNoMixedVectorTypes(searchIndex);
         validateNoConflictingAutoEmbedSourcePaths(searchIndex);
+        validateSearchNoDynamicMappings(searchIndex);
+        validateSearchNoStoredSource(searchIndex);
       }
     }
   }
@@ -57,7 +76,7 @@ public class AutoEmbeddingIndexValidator {
    * Rejects user mappings in the root {@code _autoEmbed} namespace, which is reserved for generated
    * materialized-view fields.
    */
-  public static void validateSearchReservedAutoEmbedNamespace(SearchIndexDefinition searchIndex)
+  private static void validateSearchReservedAutoEmbedNamespace(SearchIndexDefinition searchIndex)
       throws InvalidIndexDefinitionException {
     List<String> invalidPaths =
         searchIndex.getMappings().fields().keySet().stream()
@@ -77,7 +96,7 @@ public class AutoEmbeddingIndexValidator {
    * Rejects filter fields in the root {@code _autoEmbed} namespace, which is reserved for generated
    * materialized-view fields.
    */
-  public static void validateVectorReservedAutoEmbedNamespace(VectorIndexDefinition vectorIndex)
+  private static void validateVectorReservedAutoEmbedNamespace(VectorIndexDefinition vectorIndex)
       throws InvalidIndexDefinitionException {
     List<String> invalidPaths =
         vectorIndex.getFields().stream()
@@ -166,44 +185,6 @@ public class AutoEmbeddingIndexValidator {
     throwIfMixedVectorTypes(hasRegularVectorField, hasAutoEmbedField);
   }
 
-  private static void validateSearchNoMixedVectorTypes(SearchIndexDefinition searchIndex)
-      throws InvalidIndexDefinitionException {
-    throwIfMixedVectorTypes(
-        containsRegularVectorField(searchIndex.getMappings()),
-        searchIndex.getMappings().containsSearchAutoEmbedField());
-  }
-
-  /**
-   * True if a {@code vector} or {@code knnVector} field is declared at any nesting depth,
-   * descending through both {@code document} and {@code embeddedDocuments} fields (the latter is
-   * the canonical shape for nested pre-computed vectors).
-   */
-  private static boolean containsRegularVectorField(DocumentFieldDefinition document) {
-    return containsRegularVectorField(document.fields().values());
-  }
-
-  private static boolean containsRegularVectorField(Iterable<FieldDefinition> fields) {
-    for (FieldDefinition fieldDef : fields) {
-      if (fieldDef.searchIndexVectorFieldDefinition().isPresent()
-          || fieldDef.knnVectorFieldDefinition().isPresent()) {
-        return true;
-      }
-      if (fieldDef
-          .documentFieldDefinition()
-          .map(nested -> containsRegularVectorField(nested.fields().values()))
-          .orElse(false)) {
-        return true;
-      }
-      if (fieldDef
-          .embeddedDocumentsFieldDefinition()
-          .map(embedded -> containsRegularVectorField(embedded.fields().values()))
-          .orElse(false)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /**
    * Rejects auto-embed {@code path}s that conflict with a document-shaped mapping: {@code geo}
    * paths or document-shaped alternatives on the same field. A text-valued or scalar declaration on
@@ -220,6 +201,68 @@ public class AutoEmbeddingIndexValidator {
               "autoEmbed path(s) %s conflict with a document-shaped mapping: document,"
                   + " embeddedDocuments, and geo fields cannot be autoEmbed sources",
               conflicts));
+    }
+  }
+
+  /**
+   * Rejects {@code dynamic} mappings at any level when the index contains an auto-embed field.
+   *
+   * <p>Dynamic mappings are supported for ordinary Search indexes, but an auto-embedding index is
+   * served from a generated materialized view: a dynamic mapping would also index the generated
+   * {@code _autoEmbed} subtree and the raw source values that the embedding pipeline consumes.
+   * Mirrors the MMS/Atlas validation so community definitions are rejected at create/update time
+   * instead of producing a serving definition that differs from what the user declared.
+   */
+  private static void validateSearchNoDynamicMappings(SearchIndexDefinition searchIndex)
+      throws InvalidIndexDefinitionException {
+    if (containsEnabledDynamicMappings(searchIndex.getMappings())) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "Search index: %s cannot use dynamic mappings at any level when it contains an"
+                  + " autoEmbed field. Set dynamic to false or omit it.",
+              searchIndex.getName()));
+    }
+  }
+
+  /**
+   * True if {@code dynamic} is enabled on the given mappings node or on any nested {@code
+   * document}/{@code embeddedDocuments} field definition.
+   */
+  private static boolean containsEnabledDynamicMappings(
+      HierarchicalFieldDefinition hierarchicalField) {
+    if (hierarchicalField.dynamic().isEnabled()) {
+      return true;
+    }
+    for (FieldDefinition fieldDef : hierarchicalField.fields().values()) {
+      if (fieldDef
+              .documentFieldDefinition()
+              .map(AutoEmbeddingIndexValidator::containsEnabledDynamicMappings)
+              .orElse(false)
+          || fieldDef
+              .embeddedDocumentsFieldDefinition()
+              .map(AutoEmbeddingIndexValidator::containsEnabledDynamicMappings)
+              .orElse(false)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Rejects a configured {@code storedSource} when the index contains an auto-embed field. The
+   * derived serving definition drops stored source (CLOUDP-459648), so a stored source that stores
+   * fields would be silently ignored and {@code returnStoredSource} queries would fail at query
+   * time. An absent {@code storedSource} and explicit {@code false} (exclude-all) stay allowed.
+   */
+  private static void validateSearchNoStoredSource(SearchIndexDefinition searchIndex)
+      throws InvalidIndexDefinitionException {
+    if (!searchIndex.getStoredSource().isAllExcluded()) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "Search index: %s cannot use storedSource when it contains an autoEmbed field."
+                  + " Stored source is not yet compatible with automated embedding; remove"
+                  + " storedSource or the autoEmbed field.",
+              searchIndex.getName()));
     }
   }
 

@@ -18,6 +18,7 @@ import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.management.definition.UpdateSearchIndexCommandDefinition;
+import com.xgen.mongot.server.command.management.definition.common.UserIndexDefinition;
 import com.xgen.mongot.server.command.management.definition.common.UserViewDefinition;
 import com.xgen.mongot.server.command.management.util.IndexMapper;
 import com.xgen.mongot.server.message.MessageUtils;
@@ -143,11 +144,21 @@ public class AicUpdateSearchIndexCommand implements Command {
             Errors.COMMAND_FAILED,
             "Index definition is stored in an unrecognized format and cannot be updated.");
       }
+      UserIndexDefinition newUserDefinition;
+      try {
+        newUserDefinition = this.definition.indexDefinition(oldIndex.getType());
+      } catch (BsonParseException e) {
+        // The requested definition is client input, so a definition that cannot be parsed is a
+        // client error rather than an internal failure; report it like the other definition-level
+        // rejections below.
+        return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
+      }
+
       IndexDefinition newIndex =
           IndexMapper.toInternal(
               oldIndex.getName(),
               Optional.of(oldIndex.getIndexId()),
-              this.definition.indexDefinition(oldIndex.getType()),
+              newUserDefinition,
               oldIndex.getCollectionUuid(),
               this.db,
               this.collectionName,
@@ -178,12 +189,12 @@ public class AicUpdateSearchIndexCommand implements Command {
         case SearchIndexDefinition search -> searchList.add(search);
         case VectorIndexDefinition vector -> vectorList.add(vector);
       }
-      Invariants.validateInvariants(List.of(), searchList, vectorList, allIndexes);
 
       if (newIndex instanceof SearchIndexDefinition searchIndex) {
         try {
           searchIndex.validateEmbeddedDocumentsNestingLevel(
               this.indexDefinitionConfig.getMaxEmbeddedDocumentsNestingLevel());
+          searchIndex.validateSortDefinition();
         } catch (InvalidIndexDefinitionException e) {
           return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
         }
@@ -201,7 +212,7 @@ public class AicUpdateSearchIndexCommand implements Command {
       // (registered models, no mixed vector types) so an update cannot persist a definition that
       // create would reject; the superseded MV is cleaned up by GC. Failures of these
       // auto-embedding checks are client errors (BAD_VALUE), matching the same checks in the
-      // create workflow; the catalog/analyzer invariants above return COMMAND_FAILED on create
+      // create workflow; the catalog/analyzer invariants below return COMMAND_FAILED on create
       // and update alike.
       try {
         if (oldIndex instanceof VectorIndexDefinition oldVector
@@ -225,6 +236,10 @@ public class AicUpdateSearchIndexCommand implements Command {
       } catch (InvalidIndexDefinitionException e) {
         return MessageUtils.createError(Errors.BAD_VALUE, e.getMessage());
       }
+
+      // Run the catalog invariants after the definition-level checks above so a definition that
+      // also violates an invariant reports the same BAD_VALUE error on update as on create.
+      Invariants.validateInvariants(List.of(), searchList, vectorList, allIndexes);
 
       this.authoritativeIndexCatalog.updateIndex(
           new AuthoritativeIndexKey(this.collectionUuid, newIndex.getName()),

@@ -22,6 +22,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableList;
 import com.mongodb.MongoException;
 import com.xgen.mongot.catalogservice.AuthoritativeIndexCatalog;
 import com.xgen.mongot.catalogservice.CatalogAccessGuard;
@@ -33,9 +34,13 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingProvider;
+import com.xgen.mongot.index.definition.DocumentFieldDefinition;
+import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.StoredSourceDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorDataFieldDefinition;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
@@ -43,8 +48,12 @@ import com.xgen.mongot.index.definition.VectorIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.config.IndexDefinitionConfig;
+import com.xgen.mongot.index.query.sort.MongotSortField;
+import com.xgen.mongot.index.query.sort.Sort;
+import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.server.command.management.definition.UpdateSearchIndexCommandDefinition;
 import com.xgen.mongot.server.command.management.definition.common.NamedSearchIndex;
+import com.xgen.mongot.server.command.management.definition.common.UserSearchIndexDefinition;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -52,6 +61,7 @@ import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -67,14 +77,22 @@ import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
 import org.jetbrains.annotations.NotNull;
 import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 public class AicUpdateSearchIndexCommandTest {
 
+  private static EmbeddingModelCatalogTestUtils.CatalogSnapshot modelCatalogSnapshot;
+
+  @BeforeClass
+  public static void snapshotModelCatalog() {
+    modelCatalogSnapshot = EmbeddingModelCatalogTestUtils.snapshotCatalog();
+  }
+
   @AfterClass
-  public static void clearModelCatalog() {
-    EmbeddingModelCatalog.clear();
+  public static void restoreModelCatalog() {
+    EmbeddingModelCatalogTestUtils.restoreCatalog(modelCatalogSnapshot);
   }
 
   @Test
@@ -490,6 +508,177 @@ public class AicUpdateSearchIndexCommandTest {
     verify(mockAic, never()).updateIndex(any(), any(), any());
   }
 
+  @Test
+  public void testSearchAutoEmbedUpdateWithDynamicMappings_rejected()
+      throws MetadataServiceException {
+    String model = "aic-update-search-ae-dynamic";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(autoEmbedSearchIndex(indexId, model))));
+
+    // Dynamic mappings are allowed for ordinary Search indexes but rejected for auto-embedding
+    // indexes, matching the MMS validation.
+    var newMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(true)
+            .field("embedding", searchAutoEmbedField(model))
+            .build();
+    var updateDefinition =
+        updateDefinitionWithSearchMappings(indexId, newMappings, Optional.empty());
+
+    var command = makeTarget(mockAic, updateDefinition);
+    var response = command.run();
+
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(
+        response
+            .getString("errmsg")
+            .getValue()
+            .contains("cannot use dynamic mappings at any level"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testSearchAutoEmbedUpdateWithStoredSource_rejected() throws MetadataServiceException {
+    String model = "aic-update-search-ae-stored-source";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(autoEmbedSearchIndex(indexId, model))));
+
+    // The derived serving definition drops storedSource, so a stored source that stores fields is
+    // rejected until stored source is supported for auto-embedding indexes (CLOUDP-363302).
+    var newMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("embedding", searchAutoEmbedField(model))
+            .build();
+    var updateDefinition =
+        updateDefinitionWithSearchMappings(
+            indexId, newMappings, Optional.of(StoredSourceDefinition.createIncludeAll()));
+
+    var command = makeTarget(mockAic, updateDefinition);
+    var response = command.run();
+
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains("cannot use storedSource"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testSearchAutoEmbedUpdateWithUnsortableSort_rejected()
+      throws MetadataServiceException {
+    String model = "aic-update-search-ae-unsortable-sort";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(autoEmbedSearchIndex(indexId, model))));
+
+    // Sort on the autoEmbed source (string + autoEmbed) is unsortable; the rule the journal
+    // parse enforces must reject at the command path too (CLOUDP-459819).
+    var updateDefinition = unsortableAutoEmbedSortUpdate(indexId, model);
+
+    var command = makeTarget(mockAic, updateDefinition);
+    var response = command.run();
+
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains("Sort fields are not sortable"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testSearchAutoEmbedUpdateWithUnsortableSortAndInvariantViolation_returnsBadValue()
+      throws MetadataServiceException {
+    String model = "aic-update-search-ae-unsortable-sort-invariant";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    SearchIndexDefinition stored = autoEmbedSearchIndex(indexId, model);
+    // Two catalog entries share a name, so the catalog invariants also fail. The definition-level
+    // error must still win, matching the create path.
+    when(mockAic.listIndexes(COLLECTION_UUID)).thenReturn(List.of(toIndexEntry(stored)));
+    when(mockAic.listIndexDefinitions())
+        .thenReturn(List.of(stored, autoEmbedSearchIndex(new ObjectId(), model)));
+
+    var updateDefinition = unsortableAutoEmbedSortUpdate(indexId, model);
+
+    var command = makeTarget(mockAic, updateDefinition);
+    var response = command.run();
+
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains("Sort fields are not sortable"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
+  public void testSearchAutoEmbedUpdateWithAutoEmbedUnderEmbeddedDocuments_rejected()
+      throws MetadataServiceException {
+    String model = "aic-update-search-ae-embedded";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(autoEmbedSearchIndex(indexId, model))));
+
+    // autoEmbed beneath embeddedDocuments cannot be built from the parsed definition types, so the
+    // update rejects the definition while parsing it. The rejection is a client error.
+    BsonDocument definitionBson =
+        bson(
+            """
+            {
+              "mappings": {
+                "dynamic": false,
+                "fields": {
+                  "sections": {
+                    "type": "embeddedDocuments",
+                    "dynamic": false,
+                    "fields": {
+                      "embedding": {
+                        "type": "autoEmbed",
+                        "model": "%s",
+                        "modality": "text"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """
+                .formatted(model));
+    var updateDefinition =
+        new UpdateSearchIndexCommandDefinition(
+            COLLECTION_NAME,
+            Optional.of(indexId),
+            Optional.empty(),
+            Optional.of(IndexDefinition.Type.SEARCH),
+            definitionBson);
+
+    var command = makeTarget(mockAic, updateDefinition);
+    var response = command.run();
+
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(
+        response
+            .getString("errmsg")
+            .getValue()
+            .contains("cannot define fields of type autoEmbed inside an embeddedDocuments field"));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
   private static void registerTestModel(String modelName) {
     EmbeddingModelCatalog.registerModelConfig(
         modelName,
@@ -611,6 +800,9 @@ public class AicUpdateSearchIndexCommandTest {
     // Update command fails
     BsonDocument updateResponse = command.run();
     assertEquals(0, updateResponse.getInt32("ok").getValue());
+    // The requested definition is client input, so it is BadValue rather than CommandFailed.
+    assertEquals(Errors.BAD_VALUE.code, updateResponse.getInt32("code").getValue());
+    assertEquals(Errors.BAD_VALUE.name, updateResponse.getString("codeName").getValue());
     assertEquals("\"mappings\" is required", updateResponse.getString("errmsg").getValue());
   }
 
@@ -664,6 +856,86 @@ public class AicUpdateSearchIndexCommandTest {
     var response = command.run();
     assertEquals(Errors.COMMAND_FAILED.code, response.getInt32("code").getValue());
     assertEquals(expectedMessage, response.getString("errmsg").getValue());
+  }
+
+  private static FieldDefinition searchAutoEmbedField(String model) {
+    return FieldDefinitionBuilder.builder()
+        .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(model))
+        .build();
+  }
+
+  private static SearchIndexDefinition autoEmbedSearchIndex(ObjectId indexId, String model) {
+    var mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field("embedding", searchAutoEmbedField(model))
+            .build();
+    return SearchIndexDefinitionBuilder.builder()
+        .database(DATABASE_NAME)
+        .collectionUuid(COLLECTION_UUID)
+        .lastObservedCollectionName(COLLECTION_NAME)
+        .indexId(indexId)
+        .name(INDEX_NAME)
+        .indexFeatureVersion(SearchIndexCapabilities.CURRENT_FEATURE_VERSION)
+        .mappings(mappings)
+        .build();
+  }
+
+  /** An update whose sort targets the dual-role autoEmbed source, which is not sortable. */
+  private static UpdateSearchIndexCommandDefinition unsortableAutoEmbedSortUpdate(
+      ObjectId indexId, String model) {
+    var newMappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "description",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(model))
+                    .build())
+            .build();
+    var userDefinition =
+        new UserSearchIndexDefinition(
+            Optional.empty(),
+            Optional.empty(),
+            newMappings,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(
+                new Sort(
+                    ImmutableList.of(
+                        new MongotSortField(
+                            FieldPath.newRoot("description"), UserFieldSortOptions.DEFAULT_ASC)))),
+            Optional.empty(),
+            1);
+    return (UpdateSearchIndexCommandDefinition)
+        ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+            .withIndexId(indexId)
+            .withDefinition(userDefinition)
+            .buildSearchIndexCommand();
+  }
+
+  private static UpdateSearchIndexCommandDefinition updateDefinitionWithSearchMappings(
+      ObjectId indexId,
+      DocumentFieldDefinition mappings,
+      Optional<StoredSourceDefinition> storedSource) {
+    var userDefinition =
+        new UserSearchIndexDefinition(
+            Optional.empty(),
+            Optional.empty(),
+            mappings,
+            Optional.empty(),
+            storedSource,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            1);
+    return (UpdateSearchIndexCommandDefinition)
+        ManageSearchIndexCommandDefinitionBuilder.updateIndex()
+            .withIndexId(indexId)
+            .withDefinition(userDefinition)
+            .buildSearchIndexCommand();
   }
 
   private static @NotNull AicUpdateSearchIndexCommand makeTarget(

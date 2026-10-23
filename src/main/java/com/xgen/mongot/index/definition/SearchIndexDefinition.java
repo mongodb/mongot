@@ -583,6 +583,22 @@ public final class SearchIndexDefinition implements IndexDefinition {
   }
 
   /**
+   * Validates the sort configuration the same way {@link #fromBson} does. Definitions built through
+   * the management-command path never go through {@link #fromBson}, so without this check a sort
+   * that only fails at parse time would be accepted by the command and then reject the definition
+   * on every catalog read. See CLOUDP-459819.
+   *
+   * @throws InvalidIndexDefinitionException if the sort configuration is invalid
+   */
+  public void validateSortDefinition() throws InvalidIndexDefinitionException {
+    try {
+      IndexSortValidator.validateSortFields(this.sort, this.staticFieldDefinitions);
+    } catch (BsonParseException e) {
+      throw new InvalidIndexDefinitionException(e.getMessage());
+    }
+  }
+
+  /**
    * Returns true if this index definition has an {@link EmbeddedDocumentsFieldDefinition} defined.
    */
   public boolean hasEmbeddedFields() {

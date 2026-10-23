@@ -4,7 +4,11 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Registers deterministic embedding models for tests that parse or construct autoEmbed fields. */
 public final class EmbeddingModelCatalogTestUtils {
@@ -44,4 +48,33 @@ public final class EmbeddingModelCatalogTestUtils {
                 true,
                 Optional.empty())));
   }
+
+  /**
+   * Captures the state of the process-wide catalog so a test class can put it back the way it found
+   * it: the registered model configs plus the compatible query models of each index model. Clearing
+   * the catalog outright is not safe when another class in the same JVM fork still relies on models
+   * it registered.
+   */
+  public static CatalogSnapshot snapshotCatalog() {
+    Map<String, EmbeddingModelConfig> modelConfigs =
+        EmbeddingModelCatalog.getAllSupportedModels().stream()
+            .collect(Collectors.toMap(Function.identity(), EmbeddingModelCatalog::getModelConfig));
+    return new CatalogSnapshot(modelConfigs, EmbeddingModelCatalog.snapshotCompatibleQueryModels());
+  }
+
+  /** Restores the catalog to the state captured by {@link #snapshotCatalog()}. */
+  public static void restoreCatalog(CatalogSnapshot snapshot) {
+    EmbeddingModelCatalog.clear();
+    snapshot.modelConfigs().forEach(EmbeddingModelCatalog::registerModelConfig);
+    EmbeddingModelCatalog.restoreCompatibleQueryModels(snapshot.compatibleQueryModels());
+  }
+
+  /**
+   * A snapshot of the catalog state that {@link #restoreCatalog} puts back. The compatible query
+   * models are captured separately because {@link EmbeddingModelCatalog#clear()} drops them along
+   * with the model configs.
+   */
+  public record CatalogSnapshot(
+      Map<String, EmbeddingModelConfig> modelConfigs,
+      Map<String, Set<String>> compatibleQueryModels) {}
 }

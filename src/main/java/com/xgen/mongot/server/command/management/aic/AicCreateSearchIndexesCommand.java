@@ -133,6 +133,7 @@ public class AicCreateSearchIndexesCommand implements Command {
           if (newIndex.internal instanceof SearchIndexDefinition searchIndex) {
             searchIndex.validateEmbeddedDocumentsNestingLevel(
                 this.indexDefinitionConfig.getMaxEmbeddedDocumentsNestingLevel());
+            searchIndex.validateSortDefinition();
           }
           if (newIndex.internal.isAutoEmbeddingIndex()) {
             AutoEmbeddingIndexValidator.validate(newIndex.internal);

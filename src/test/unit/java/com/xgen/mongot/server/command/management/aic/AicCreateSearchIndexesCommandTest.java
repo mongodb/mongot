@@ -49,6 +49,7 @@ import com.xgen.mongot.util.mongodb.CheckedMongoException;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.EmbeddedDocumentsFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.StringFieldDefinitionBuilder;
@@ -59,10 +60,14 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.types.ObjectId;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 public class AicCreateSearchIndexesCommandTest {
+
+  private static final String AE_MODEL = "aic-create-search-ae-model";
 
   @Test
   public void testCreateSearchIndex() throws MetadataServiceException {
@@ -628,6 +633,269 @@ public class AicCreateSearchIndexesCommandTest {
               }
             }
             """));
+  }
+
+  @Test
+  public void searchAutoEmbedWithDynamicMappingsFailsToCreate()
+      throws BsonParseException, MetadataServiceException {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    this.failsWithBadValue(
+        "cannot use dynamic mappings at any level",
+        bson(
+            """
+            {
+              "name": "ae-dynamic",
+              "type": "search",
+              "definition": {
+                "mappings": {
+                  "dynamic": true,
+                  "fields": {
+                    "embedding": {
+                      "type": "autoEmbed",
+                      "model": "%s",
+                      "modality": "text"
+                    }
+                  }
+                }
+              }
+            }
+            """
+                .formatted(AE_MODEL)));
+  }
+
+  @Test
+  public void searchAutoEmbedWithStoredSourceFailsToCreate()
+      throws BsonParseException, MetadataServiceException {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    this.failsWithBadValue(
+        "cannot use storedSource",
+        bson(
+            """
+            {
+              "name": "ae-stored-source",
+              "type": "search",
+              "definition": {
+                "storedSource": true,
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {
+                    "embedding": {
+                      "type": "autoEmbed",
+                      "model": "%s",
+                      "modality": "text"
+                    }
+                  }
+                }
+              }
+            }
+            """
+                .formatted(AE_MODEL)));
+  }
+
+  @Test
+  public void searchUnsortableSortFailsToCreate()
+      throws BsonParseException, MetadataServiceException {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    this.failsWithBadValue(
+        "Sort fields are not sortable",
+        bson(
+            """
+            {
+              "name": "ae-unsortable-sort",
+              "type": "search",
+              "definition": {
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {
+                    "description": [
+                      {"type": "string"},
+                      {
+                        "type": "autoEmbed",
+                        "model": "%s",
+                        "modality": "text"
+                      }
+                    ]
+                  }
+                },
+                "sort": {"description": 1}
+              }
+            }
+            """
+                .formatted(AE_MODEL)));
+  }
+
+  @Test
+  public void searchStringSortWithoutTokenFailsToCreate()
+      throws BsonParseException, MetadataServiceException {
+    this.failsWithBadValue(
+        "Sort fields are not sortable",
+        bson(
+            """
+            {
+              "name": "string-sort",
+              "type": "search",
+              "definition": {
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {"description": {"type": "string"}}
+                },
+                "sort": {"description": 1}
+              }
+            }
+            """));
+  }
+
+  @Test
+  public void searchSortOnSeparateSortableFieldWithAutoEmbedCreatesSuccessfully()
+      throws BsonParseException, MetadataServiceException {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID)).thenReturn(List.of());
+
+    NamedSearchIndex index;
+    try (var parser =
+        BsonDocumentParser.fromRoot(
+                bson(
+                    """
+                    {
+                      "name": "ae-year-sort",
+                      "type": "search",
+                      "definition": {
+                        "mappings": {
+                          "dynamic": false,
+                          "fields": {
+                            "description": [
+                              {
+                                "type": "autoEmbed",
+                                "model": "%s",
+                                "modality": "text"
+                              }
+                            ],
+                            "year": {"type": "number"}
+                          }
+                        },
+                        "sort": {"year": 1}
+                      }
+                    }
+                    """
+                        .formatted(AE_MODEL)))
+            .build()) {
+      index = NamedSearchIndex.fromBson(parser);
+    }
+
+    CreateSearchIndexesCommandDefinition definition =
+        (CreateSearchIndexesCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.createIndexes()
+                .addIndex(index)
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
+    var response = command.run();
+
+    assertEquals(1, response.getInt32("ok").getValue());
+    verify(mockAic).createIndex(any(), any(), any());
+  }
+
+  @Test
+  public void searchAutoEmbedUnderEmbeddedDocumentsFailsToParse() throws BsonParseException {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    // The community create path parses the definition while building the command, so autoEmbed
+    // beneath embeddedDocuments is rejected before the command runs.
+    BsonDocument indexDefinition =
+        bson(
+            """
+            {
+              "name": "ae-embedded",
+              "type": "search",
+              "definition": {
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {
+                    "sections": {
+                      "type": "embeddedDocuments",
+                      "dynamic": false,
+                      "fields": {
+                        "embedding": {
+                          "type": "autoEmbed",
+                          "model": "%s",
+                          "modality": "text"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """
+                .formatted(AE_MODEL));
+
+    BsonParseException exception =
+        assertThrows(
+            BsonParseException.class,
+            () -> {
+              try (var parser = BsonDocumentParser.fromRoot(indexDefinition).build()) {
+                NamedSearchIndex.fromBson(parser);
+              }
+            });
+    assertTrue(
+        exception
+            .getMessage()
+            .contains("cannot define fields of type autoEmbed inside an embeddedDocuments field"));
+  }
+
+  private void failsWithBadValue(String expectedMessagePart, BsonDocument indexDefinition)
+      throws BsonParseException, MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    when(mockAic.listIndexDefinitions(COLLECTION_UUID)).thenReturn(List.of());
+
+    NamedSearchIndex index;
+    try (var parser = BsonDocumentParser.fromRoot(indexDefinition).build()) {
+      index = NamedSearchIndex.fromBson(parser);
+    }
+
+    CreateSearchIndexesCommandDefinition definition =
+        (CreateSearchIndexesCommandDefinition)
+            ManageSearchIndexCommandDefinitionBuilder.createIndexes()
+                .addIndex(index)
+                .buildSearchIndexCommand();
+
+    var command =
+        new AicCreateSearchIndexesCommand(
+            mockAic,
+            mock(CatalogAccessGuard.class),
+            DATABASE_NAME,
+            COLLECTION_UUID,
+            COLLECTION_NAME,
+            Optional.empty(),
+            definition,
+            IndexDefinitionConfig.getDefault());
+    var response = command.run();
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertEquals(Errors.BAD_VALUE.name, response.getString("codeName").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains(expectedMessagePart));
+    verify(mockAic, never()).createIndex(any(), any(), any());
+  }
+
+  private static EmbeddingModelCatalogTestUtils.CatalogSnapshot modelCatalogSnapshot;
+
+  @BeforeClass
+  public static void snapshotModelCatalog() {
+    modelCatalogSnapshot = EmbeddingModelCatalogTestUtils.snapshotCatalog();
+  }
+
+  @AfterClass
+  public static void restoreModelCatalog() {
+    EmbeddingModelCatalogTestUtils.restoreCatalog(modelCatalogSnapshot);
   }
 
   private void failsWithCommandFailed(String expectedMessage, BsonDocument indexDefinition)

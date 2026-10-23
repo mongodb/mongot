@@ -1,6 +1,7 @@
 package com.xgen.mongot.embedding.providers.configs;
 
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientException;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +10,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.TestOnly;
 
 public class EmbeddingModelCatalog {
   private static final Map<String, EmbeddingModelConfig> REGISTERED_MODEL_CONFIGS =
@@ -114,6 +116,31 @@ public class EmbeddingModelCatalog {
   public static void clear() {
     REGISTERED_MODEL_CONFIGS.clear();
     COMPATIBLE_QUERY_MODEL_MAP.clear();
+  }
+
+  /**
+   * Returns a copy of the index-model to compatible-query-model map, so tests can snapshot the
+   * process-wide catalog and put it back without losing query-model compatibility.
+   */
+  @TestOnly
+  public static Map<String, Set<String>> snapshotCompatibleQueryModels() {
+    Map<String, Set<String>> snapshot = new HashMap<>();
+    COMPATIBLE_QUERY_MODEL_MAP.forEach(
+        (indexModel, compatibleModels) ->
+            snapshot.put(indexModel, new HashSet<>(compatibleModels)));
+    return snapshot;
+  }
+
+  /**
+   * Replaces the compatible-query-model map with a snapshot from {@link
+   * #snapshotCompatibleQueryModels()}.
+   */
+  @TestOnly
+  public static void restoreCompatibleQueryModels(Map<String, Set<String>> snapshot) {
+    COMPATIBLE_QUERY_MODEL_MAP.clear();
+    snapshot.forEach(
+        (indexModel, compatibleModels) ->
+            COMPATIBLE_QUERY_MODEL_MAP.put(indexModel, new HashSet<>(compatibleModels)));
   }
 
   public static boolean isMatViewEnabled() {

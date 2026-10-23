@@ -161,8 +161,20 @@ public class IndexSortValidator {
     if (optionalSort.isEmpty()) {
       return;
     }
+    validateSortFields(optionalSort, buildStaticFieldsIndex(mappings));
+  }
 
-    Trie<String, FieldDefinition> staticFields = buildStaticFieldsIndex(mappings);
+  /**
+   * Same validation for callers that already hold the resolved static-fields trie, for example the
+   * management-command path where the definition is never parsed from BSON. See CLOUDP-459819.
+   */
+  public static void validateSortFields(
+      Optional<Sort> optionalSort, Trie<String, FieldDefinition> staticFields)
+      throws BsonParseException {
+    if (optionalSort.isEmpty()) {
+      return;
+    }
+
     Sort sort = optionalSort.get();
 
     validateNoScoreFields(sort);

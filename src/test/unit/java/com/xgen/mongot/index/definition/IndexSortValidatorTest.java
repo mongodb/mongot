@@ -33,6 +33,12 @@ import org.junit.Test;
 public class IndexSortValidatorTest {
 
   @Test
+  public void validateSort_withoutSort_doesNotTraverseMappings() throws BsonParseException {
+    // No mappings are needed when sort is absent; accessing them would fail this test.
+    IndexSortValidator.validateSort(Optional.empty(), null);
+  }
+
+  @Test
   public void validateNoScoreFields_withRegularFields_passes() throws BsonParseException {
     Sort sort =
         new Sort(
