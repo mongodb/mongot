@@ -10,6 +10,9 @@ pkg_files(
             "WORKSPACE",
             "MODULE.bazel",
             "MODULE.bazel.lock",
+            # Shipped separately after distrusted-root removal (CLOUDP-466523); see
+            # //deploy:sanitized-cacerts-* and deploy/strip_distrusted_roots.sh.
+            "Contents/Home/lib/security/cacerts",
         ],
     ),
     attributes = pkg_attributes(mode = "0755"),

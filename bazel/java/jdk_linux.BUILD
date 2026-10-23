@@ -10,11 +10,20 @@ pkg_files(
             "WORKSPACE",
             "MODULE.bazel",
             "MODULE.bazel.lock",
+            # Shipped separately after distrusted-root removal (CLOUDP-466523); see
+            # //deploy:sanitized-cacerts-* and deploy/strip_distrusted_roots.sh.
+            "lib/security/cacerts",
         ],
     ),
     attributes = pkg_attributes(mode = "0755"),
     prefix = "jdk",
     strip_prefix = strip_prefix.from_pkg(),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "cacerts",
+    srcs = ["lib/security/cacerts"],
     visibility = ["//visibility:public"],
 )
 

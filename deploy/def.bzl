@@ -2,7 +2,7 @@ load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("@rules_pkg//pkg:providers.bzl", "PackageVariablesInfo")
 load("//bazel/config:def.bzl", "VersionInfo")
 
-def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license = [], target_jdk = "//deploy:release_target_jdk", docker_jdk = "//deploy:docker_target_jdk", testonly = False):
+def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license = [], target_jdk = "//deploy:release_target_jdk", docker_jdk = "//deploy:docker_target_jdk", target_jdk_cacerts = "//deploy:sanitized-cacerts-atlas-release-pkg", docker_jdk_cacerts = "//deploy:sanitized-cacerts-atlas-docker-pkg", testonly = False):
     """
     Makes two deployable bundles:
       - One named <name>, whose directory structure is stamped using the value of the
@@ -32,7 +32,9 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
 
     pkg_tar(
         name = "{}-bin".format(name),
-        srcs = bin + [target_jdk],
+        # The JDK's own cacerts is excluded from the JDK filegroup; the sanitized copy
+        # (distrusted roots removed, see //deploy:BUILD) is packaged in its place.
+        srcs = bin + [target_jdk, target_jdk_cacerts],
         package_dir = "bin",
         testonly = testonly,
     )
@@ -73,7 +75,7 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
 
     pkg_tar(
         name = "{}-bin-docker".format(name),
-        srcs = bin + [docker_jdk],
+        srcs = bin + [docker_jdk, docker_jdk_cacerts],
         package_dir = "bin",
         testonly = testonly,
     )
