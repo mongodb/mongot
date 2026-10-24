@@ -4,6 +4,7 @@ import static com.xgen.mongot.util.Check.checkArg;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,9 +33,14 @@ import org.slf4j.LoggerFactory;
  * advance independently. Reader creation must apply the partition filter and reassemble split
  * events before delivery.
  *
- * <p>Every returned batch carries its reader's real post-batch resume token, so confirmed indexing
- * progress can advance the checkpoint. This client itself does not track confirmed indexing
- * progress. Collection lifecycle events are unsupported and cause {@link #getNext()} to fail.
+ * <p>This client does not track confirmed indexing progress. Each reader stops at its first
+ * lifecycle batch and retains that batch while other readers catch up. Once all readers stop, their
+ * remaining documents are returned before a single copy of the lifecycle events. Trimmed batches
+ * use their last document's resume token so checkpoints stay before the lifecycle event.
+ *
+ * <p>Retries must be handled by the low-level change stream clients. If getNext() throws, the
+ * caller must close this client and resume from the last confirmed checkpoint. Retrying this client
+ * may skip an undelivered rename batch.
  */
 public class PartitionedChangeStreamClient<E extends Exception>
     implements ChangeStreamMongoClient<E> {
@@ -71,6 +77,9 @@ public class PartitionedChangeStreamClient<E extends Exception>
    */
   private final AtomicBoolean closed;
 
+  /** Next reader whose retained batch will be returned after all readers stop. */
+  private int nextFinalReader;
+
   /**
    * Creates all partition readers from the saved token's timestamp. Using the exact token with
    * {@code startAfter} can fail when another partition's filter excludes its event. Timestamp
@@ -80,9 +89,10 @@ public class PartitionedChangeStreamClient<E extends Exception>
    * when this client closes. Closing a reader aborts any active fetch.
    *
    * <p>Uses the supplied executor without taking ownership. It must be separate from the executor
-   * calling {@link #getNext()}, which waits for a reader to finish. At most one fetch or buffered
-   * batch per reader is retained, including between {@link #getNext()} calls. Readers may wait for
-   * a worker when the shared pool is busy.
+   * calling {@link #getNext()}, which waits for a reader to finish. Each reader has at most one
+   * outstanding fetch or buffered batch, retained including between {@link #getNext()} calls. A
+   * fetch combines split rename and invalidate batches before completing. Readers may wait for a
+   * worker when the shared pool is busy.
    *
    * <p>If initialization fails, closes any readers already created before propagating the failure.
    */
@@ -140,62 +150,79 @@ public class PartitionedChangeStreamClient<E extends Exception>
     this.executor = executor;
     this.exceptionWrapper = exceptionWrapper;
     this.closed = new AtomicBoolean(false);
+    this.nextFinalReader = 0;
   }
 
   /*
    * Each getNext() call follows these steps:
    *
-   * 1. Check closure and whether all readers finished. Lifecycle completion is a placeholder.
+   * 1. Check closure. If all readers finished, drain their retained documents in partition order,
+   *    with lifecycle events only in the final batch.
    * 2. Call submitFetchForReaders(). Each reader checks its lifecycle and pacing eligibility
-   *    hooks and pending fetch. Lifecycle and optime pacing are not implemented yet.
+   *    hooks and pending fetch. Optime pacing is not implemented yet.
    *    A completed, unread result still occupies the pending slot.
    * 3. Take the next completed reader, waiting if necessary. A shutdown marker wakes this wait
    *    and causes the call to throw.
-   * 4. Take the result, freeing its reader's slot, or propagate the fetch failure.
-   * 5. Reject unsupported lifecycle events and return the batch with its original partition
-   *    metadata. Other readers' results remain available for later calls.
+   * 4. Take the fetched batch, freeing its reader's slot, or propagate the fetch failure so the
+   *    caller can close this client and resume from its checkpoint.
+   * 5. If the reader reached a lifecycle boundary, retain its entire batch and repeat these steps
+   *    for the remaining readers. Otherwise, return the batch with its original partition metadata.
+   *    Retained lifecycle batches do not advance the caller's checkpoint.
+   *    Each reader combines split rename and invalidate batches within its fetch.
+   * 6. After the terminal batch is returned, further calls fail without submitting more fetches.
    *
    * Example: A has a ready batch, B is idle, and C is still fetching. Submit B's fetch before
-   * returning A's batch. A can fetch again on the next call. Completed results remain deliverable
-   * regardless of future fetch eligibility. close() wakes a waiting call and closes the readers.
+   * returning A's batch. A can fetch again on the next call. Completed document batches remain
+   * deliverable regardless of pacing eligibility. close() wakes a waiting call and closes readers.
    */
   @Override
   public synchronized ChangeStreamBatch getNext() throws E {
     checkState(!this.closed.get(), "Change stream client is closed");
     return this.exceptionWrapper.wrapIfThrows(
         () -> {
-          if (allReadersFinished()) {
-            return handleAllReadersFinished();
+          // One call returns one batch. If a reader reaches a lifecycle event before the others,
+          // save its batch, stop that reader, and keep waiting for results from the other readers.
+          // For example, consider there are three readers for an index: A, B and C. In this case,
+          // we will retain A's and B's lifecycle batches, then return C's ordinary batch.
+          // If C also reaches the lifecycle boundary, all readers are finished and the next loop
+          // iteration returns a retained batch through handleAllReadersFinished().
+          // take() blocks when no result is ready, so this loop does not spin while waiting.
+          while (true) {
+            checkState(!this.closed.get(), "Change stream client is closed");
+            // Wait for every reader to finish its lifecycle batch. Return all preceding
+            // documents before delivering lifecycle events once.
+            if (allReadersFinished()) {
+              return handleAllReadersFinished();
+            }
+
+            // Submit a fetch for every reader that is not finished.
+            submitFetchForReaders();
+
+            Reader<E> reader =
+                this.completedReaders
+                    .take()
+                    .orElseThrow(() -> new IllegalStateException("Change stream client is closed"));
+            checkState(!this.closed.get(), "Change stream client is closed");
+            // Taking the fetched batch frees the pending slot; a lifecycle batch stops this reader.
+            ChangeStreamBatch batch = reader.takeFetchedBatch();
+
+            checkState(!this.closed.get(), "Change stream client is closed");
+            if (reader.isFinished()) {
+              continue;
+            }
+            return batch;
           }
-          submitFetchForReaders();
-
-          Reader<E> reader =
-              this.completedReaders
-                  .take()
-                  .orElseThrow(() -> new IllegalStateException("Change stream client is closed"));
-          checkState(!this.closed.get(), "Change stream client is closed");
-          // Taking the result frees the slot, including on failure. Refill happens on a later call.
-          ChangeStreamBatch batch = reader.takeFetchResult();
-
-          checkState(!this.closed.get(), "Change stream client is closed");
-          checkState(
-              hasSupportedFinalOperation(batch),
-              "Partitioned change stream lifecycle coordination is not implemented");
-          return new ChangeStreamBatch(
-              batch.getRawEvents(),
-              batch.getPostBatchResumeToken(),
-              batch.getCommandOperationTime(),
-              Optional.of(reader.partition));
         });
   }
 
-  /**
-   * Returns whether the final event is supported. An invalidating lifecycle event is always last,
-   * either by itself or as the invalidate event following another lifecycle event.
-   */
-  private static boolean hasSupportedFinalOperation(ChangeStreamBatch batch) {
+  /** Scans the lifecycle suffix backward; the batch size means no lifecycle event. */
+  private static int findLifecycleStart(ChangeStreamBatch batch) {
     var events = batch.getRawEvents();
-    return events.isEmpty() || isSupportedOperation(events.getLast());
+    @Var int lifecycleStart = events.size();
+    while (lifecycleStart > 0 && !isSupportedOperation(events.get(lifecycleStart - 1))) {
+      lifecycleStart--;
+    }
+    return lifecycleStart;
   }
 
   private static boolean isSupportedOperation(BsonDocument event) {
@@ -207,11 +234,51 @@ public class PartitionedChangeStreamClient<E extends Exception>
     return this.readers.stream().allMatch(Reader::isFinished);
   }
 
-  /** Placeholder for coordinating the lifecycle event after every reader has finished. */
+  /** Drains retained documents before returning the shared lifecycle events once. */
   private ChangeStreamBatch handleAllReadersFinished() {
-    // Lifecycle coordination will supply the batch to return here.
-    throw new IllegalStateException(
-        "Partitioned change stream lifecycle coordination is not implemented");
+    checkState(
+        this.nextFinalReader < this.readers.size(), "All lifecycle batches have been returned");
+    // For example, suppose the retained batches are:
+    //   Reader A: [A1, rename, invalidate]
+    //   Reader B: [B1, rename, invalidate]
+    //   Reader C: [C1, rename, invalidate]
+    // Successive getNext() calls return these batches in partition order:
+    //   Call 1: [A1]
+    //   Call 2: [B1]
+    //   Call 3: [C1, rename, invalidate]
+    //
+    // Return lifecycle events only in the last batch so the dispatcher does not stop fetching
+    // before every reader's documents have been delivered.
+    for (int readerIndex = this.nextFinalReader;
+        readerIndex < this.readers.size() - 1;
+        readerIndex++) {
+      var reader = this.readers.get(readerIndex);
+      var result = reader.lifecycleResult.orElseThrow();
+      var batch = result.batch();
+      this.nextFinalReader = readerIndex + 1;
+      if (result.lifecycleStart() == 0) {
+        continue;
+      }
+      // Use the last document's token so the checkpoint stays before the removed lifecycle events.
+      var documents = batch.getRawEvents().subList(0, result.lifecycleStart());
+      return new ChangeStreamBatch(
+          documents,
+          documents.getLast().getDocument("_id"),
+          batch.getCommandOperationTime(),
+          batch.getPartition());
+    }
+
+    var reader = this.readers.getLast();
+    checkState(!this.closed.get(), "Change stream client is closed");
+    this.nextFinalReader++;
+    return reader.lifecycleResult.orElseThrow().batch();
+  }
+
+  // Helper function to check if the batch ends with a rename event.
+  private static boolean endsWithRename(ChangeStreamBatch batch) {
+    var events = batch.getRawEvents();
+    return !events.isEmpty()
+        && events.getLast().getString("operationType").getValue().equals("rename");
   }
 
   /** Lets each reader decide whether to fetch and queues it when the fetch completes. */
@@ -243,6 +310,13 @@ public class PartitionedChangeStreamClient<E extends Exception>
     this.readers.forEach(Reader::close);
   }
 
+  /** Caches the first lifecycle position, preserving it when a split rename is merged. */
+  private record FetchResult(ChangeStreamBatch batch, int lifecycleStart) {
+    boolean hasLifecycleEvent() {
+      return this.lifecycleStart < this.batch.getRawEvents().size();
+    }
+  }
+
   /** Owns one change stream client's fetch state and buffered result. */
   private static class Reader<E extends Exception> {
     private final ChangeStreamMongoClient<E> client;
@@ -254,7 +328,14 @@ public class PartitionedChangeStreamClient<E extends Exception>
      * Present while a fetch is queued, running, or completed and awaiting consumption. Accessed
      * only by the serialized calls to the outer client's getNext().
      */
-    private Optional<FutureTask<ChangeStreamBatch>> pendingFetch;
+    private Optional<FutureTask<FetchResult>> pendingFetch;
+
+    /**
+     * Retains the boundary batch and its first lifecycle position. Presence marks this reader
+     * finished. Split rename and invalidate batches have already been combined by fetch(). Accessed
+     * only by the outer client's getNext().
+     */
+    private Optional<FetchResult> lifecycleResult;
 
     /** Creates a reader with no outstanding fetch. */
     Reader(ChangeStreamMongoClient<E> client, ChangeStreamPartition partition) {
@@ -262,12 +343,12 @@ public class PartitionedChangeStreamClient<E extends Exception>
       this.partition = partition;
       this.closeRequested = false;
       this.pendingFetch = Optional.empty();
+      this.lifecycleResult = Optional.empty();
     }
 
-    /** Placeholder for reader-owned state indicating that a lifecycle boundary was reached. */
+    /** The reader has completed its lifecycle batch and will not fetch again. */
     boolean isFinished() {
-      // Lifecycle detection will record completion here; until then this reader stays unfinished.
-      return false;
+      return this.lifecycleResult.isPresent();
     }
 
     /** Placeholder for deriving pacing eligibility from optime progress on each submission. */
@@ -306,13 +387,38 @@ public class PartitionedChangeStreamClient<E extends Exception>
       }
     }
 
-    /** Takes the fetch result or propagates its failure, allowing another fetch next time. */
-    ChangeStreamBatch takeFetchResult() throws Exception {
-      FutureTask<ChangeStreamBatch> completedFetch = this.pendingFetch.orElseThrow();
+    /*
+     * Takes the fetched batch, retaining lifecycle batches to prevent further fetches.
+     *
+     * Retries belong in the low-level change stream client. We unwrap and propagate fetch
+     * failures; the caller must close this client and resume from its confirmed checkpoint.
+     *
+     * 1. Free the pending slot for a future fetch.
+     * 2. Get the fetched batch and attach this reader's partition.
+     * 3. Retain completed lifecycle batches while other readers catch up.
+     * 4. Propagate the failure so the caller can resume from its checkpoint.
+     */
+    ChangeStreamBatch takeFetchedBatch() throws Exception {
+      // 1. Free the pending slot for a future fetch.
+      FutureTask<FetchResult> completedFetch = this.pendingFetch.orElseThrow();
       this.pendingFetch = Optional.empty();
       try {
-        return completedFetch.get();
+        // 2. Get the fetched batch and attach this reader's partition.
+        var result = completedFetch.get();
+        var fetched = result.batch();
+        var batch =
+            new ChangeStreamBatch(
+                fetched.getRawEvents(),
+                fetched.getPostBatchResumeToken(),
+                fetched.getCommandOperationTime(),
+                Optional.of(this.partition));
+        // 3. Retain completed lifecycle batches while other readers catch up.
+        if (result.hasLifecycleEvent()) {
+          this.lifecycleResult = Optional.of(new FetchResult(batch, result.lifecycleStart()));
+        }
+        return batch;
       } catch (ExecutionException failure) {
+        // 4. Propagate the failure so the caller can resume from its checkpoint.
         if (failure.getCause() instanceof Exception cause) {
           throw cause;
         }
@@ -320,8 +426,41 @@ public class PartitionedChangeStreamClient<E extends Exception>
       }
     }
 
+    // Reads a batch from one reader and completes any split rename sequence
+    private FetchResult fetch() throws E {
+      var batch = fetchNextBatch();
+      int lifecycleStart = findLifecycleStart(batch);
+      if (!endsWithRename(batch)) {
+        return new FetchResult(batch, lifecycleStart);
+      }
+
+      // Combine rename with the next nonempty response. A failure fails the whole fetch, so
+      // replication must recreate the client from its confirmed checkpoint to replay this batch.
+      //
+      //
+      // This loop is necessary because a single fetch can perform several underlying reads.
+      //
+      // Read 1 = [A1, rename]
+      // Read 2 = []
+      // Read 3 = [invalidate]
+      // Completed result = [A1, rename, invalidate]
+      while (true) {
+        var next = fetchNextBatch();
+        if (next.getRawEvents().isEmpty()) {
+          continue;
+        }
+        // Let the index manager classify unexpected events following rename.
+        var events = new ArrayList<>(batch.getRawEvents());
+        events.addAll(next.getRawEvents());
+        return new FetchResult(
+            new ChangeStreamBatch(
+                events, next.getPostBatchResumeToken(), next.getCommandOperationTime()),
+            lifecycleStart);
+      }
+    }
+
     /** Starts no read after closure; an active read may be aborted by the client's close method. */
-    private ChangeStreamBatch fetch() throws E {
+    private ChangeStreamBatch fetchNextBatch() throws E {
       synchronized (this) {
         checkState(!this.closeRequested, "Change stream reader is closed");
       }

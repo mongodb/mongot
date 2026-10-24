@@ -222,7 +222,9 @@ class ChangeStreamMongoClientFactory {
     var operationFactory = operationFactoryFor(indexDefinition, removeMatchCollectionUuid);
     ChangeStreamClientFactory cursorFactory = cursorFactoryFor(indexDefinition);
 
-    // cursorFactory closes over this.mongoClient, so the client argument is unused here.
+    // TODO(CLOUDP-443150): Each reader currently opens at the resume token's timestamp with the
+    // inclusive `startAtOperationTime`, which can redeliver events already indexed. Replace this
+    // with a different approach, for example skipping documents up to the resume token.
     PartitionedChangeStreamClient.ReaderFactory<SteadyStateException> readerFactory =
         (unusedMongoClient, partition, start) ->
             newPartitionReader(

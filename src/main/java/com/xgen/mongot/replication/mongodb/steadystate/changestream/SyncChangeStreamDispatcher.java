@@ -436,6 +436,8 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
         this.overloadRejections.recordIfOverload(ex);
 
         boolean shuttingDown = this.shutdown || info.indexManager.isShutdown();
+        // TODO(CLOUDP-443150): Move retries to the low-level clients before using this retry path
+        // with partitioned clients; a failed fetch may have consumed an undelivered rename batch.
         boolean retryable =
             this.retryThrottledGetMoreOnSameCursor
                 && MongoExceptionUtils.isThrottling(ex)

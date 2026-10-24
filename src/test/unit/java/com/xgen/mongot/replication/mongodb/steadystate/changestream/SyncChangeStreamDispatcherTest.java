@@ -16,6 +16,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,12 +38,14 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.DecodingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
+import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamClient;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateSchedulingMethod;
 import com.xgen.mongot.util.Condition;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.concurrent.Executors;
 import com.xgen.mongot.util.concurrent.Sleeper;
+import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.testing.mongot.index.IndexMetricsUpdaterBuilder;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
@@ -710,6 +713,130 @@ public class SyncChangeStreamDispatcherTest {
       assertThat(throttlingRetries(meterRegistry)).isEqualTo(2.0);
     } finally {
       syncDispatcher.shutdown();
+    }
+  }
+
+  @Test
+  public void getNext_partitionedInitialReadFailure_failsLifecycle() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    var generation = mockIndexGeneration(definition).getDefinitionGeneration();
+    var rejection = throttled(Errors.ADMISSION_QUEUE_OVERFLOW.code);
+    ChangeStreamMongoClient<SteadyStateException> reader = mock(ChangeStreamMongoClient.class);
+    when(reader.getNext()).thenThrow(rejection);
+    var indexManager = spy(indexManager(definition, generation, new CompletableFuture<>()));
+    var meterRegistry = new SimpleMeterRegistry();
+
+    try (var readerExecutor =
+            Executors.fixedSizeThreadPool("partition-reader", 1, new SimpleMeterRegistry());
+        var client =
+            PartitionedChangeStreamClient.resume(
+                1,
+                ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getResumeToken(),
+                mock(BatchMongoClient.class),
+                (mongoClient, partition, start) -> reader,
+                readerExecutor,
+                SteadyStateException::wrapIfThrows)) {
+      var mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+      when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+          .thenReturn(client);
+      // Partitioned clients require retries to happen inside their low-level readers.
+      var dispatcher =
+          new SyncChangeStreamDispatcher(
+              meterRegistry,
+              mongoClientFactory,
+              new FifoExecutor(
+                  Executors.fixedSizeThreadScheduledExecutor(
+                      "executor", 1, new SimpleMeterRegistry())),
+              CommonReplicationConfig.Type.DEFAULT,
+              /* retryThrottledGetMoreOnSameCursor= */ false,
+              Sleeper.NO_OP);
+      try {
+        dispatcher.add(
+            definition,
+            generation.getGenerationId(),
+            ChangeStreamUtils.PRE_BATCH_RESUME_INFO,
+            indexManager,
+            false);
+
+        verify(indexManager, timeout(5000)).failLifecycle(rejection);
+        verify(reader, timeout(5000)).close();
+        verify(reader).getNext();
+        assertThat(throttlingRetries(meterRegistry)).isEqualTo(0.0);
+        assertThat(throttlingRetriesExhausted(meterRegistry)).isEqualTo(0.0);
+        assertThat(
+                overloadRejections(
+                    meterRegistry, Errors.ADMISSION_QUEUE_OVERFLOW.code, "steadyState"))
+            .isEqualTo(1.0);
+      } finally {
+        dispatcher.shutdown();
+      }
+    }
+  }
+
+  @Test
+  public void getNext_partitionedRenameFailure_failsLifecycle() throws Exception {
+    var definition = SearchIndex.mockSearchDefinition(new ObjectId());
+    var generation = mockIndexGeneration(definition).getDefinitionGeneration();
+    var rename = ChangeStreamUtils.renameEvent(10);
+    var invalidate = ChangeStreamUtils.invalidateEvent(11);
+    var failure = throttled(Errors.ADMISSION_QUEUE_OVERFLOW.code);
+    ChangeStreamMongoClient<SteadyStateException> reader = mock(ChangeStreamMongoClient.class);
+    when(reader.getNext())
+        .thenReturn(
+            new ChangeStreamBatch(
+                ChangeStreamUtils.toRawBsonDocuments(
+                    List.of(ChangeStreamUtils.insertEvent(1, definition), rename)),
+                rename.getResumeToken(),
+                Optional.of(new BsonTimestamp(1, 10))))
+        .thenThrow(failure)
+        .thenReturn(
+            new ChangeStreamBatch(
+                ChangeStreamUtils.toRawBsonDocuments(List.of(invalidate)),
+                invalidate.getResumeToken(),
+                Optional.of(new BsonTimestamp(1, 11))));
+    var indexManager = spy(indexManager(definition, generation, new CompletableFuture<>()));
+    var meterRegistry = new SimpleMeterRegistry();
+
+    try (var readerExecutor =
+            Executors.fixedSizeThreadPool("partition-reader", 1, new SimpleMeterRegistry());
+        var client =
+            PartitionedChangeStreamClient.resume(
+                1,
+                ChangeStreamUtils.PRE_BATCH_RESUME_INFO.getResumeToken(),
+                mock(BatchMongoClient.class),
+                (mongoClient, partition, start) -> reader,
+                readerExecutor,
+                SteadyStateException::wrapIfThrows)) {
+      var mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+      when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+          .thenReturn(client);
+      // Partitioned clients require retries to happen inside their low-level readers.
+      var dispatcher =
+          new SyncChangeStreamDispatcher(
+              meterRegistry,
+              mongoClientFactory,
+              new FifoExecutor(
+                  Executors.fixedSizeThreadScheduledExecutor(
+                      "executor", 1, new SimpleMeterRegistry())),
+              CommonReplicationConfig.Type.DEFAULT,
+              /* retryThrottledGetMoreOnSameCursor= */ false,
+              Sleeper.NO_OP);
+      try {
+        dispatcher.add(
+            definition,
+            generation.getGenerationId(),
+            ChangeStreamUtils.PRE_BATCH_RESUME_INFO,
+            indexManager,
+            false);
+
+        verify(indexManager, timeout(5000)).failLifecycle(failure);
+        verify(reader, timeout(5000)).close();
+        verify(reader, times(2)).getNext();
+        verify(indexManager, never()).indexBatch(any(), any(), any());
+        assertThat(throttlingRetries(meterRegistry)).isEqualTo(0.0);
+      } finally {
+        dispatcher.shutdown();
+      }
     }
   }
 
