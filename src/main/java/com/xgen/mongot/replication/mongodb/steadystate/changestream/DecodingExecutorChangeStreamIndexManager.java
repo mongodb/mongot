@@ -243,6 +243,11 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                         this.derivationFallbackReported.compareAndSet(false, true));
 
                 metricsUpdater.accept(documentEventBatch);
+                this.indexMetricsUpdater
+                    .getIndexingMetricsUpdater()
+                    .recordChangeStreamUpdateToDeleteConversions(
+                        documentEventBatch.updatesDeletedMissingFullDocument,
+                        documentEventBatch.updatesDeletedMissingDocumentId);
 
                 // Schedule the given batch for indexing if not shut down or lifecycle future is
                 // not completed. this.scheduleIndexing, ChangeStreamIndexManager#failLifecycle,

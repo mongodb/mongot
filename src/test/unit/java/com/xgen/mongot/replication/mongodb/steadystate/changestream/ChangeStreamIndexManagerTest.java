@@ -624,8 +624,11 @@ public class ChangeStreamIndexManagerTest {
           manager.indexBatch(
                   new ChangeStreamBatch(
                       toRawBsonDocuments(
-                          Collections.singletonList(
-                              ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION))),
+                          List.of(
+                              ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION),
+                              ChangeStreamUtils.updateNoDataEvent(2, null),
+                              ChangeStreamUtils.updateEventWithEmptyMetadata(
+                                  3, null, MOCK_INDEX_DEFINITION))),
                       ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
                       Optional.of(new BsonTimestamp())),
                   NOOP_DOCUMENT_METRICS_UPDATER,
@@ -646,6 +649,24 @@ public class ChangeStreamIndexManagerTest {
       schedulerFuture.complete(null);
 
       indexFuture.get(5, TimeUnit.SECONDS);
+      assertThat(
+              metricsUpdater
+                  .getIndexingMetricsUpdater()
+                  .getMetricsFactory()
+                  .get("changeStreamUpdateToDelete")
+                  .tag("reason", "missing_full_document")
+                  .counter()
+                  .count())
+          .isEqualTo(1.0);
+      assertThat(
+              metricsUpdater
+                  .getIndexingMetricsUpdater()
+                  .getMetricsFactory()
+                  .get("changeStreamUpdateToDelete")
+                  .tag("reason", "missing_document_id")
+                  .counter()
+                  .count())
+          .isEqualTo(1.0);
       Assert.assertEquals(ChangeStreamUtils.POST_BATCH_RESUME_INFO, resumeInfoReference.get());
       Assert.assertEquals(
           ResumeTokenUtils.opTimeFromResumeToken(resumeInfoReference.get().getResumeToken())

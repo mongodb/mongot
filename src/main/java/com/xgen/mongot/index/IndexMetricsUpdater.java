@@ -295,6 +295,7 @@ public class IndexMetricsUpdater implements Closeable {
     static final String VECTOR_FIELDS_INDEXED = "vectorFieldsIndexed";
     static final String INDEX_TYPE_TAG_NAME = "indexType";
     static final String LARGE_CHANGE_STREAM_EVENTS = "largeChangeStreamEvents";
+    static final String CHANGE_STREAM_UPDATE_TO_DELETE = "changeStreamUpdateToDelete";
     static final String BLOOM_FILTER_ID_POSTING_CREATED = "bloomFilterIdPostingCreated";
     static final String LUCENE_99_ID_POSTING_CREATED = "lucene99IdPostingCreated";
 
@@ -316,6 +317,8 @@ public class IndexMetricsUpdater implements Closeable {
     private final ReplicationOpTimeInfo replicationOpTimeInfo;
     private final Timer batchIndexingTimer;
     private final Map<Bytes, Counter> changeStreamEventSizeCounters;
+    private final Counter updatesDeletedMissingFullDocument;
+    private final Counter updatesDeletedMissingDocumentId;
     private final Counter bloomFilterIdPostingCreatedCounter;
     private final Counter lucene99IdPostingCreatedCounter;
 
@@ -348,14 +351,20 @@ public class IndexMetricsUpdater implements Closeable {
       Tags indexTypeTags = Tags.of(INDEX_TYPE_TAG_NAME, indexTypeTag.tagValue);
       this.metricsFactory = metricsFactory;
       // Process-level factory for metrics that don't need a per-index breakdown in FTDC or MMS
-      // (see PerIndexMetricsFactory#getProcessMetricsFactory). Only the per-index metrics
-      // serialized into the IndexStats snapshot below stay on the per-index factory.
+      // (see PerIndexMetricsFactory#getProcessMetricsFactory). Per-index metrics support the
+      // IndexStats snapshot or investigations that need to identify an affected index.
       MetricsFactory processMetricsFactory = metricsFactory.getProcessMetricsFactory();
       this.totalBytesProcessedCounter =
           metricsFactory.perIndexCounter(TOTAL_BYTES_PROCESSED_COUNTER_NAME);
       this.commitTimer = processMetricsFactory.timer(COMMIT_TIMER_NAME, TimeUnit.MILLISECONDS);
       this.documentEventTypeCounterMap =
           metricsFactory.getPerIndexEnumCounterMap(DocumentEvent.EventType.class, indexTypeTags);
+      this.updatesDeletedMissingFullDocument =
+          metricsFactory.perIndexCounter(
+              CHANGE_STREAM_UPDATE_TO_DELETE, indexTypeTags.and("reason", "missing_full_document"));
+      this.updatesDeletedMissingDocumentId =
+          metricsFactory.perIndexCounter(
+              CHANGE_STREAM_UPDATE_TO_DELETE, indexTypeTags.and("reason", "missing_document_id"));
       this.initialSyncExceptionCounter =
           metricsFactory.perIndexCounter(
               INITIAL_SYNC_EXCEPTION_COUNTER_NAME, indexFeatureVersionTag);
@@ -518,6 +527,15 @@ public class IndexMetricsUpdater implements Closeable {
           .filter(threshold -> size >= threshold.toBytes())
           .map(this.changeStreamEventSizeCounters::get)
           .forEach(Counter::increment);
+    }
+
+    /**
+     * Records conversion decisions after batch deduplication; replay can count a decision again.
+     */
+    public void recordChangeStreamUpdateToDeleteConversions(
+        int missingFullDocument, int missingDocumentId) {
+      this.updatesDeletedMissingFullDocument.increment(missingFullDocument);
+      this.updatesDeletedMissingDocumentId.increment(missingDocumentId);
     }
 
     @VisibleForTesting

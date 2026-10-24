@@ -253,6 +253,64 @@ public class IndexMetricsUpdaterTest {
 
     public static class TestIndexingMetricsUpdater {
       @Test
+      public void recordChangeStreamUpdateToDeleteConversions_exportsPerIndexReasonsToFtdc() {
+        var registries = MeterAndFtdcRegistry.createWithCompositeMeterRegistry();
+        registries.getCompositeMeterRegistry().add(registries.ftdcRegistry());
+        var firstFactory =
+            new PerIndexMetricsFactory(
+                IndexingMetricsUpdater.NAMESPACE, registries, "generation1", "index1");
+        var firstUpdater =
+            IndexMetricsUpdaterBuilder.IndexingMetricsUpdaterBuilder.builder()
+                .metricsFactory(firstFactory)
+                .build();
+        var secondUpdater =
+            IndexMetricsUpdaterBuilder.IndexingMetricsUpdaterBuilder.builder()
+                .metricsFactory(
+                    new PerIndexMetricsFactory(
+                        IndexingMetricsUpdater.NAMESPACE, registries, "generation2", "index2"))
+                .build();
+
+        firstUpdater.recordChangeStreamUpdateToDeleteConversions(2, 5);
+        firstUpdater.recordChangeStreamUpdateToDeleteConversions(1, 0);
+        secondUpdater.recordChangeStreamUpdateToDeleteConversions(0, 4);
+
+        var metricName = IndexingMetricsUpdater.NAMESPACE + ".changeStreamUpdateToDelete";
+        assertThat(
+                registries
+                    .ftdcRegistry()
+                    .get(metricName)
+                    .tags(
+                        "generationId logString", "generation1", "reason", "missing_full_document")
+                    .counter()
+                    .count())
+            .isEqualTo(3);
+        assertThat(
+                registries
+                    .ftdcRegistry()
+                    .get(metricName)
+                    .tags("indexId logString", "index1", "reason", "missing_document_id")
+                    .counter()
+                    .count())
+            .isEqualTo(5);
+        assertThat(
+                registries
+                    .meterRegistry()
+                    .get(metricName)
+                    .tags("indexId logString", "index2", "reason", "missing_full_document")
+                    .counter()
+                    .count())
+            .isEqualTo(0);
+        assertThat(
+                registries
+                    .meterRegistry()
+                    .get(metricName)
+                    .tags("generationId logString", "generation2", "reason", "missing_document_id")
+                    .counter()
+                    .count())
+            .isEqualTo(4);
+      }
+
+      @Test
       public void testIndexingMetricsSuppliers() {
         var mockedIndexMetricsSupplier = mock(IndexMetricValuesSupplier.class);
         Mockito.doReturn(new DocCounts(25, 24, 17, 25L))

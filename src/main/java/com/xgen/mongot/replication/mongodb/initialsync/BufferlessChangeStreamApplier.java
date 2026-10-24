@@ -448,6 +448,12 @@ public class BufferlessChangeStreamApplier implements AutoCloseable {
             this.context.getAutoEmbeddingMaterializedViewConfig(),
             this.derivationFallbackReported.compareAndSet(false, true));
 
+    this.context
+        .getIndexMetricsUpdater()
+        .getIndexingMetricsUpdater()
+        .recordChangeStreamUpdateToDeleteConversions(
+            documentEventBatch.updatesDeletedMissingFullDocument,
+            documentEventBatch.updatesDeletedMissingDocumentId);
     this.totalDocumentsCounter.increment(batch.getRawEvents().size());
     this.preprocessingBatchTimer.record(preprocessingBatchTimer.stop().elapsed());
 

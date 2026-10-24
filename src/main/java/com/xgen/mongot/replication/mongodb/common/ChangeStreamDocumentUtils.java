@@ -71,6 +71,8 @@ public class ChangeStreamDocumentUtils {
     public final List<DocumentEvent> finalChangeEvents;
     public final int updatesWitnessed;
     public final int updatesApplicable;
+    public final int updatesDeletedMissingFullDocument;
+    public final int updatesDeletedMissingDocumentId;
     public final int skippedDocumentsWithoutMetadataNamespace;
     public final int applicableDocumentsTotal;
     public final long applicableDocumentsTotalBytes;
@@ -93,6 +95,8 @@ public class ChangeStreamDocumentUtils {
         List<DocumentEvent> finalChangeEvents,
         int updatesWitnessed,
         int updatesApplicable,
+        int updatesDeletedMissingFullDocument,
+        int updatesDeletedMissingDocumentId,
         int skippedDocumentsWithoutMetadataNamespace,
         int applicableDocumentsTotal,
         long applicableDocumentsTotalBytes,
@@ -107,6 +111,8 @@ public class ChangeStreamDocumentUtils {
       this.finalChangeEvents = finalChangeEvents;
       this.updatesWitnessed = updatesWitnessed;
       this.updatesApplicable = updatesApplicable;
+      this.updatesDeletedMissingFullDocument = updatesDeletedMissingFullDocument;
+      this.updatesDeletedMissingDocumentId = updatesDeletedMissingDocumentId;
       this.skippedDocumentsWithoutMetadataNamespace = skippedDocumentsWithoutMetadataNamespace;
       this.applicableDocumentsTotal = applicableDocumentsTotal;
       this.applicableDocumentsTotalBytes = applicableDocumentsTotalBytes;
@@ -124,6 +130,8 @@ public class ChangeStreamDocumentUtils {
   private static class ChangeStreamBatchMetrics {
     private int witnessedUpdatesCounter;
     private int applicableUpdatesCounter;
+    private int updatesDeletedMissingFullDocument;
+    private int updatesDeletedMissingDocumentId;
     private int skippedDocumentWithoutMetadataNamespaceCounter;
     private int applicableDocumentsTotalCounter;
     private long applicableDocumentsTotalBytesCounter;
@@ -150,6 +158,14 @@ public class ChangeStreamDocumentUtils {
 
     public void updateWitnessed() {
       this.witnessedUpdatesCounter++;
+    }
+
+    public void updateDeleted(boolean missingFullDocument) {
+      if (missingFullDocument) {
+        this.updatesDeletedMissingFullDocument++;
+      } else {
+        this.updatesDeletedMissingDocumentId++;
+      }
     }
 
     /** An UPDATE was classified partial-embed-safe and handled without a full re-index. */
@@ -467,6 +483,8 @@ public class ChangeStreamDocumentUtils {
         finalChangeEvents,
         metrics.getWitnessedUpdates(),
         metrics.getApplicableUpdates(),
+        metrics.updatesDeletedMissingFullDocument,
+        metrics.updatesDeletedMissingDocumentId,
         metrics.getSkippedDocumentsWithoutMetadataNamespace(),
         metrics.getApplicableDocumentsTotal(),
         metrics.getApplicableDocumentsTotalBytes(),
@@ -521,6 +539,15 @@ public class ChangeStreamDocumentUtils {
       }
       case UPDATE -> {
         if (metadata.getId().isEmpty()) {
+          boolean missingFullDocument = event.getFullDocument() == null;
+          metrics.updateDeleted(missingFullDocument);
+          LOG.atInfo().atMostEvery(1, TimeUnit.MINUTES).log(
+              "Converting change stream UPDATE to DELETE: indexId=%s collectionUuid=%s "
+                  + "reason=%s clusterTime=%s",
+              indexDefinition.getIndexId(),
+              indexDefinition.getCollectionUuid(),
+              missingFullDocument ? "missing_full_document" : "missing_document_id",
+              event.getClusterTime());
           // when updateLookup happens after the doc is already deleted, we can get an update event
           // that does not contain fullDocument._id. we should treat such documents as a
           // DELETE event

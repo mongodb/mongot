@@ -180,6 +180,38 @@ public class BufferlessChangeStreamApplierTest {
   }
 
   @Test
+  public void applyEvents_nullUpdate_recordsEachConversionEvenWhenIndexingFails() throws Exception {
+    var metricsUpdater =
+        IndexMetricsUpdaterBuilder.builder()
+            .metricsFactory(SearchIndex.mockMetricsFactory())
+            .indexMetricsSupplier(mock(IndexMetricValuesSupplier.class))
+            .build();
+    var event =
+        ChangeStreamUtils.updateNoDataEvent(
+            6, new UpdateDescription(List.of(), new BsonDocument("a", new BsonString("updated"))));
+
+    try (Mocks mocks = Mocks.changeStreamHasEventThenThrows(event, metricsUpdater)) {
+      var exception =
+          Assert.assertThrows(
+              InitialSyncException.class,
+              () -> mocks.applier.applyEvents(lastScannedToken(), STOP_AFTER_OP_TIME, true));
+
+      assertThat(exception.getType()).isEqualTo(InitialSyncException.Type.FIELD_EXCEEDED);
+      // The third batch is preprocessed before the second batch's indexing failure is observed.
+      verify(mocks.changeStreamMongoClient, times(3)).getNext();
+      assertThat(
+              metricsUpdater
+                  .getIndexingMetricsUpdater()
+                  .getMetricsFactory()
+                  .get("changeStreamUpdateToDelete")
+                  .tag("reason", "missing_full_document")
+                  .counter()
+                  .count())
+          .isEqualTo(3.0);
+    }
+  }
+
+  @Test
   public void partialEmbedMetrics_onlyRegisterForMaterializedViewAutoEmbeddingIndexes()
       throws Exception {
     SimpleMeterRegistry regularRegistry = new SimpleMeterRegistry();

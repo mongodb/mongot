@@ -7,6 +7,7 @@ import static com.xgen.testing.mongot.mock.index.SearchIndex.mockDefinitionBuild
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
 import com.mongodb.client.model.changestream.UpdateDescription;
+import com.xgen.mongot.index.DocumentEvent;
 import com.xgen.mongot.index.definition.BooleanFieldDefinition;
 import com.xgen.mongot.index.definition.DocumentFieldDefinition;
 import com.xgen.mongot.index.definition.IllegalEmbeddedFieldException;
@@ -263,6 +264,82 @@ public class ChangeStreamDocumentUtilsTest {
     assertThat(batch.finalChangeEvents.getLast().getDocument()).isPresent();
     assertThat(batch.finalChangeEvents.stream().map(e -> e.getDocument().get()).toList())
         .containsExactly(inapplicableUpdate.getFullDocument(), applicableUpdate.getFullDocument());
+    assertThat(batch.updatesDeletedMissingFullDocument).isEqualTo(0);
+    assertThat(batch.updatesDeletedMissingDocumentId).isEqualTo(0);
+  }
+
+  @Test
+  public void handleDocumentEvents_missingUpdateData_countsConversionsAfterDeduplication() {
+    var missingDocument = ChangeStreamUtils.updateNoDataEvent(0, null);
+    var missingId = ChangeStreamUtils.updateEventWithNoMetadata(1, null);
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(missingDocument, missingDocument, missingId, missingId),
+            MOCK_INDEX_DEFINITION,
+            MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(MOCK_INDEX_DEFINITION));
+
+    assertThat(batch.updatesDeletedMissingFullDocument).isEqualTo(1);
+    assertThat(batch.updatesDeletedMissingDocumentId).isEqualTo(1);
+    assertThat(batch.finalChangeEvents.stream().map(DocumentEvent::getEventType).toList())
+        .containsExactly(DocumentEvent.EventType.DELETE, DocumentEvent.EventType.DELETE);
+    assertThat(batch.updatesWitnessed).isEqualTo(0);
+  }
+
+  @Test
+  public void handleDocumentEvents_laterDeleteOrReinsert_doesNotCountSupersededConversions() {
+    var events =
+        List.of(
+            ChangeStreamUtils.updateNoDataEvent(0, null),
+            ChangeStreamUtils.updateEventWithNoMetadata(1, null),
+            ChangeStreamUtils.deleteEvent(0, MOCK_INDEX_DEFINITION),
+            ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            events,
+            MOCK_INDEX_DEFINITION,
+            MOCK_INDEX_DEFINITION.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(MOCK_INDEX_DEFINITION));
+
+    assertThat(batch.updatesDeletedMissingFullDocument).isEqualTo(0);
+    assertThat(batch.updatesDeletedMissingDocumentId).isEqualTo(0);
+    assertThat(batch.finalChangeEvents.stream().map(DocumentEvent::getEventType).toList())
+        .containsExactly(DocumentEvent.EventType.DELETE, DocumentEvent.EventType.INSERT);
+  }
+
+  @Test
+  public void handleDocumentEvents_viewDeletions_doesNotCountMissingUpdateDataConversions() {
+    var indexDefinition =
+        mockDefinitionBuilder()
+            .view(
+                ViewDefinition.existing("myView", List.of(BsonDocument.parse("{$match: {a: 1}}"))))
+            .build();
+    var filteredDocument =
+        new BsonDocument(
+            indexDefinition.getIndexId().toString(), BsonDocument.parse("{deleted: true}"));
+
+    var batch =
+        ChangeStreamDocumentUtils.handleDocumentEvents(
+            List.of(
+                ChangeStreamUtils.updateNoDataEvent(0, null),
+                ChangeStreamUtils.updateEventWithNoMetadata(1, null),
+                ChangeStreamUtils.dataEvent(OperationType.UPDATE, 2, null, filteredDocument)),
+            indexDefinition,
+            indexDefinition.createFieldDefinitionResolver(IndexFormatVersion.CURRENT),
+            true,
+            ChangeStreamDocumentUtils.deriveViewFieldDependencies(indexDefinition));
+
+    assertThat(batch.updatesDeletedMissingFullDocument).isEqualTo(0);
+    assertThat(batch.updatesDeletedMissingDocumentId).isEqualTo(0);
+    assertThat(batch.finalChangeEvents.stream().map(DocumentEvent::getEventType).toList())
+        .containsExactly(
+            DocumentEvent.EventType.DELETE,
+            DocumentEvent.EventType.DELETE,
+            DocumentEvent.EventType.DELETE);
   }
 
   private IndexDefinition createMockIndexDefinitionWithField(String fieldName)
