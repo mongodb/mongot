@@ -27,6 +27,8 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -135,6 +137,43 @@ public class PeriodicLuceneIndexRefresherTest {
     Timer timer = registry.get("test.refreshDurations").timer();
     Assert.assertTrue(timer.totalTime(TimeUnit.MILLISECONDS) >= 0);
     Assert.assertTrue(timer.count() >= 1);
+  }
+
+  @Test
+  public void close_afterFirstRun_cancelsScheduledRefresh() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    var processMetricsFactory = new MetricsFactory("test", registry);
+    var metricsFactory = Mockito.mock(PerIndexMetricsFactory.class);
+    Mockito.when(metricsFactory.getProcessMetricsFactory()).thenReturn(processMetricsFactory);
+    AtomicReference<ScheduledFuture<?>> scheduledRefresh = new AtomicReference<>();
+    ScheduledThreadPoolExecutor executor =
+        new ScheduledThreadPoolExecutor(1) {
+          @Override
+          public ScheduledFuture<?> scheduleWithFixedDelay(
+              Runnable command, long initialDelay, long delay, TimeUnit unit) {
+            ScheduledFuture<?> future =
+                super.scheduleWithFixedDelay(command, initialDelay, delay, unit);
+            scheduledRefresh.set(future);
+            return future;
+          }
+        };
+    CountDownLatch firstRun = new CountDownLatch(1);
+    var refresher =
+        new PeriodicLuceneIndexRefresher(
+            executor,
+            Duration.ofHours(1),
+            ImmutableList.of(getSearcherManager()),
+            () -> {
+              firstRun.countDown();
+              return IndexStatus.notStarted();
+            },
+            metricsFactory);
+    Assert.assertTrue(firstRun.await(5, TimeUnit.SECONDS));
+
+    refresher.close();
+
+    Assert.assertTrue(scheduledRefresh.get().isCancelled());
+    executor.shutdownNow();
   }
 
   @Test

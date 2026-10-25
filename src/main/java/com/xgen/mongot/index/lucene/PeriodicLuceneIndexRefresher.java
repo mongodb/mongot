@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.Timer;
 import java.io.Closeable;
 import java.time.Duration;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.apache.lucene.search.ReferenceManager;
@@ -25,6 +26,7 @@ class PeriodicLuceneIndexRefresher implements Closeable, VerboseRunnable {
   private final Supplier<IndexStatus> indexStatusRef;
   private final PerIndexMetricsFactory metricsFactory;
   private final Timer timer;
+  private final ScheduledFuture<?> scheduledRefresh;
 
   @GuardedBy("this")
   private boolean shutdown = false;
@@ -40,24 +42,24 @@ class PeriodicLuceneIndexRefresher implements Closeable, VerboseRunnable {
     this.metricsFactory = metricsFactory;
     this.timer =
         metricsFactory.getProcessMetricsFactory().timer("refreshDurations", TimeUnit.MILLISECONDS);
-    executor.scheduleWithFixedDelay(this, 0, interval.toMillis(), TimeUnit.MILLISECONDS);
+    this.scheduledRefresh =
+        executor.scheduleWithFixedDelay(this, 0, interval.toMillis(), TimeUnit.MILLISECONDS);
   }
 
   /**
-   * Close the LuceneIndexRefresher.
+   * Close the PeriodicLuceneIndexRefresher and cancel its scheduled refresh.
    *
-   * <p>Note that this method should not return until it is guaranteed that the SearcherManager will
-   * not be attempted to be used again. We accomplish this by synchronizing this method with
-   * schedule() and refreshIfNeeded().
-   *
-   * <p>If either of those methods are running, close() will block waiting for the lock. When
-   * close() returns, we know that all subsequent calls to schedule() and refreshIfNeeded() will not
-   * result in the SearcherManager being used since they both guard their execution on shutdown not
-   * being set.
+   * <p>This method does not return until it is guaranteed that the searcher managers will not be
+   * used again. It is synchronized with refreshIfNeeded(), so if a refresh is running, close()
+   * blocks until it finishes. Any later run sees shutdown set and returns without refreshing.
    */
   @Override
   public synchronized void close() {
     this.shutdown = true;
+    // Mocked executors in tests return null from scheduleWithFixedDelay.
+    if (this.scheduledRefresh != null) {
+      this.scheduledRefresh.cancel(false);
+    }
     this.metricsFactory.close();
   }
 
