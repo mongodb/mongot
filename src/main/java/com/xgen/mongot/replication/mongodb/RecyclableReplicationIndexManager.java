@@ -31,6 +31,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -155,12 +156,17 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   }
 
   /**
-   * What follower status recovery/refresh needs. Present only when this manager was created against
-   * an index (production and the index-taking test factories); the wrapped-factory-only test
-   * factories leave it empty, making the periodic refresh a no-op there.
+   * What follower status recovery/refresh needs, plus what the follower-drop finalizer needs. This
+   * context is present only when this manager was created against an index (production and the
+   * index-taking test factories); the wrapped-factory-only test factories leave it empty, making
+   * the periodic refresh and the drop finalizer no-ops there. The cursor manager is null only in
+   * the test seams that pass no cursor manager in.
    */
   private record FollowerContext(
-      InitializedIndex index, FeatureFlags featureFlags, IndexGeneration indexGeneration) {}
+      InitializedIndex index,
+      FeatureFlags featureFlags,
+      IndexGeneration indexGeneration,
+      @Nullable MongotCursorManager cursorManager) {}
 
   private final Function<DocumentIndexer, ReplicationIndexManager> wrappedFactory;
 
@@ -257,6 +263,14 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   private CompletableFuture<Void> lastStop;
 
   /**
+   * Whether the follower-drop finalizer (mark dropped + kill cursors) has already been chained onto
+   * {@link #lastStop}. {@code drop()} is terminal, so the finalizer must run exactly once even
+   * across repeated terminal calls.
+   */
+  @GuardedBy("this")
+  private boolean dropped;
+
+  /**
    * Future for the one-time follower status recovery. Surfaced by {@link #getInitFuture()} while
    * this node is a follower (before any {@link LeaderStatus#LEADER} promotion). Never reassigned or
    * failed by the periodic refresh, so node readiness can never be blocked by refresh failures.
@@ -313,6 +327,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     this.transitionChain = CompletableFuture.completedFuture(null);
     // Completed: no session has ever been stopped.
     this.lastStop = CompletableFuture.completedFuture(null);
+    this.dropped = false;
     this.followerInitFuture = CompletableFuture.completedFuture(null);
     this.followerContext = Optional.empty();
     this.lastPublishedUserData = Optional.empty();
@@ -378,9 +393,12 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * Runs the terminal request and returns the stable {@link #lastStop}. Whoever finds the manager
    * present owns its stop; a caller that races a reconcile-owned drain gets a future completed by
    * that drain, never a completed future that lies about it. A drop on a running session stops it
-   * with {@code RIM.drop()} so the inner index drop runs; a drop after a settled stop just returns
-   * the settled future -- the physical close and drop of the index is performed by the caller above
-   * this manager (IndexActions.dropIndex) after this future settles.
+   * with {@code RIM.drop()} so the inner index drop runs. A drop on a stopped or never-started
+   * manager chains a one-shot finalizer onto the stop future that marks the index dropped and kills
+   * its cursors -- the inner manager did that on the leader path; a follower has none -- and
+   * publishes the chained future as the new {@code lastStop}, so every terminal caller waits for
+   * the kill. The physical close and drop of the index is performed by the caller above this
+   * manager (IndexActions.dropIndex) after the returned future settles.
    */
   private CompletableFuture<Void> terminate(boolean drop) {
     ReplicationIndexManager toStop;
@@ -396,7 +414,28 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         // (which settles {@code lastStop} when it completes). The physical close and drop of the
         // index is performed by the caller above this manager (IndexActions.dropIndex, after this
         // future settles).
-        return this.lastStop;
+        if (!drop || this.dropped) {
+          return this.lastStop;
+        }
+        // Follower drop: no inner manager ran RIM.dropIndex, so this manager marks the index
+        // dropped and kills its cursors itself (mirroring MongoDbNoOpReplicationManager.dropIndex),
+        // chained onto the stop future so IndexActions.dropIndex closes the index only after no
+        // cursor can run on it. Publish the chained future back as lastStop under this monitor so
+        // concurrent terminal callers cannot get the un-chained future: reconcile()'s two lastStop
+        // assignments (epoch-recycle and demote) are fenced by the same SHUT_DOWN check above, and
+        // its settleFrom captured the previous future object, not this field. Seams without a
+        // cursor manager keep the old passthrough behavior.
+        FollowerContext context =
+            this.followerContext.filter(ctx -> ctx.cursorManager() != null).orElse(null);
+        if (context == null) {
+          return this.lastStop;
+        }
+        this.dropped = true;
+        CompletableFuture<Void> chained =
+            this.lastStop.whenCompleteAsync(
+                (ignored, throwable) -> finalizeDrop(context), this.transitionExecutor);
+        this.lastStop = chained;
+        return chained;
       }
       // This call owns the stop, so it replaces {@code lastStop}: every terminal call that lands
       // while this drain runs (the manager is now absent) returns this same future, completed only
@@ -423,6 +462,27 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     // The stop this call owned settles the terminal future.
     settleFrom(lastStop, endTenureWhenComplete(endedSession, future));
     return lastStop;
+  }
+
+  /**
+   * The follower-drop finalizer chained onto {@link #lastStop} by {@link #terminate}: marks the
+   * index dropped and kills its cursors, mirroring {@link MongoDbNoOpReplicationManager
+   * #dropIndex}. Runs off-monitor on {@link #transitionExecutor} after the stop settles, normally
+   * or exceptionally -- the kill must still happen before IndexActions.dropIndex closes the index.
+   * The status write is the last writer even against a follower poll that raced
+   * IndexLifecycleManager.drop()'s INDEX_DROPPED write: every poll re-checks SHUT_DOWN under this
+   * manager's monitor before writing, and the finalizer only runs after terminate() set it.
+   */
+  private static void finalizeDrop(FollowerContext context) {
+    // terminate() only chains this finalizer when the context carries a cursor manager.
+    MongotCursorManager cursorManager =
+        Objects.requireNonNull(context.cursorManager(), "drop finalizer requires a cursor manager");
+    Crash.because("failed to kill index cursors")
+        .ifThrows(
+            () -> {
+              context.index().setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
+              cursorManager.killIndexCursors(context.indexGeneration().getGenerationId());
+            });
   }
 
   /** Completes {@code stop} with {@code source}'s outcome, exceptional or not. */
@@ -908,8 +968,11 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    */
   @GuardedBy("this")
   private void scheduleFollowerInit(
-      InitializedIndex index, FeatureFlags featureFlags, IndexGeneration indexGeneration) {
-    FollowerContext ctx = new FollowerContext(index, featureFlags, indexGeneration);
+      InitializedIndex index,
+      FeatureFlags featureFlags,
+      IndexGeneration indexGeneration,
+      @Nullable MongotCursorManager cursorManager) {
+    FollowerContext ctx = new FollowerContext(index, featureFlags, indexGeneration, cursorManager);
     this.followerContext = Optional.of(ctx);
     this.followerInitFuture =
         CompletableFuture.runAsync(
@@ -1152,7 +1215,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       // Recover and publish this follower's index status from the committed checkpoint (for
       // VectorLite, read from SLS) so queries see the correct status without replicating. Runs on
       // the lifecycle executor, never the FFM upcall thread.
-      manager.scheduleFollowerInit(initializedIndex, featureFlags, indexGeneration);
+      manager.scheduleFollowerInit(initializedIndex, featureFlags, indexGeneration, cursorManager);
       manager.startPeriodicReconcile(commitExecutor, DEFAULT_RECONCILE_INTERVAL);
     }
     return manager;
@@ -1307,6 +1370,24 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       InitializedIndex index,
       FeatureFlags featureFlags,
       IndexGeneration indexGeneration) {
+    return createForTesting(
+        wrappedFactory, transitionExecutor, index, featureFlags, indexGeneration, null);
+  }
+
+  /**
+   * Like {@link #createForTesting(Supplier, Executor, InitializedIndex, FeatureFlags,
+   * IndexGeneration)} but with a cursor manager, so tests can assert the follower-drop finalizer's
+   * status write and cursor kill. Pass {@code null} for a seam with no cursor expectations; its
+   * {@code drop()} then keeps the passthrough behavior.
+   */
+  @VisibleForTesting
+  public static RecyclableReplicationIndexManager createForTesting(
+      Supplier<ReplicationIndexManager> wrappedFactory,
+      Executor transitionExecutor,
+      InitializedIndex index,
+      FeatureFlags featureFlags,
+      IndexGeneration indexGeneration,
+      @Nullable MongotCursorManager cursorManager) {
     RecyclableReplicationIndexManager manager =
         new RecyclableReplicationIndexManager(
             ignoringIndexer(wrappedFactory),
@@ -1318,7 +1399,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             () -> false,
             null);
     synchronized (manager) {
-      manager.scheduleFollowerInit(index, featureFlags, indexGeneration);
+      manager.scheduleFollowerInit(index, featureFlags, indexGeneration, cursorManager);
     }
     return manager;
   }

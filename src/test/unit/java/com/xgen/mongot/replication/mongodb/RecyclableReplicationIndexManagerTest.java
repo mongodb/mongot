@@ -18,6 +18,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 import com.mongodb.MongoNamespace;
+import com.xgen.mongot.cursor.MongotCursorManager;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.index.CommitDataStagingWriter;
@@ -669,9 +670,11 @@ public class RecyclableReplicationIndexManagerTest {
   @Test
   public void drop_afterSettledShutdown_returnsSettledFutureAndDoesNotDropInner() {
     // A drop() after a settled shutdown has nothing left to stop: it returns the settled terminal
-    // future and does not touch the inner manager again. The physical close and drop of the index
-    // is performed by the caller above this manager (IndexActions.dropIndex, after this future
-    // settles), so a chained inner drop would be redundant and race that cleanup.
+    // future and does not touch the inner manager again. This seam has no cursor manager, so no
+    // drop finalizer (status + cursor kill) is chained onto the future; with one, it would chain
+    // onto this settled future and run inline. The physical close and drop of the index is
+    // performed by the caller above this manager (IndexActions.dropIndex, after this future
+    // settles).
     var factory = mockWrappedFactory();
     var innerRim = stubShutdown(mock(ReplicationIndexManager.class));
     when(factory.get()).thenReturn(innerRim);
@@ -683,6 +686,159 @@ public class RecyclableReplicationIndexManagerTest {
 
     assertTrue(terminal.isDone());
     assertFalse(terminal.isCompletedExceptionally());
+    verify(innerRim, never()).drop();
+  }
+
+  @Test
+  public void drop_whenFollower_marksIndexDroppedAndKillsCursors() {
+    var generation = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            Runnable::run,
+            index.index,
+            FeatureFlags.getDefault(),
+            generation,
+            cursorManager);
+
+    rrim.drop();
+
+    verify(cursorManager).killIndexCursors(generation.getGenerationId());
+    verify(index.index, times(1))
+        .setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.DOES_NOT_EXIST);
+    assertThat(index.status().getReason()).hasValue(IndexStatus.Reason.INDEX_DROPPED);
+  }
+
+  @Test
+  public void drop_afterDemotion_killsCursorsWithoutDroppingInner() {
+    var factory = mockWrappedFactory();
+    var innerRim = stubShutdown(mock(ReplicationIndexManager.class));
+    when(factory.get()).thenReturn(innerRim);
+    var generation = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            Runnable::run,
+            index.index,
+            FeatureFlags.getDefault(),
+            generation,
+            cursorManager);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER);
+
+    var future = rrim.drop();
+
+    verify(cursorManager).killIndexCursors(generation.getGenerationId());
+    assertThat(index.status().getReason()).hasValue(IndexStatus.Reason.INDEX_DROPPED);
+    verify(innerRim, never()).drop();
+    assertFalse(future.isCompletedExceptionally());
+  }
+
+  @Test
+  public void shutdown_whenFollower_doesNotKillCursors() {
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            Runnable::run,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION),
+            cursorManager);
+
+    rrim.shutdown();
+
+    verify(cursorManager, never()).killIndexCursors(any());
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.NOT_STARTED);
+  }
+
+  @Test
+  public void drop_whilePeriodicRefreshDeferred_marksIndexDroppedOnce() {
+    ManualExecutor executor = new ManualExecutor();
+    var generation = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY, steadyCommitData());
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            executor,
+            index.index,
+            FeatureFlags.getDefault(),
+            generation,
+            cursorManager);
+    executor.runAll(); // init publishes NOT_STARTED
+    rrim.triggerReconcileTick(); // dispatches a poll, deferred on the manual executor
+
+    rrim.drop(); // SHUT_DOWN before the deferred poll runs; finalizer queues behind it
+    executor.runAll(); // the poll must skip publishing; the finalizer runs last
+
+    verify(cursorManager).killIndexCursors(generation.getGenerationId());
+    verify(index.index, times(1))
+        .setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
+    verify(index.index, times(2)).setStatus(any()); // init + finalizer, skipped poll
+    assertThat(index.status().getReason()).hasValue(IndexStatus.Reason.INDEX_DROPPED);
+  }
+
+  @Test
+  public void drop_whenFollower_chainsFinalizerOntoLastStop() {
+    ManualExecutor executor = new ManualExecutor();
+    var generation = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            executor,
+            index.index,
+            FeatureFlags.getDefault(),
+            generation,
+            cursorManager);
+
+    var first = rrim.drop();
+    assertFalse(first.isDone()); // the finalizer is deferred on the manual executor
+    assertThat(rrim.shutdown()).isSameInstanceAs(first);
+    assertThat(rrim.drop())
+        .isSameInstanceAs(first); // one-shot: repeated terminal calls get the same future
+
+    executor.runAll();
+
+    assertTrue(first.isDone());
+    verify(cursorManager).killIndexCursors(generation.getGenerationId());
+    assertThat(index.status().getReason()).hasValue(IndexStatus.Reason.INDEX_DROPPED);
+  }
+
+  @Test
+  public void drop_withFailedDemotionDrain_stillKillsCursorsAndStaysExceptional() {
+    var factory = mockWrappedFactory();
+    var innerRim = mock(ReplicationIndexManager.class);
+    when(innerRim.shutdown())
+        .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("drain failed")));
+    when(factory.get()).thenReturn(innerRim);
+    var generation = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            Runnable::run,
+            index.index,
+            FeatureFlags.getDefault(),
+            generation,
+            cursorManager);
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER); // drain fails; lastStop settles exceptionally
+
+    var future = rrim.drop();
+
+    verify(cursorManager).killIndexCursors(generation.getGenerationId());
+    assertTrue(future.isCompletedExceptionally());
     verify(innerRim, never()).drop();
   }
 
