@@ -10,8 +10,7 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.metrics.cache.IntervalThrottle;
 import com.xgen.mongot.metrics.cache.ScrapeCache;
 import com.xgen.mongot.metrics.cache.ScrapeCacheConfig;
-import com.xgen.mongot.util.retry.FixedBackoffPolicy;
-import com.xgen.mongot.util.retry.Retry;
+import com.xgen.mongot.util.http.HttpServers;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
@@ -26,11 +25,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -51,13 +48,6 @@ public class PrometheusServer {
   // planes and dashboards can observe the listener's configured transport without probing the
   // scheme.
   protected static final String METRICS_TLS_ENABLED_GAUGE_NAME = "metrics.tls.enabled";
-
-  // Retry transient server-creation failures for a bounded period before failing bootstrap.
-  private static final Duration BIND_RETRY_TIMEOUT = Duration.ofMinutes(1);
-  private static final Duration BIND_RETRY_INTERVAL = Duration.ofSeconds(1);
-  private static final int BIND_MAX_RETRIES =
-      Math.toIntExact(BIND_RETRY_TIMEOUT.dividedBy(BIND_RETRY_INTERVAL));
-  private static final int MAX_SUPPRESSED_RETRY_FAILURES = 3;
 
   // See https://prometheus.io/docs/instrumenting/exposition_formats/#basic-info
   // Matches our version of micrometer:
@@ -215,10 +205,9 @@ public class PrometheusServer {
 
     try {
       HttpServer server =
-          createHttpServerWithRetry(
+          HttpServers.createWithRetry(
               address,
-              BIND_RETRY_INTERVAL,
-              BIND_MAX_RETRIES,
+              "Prometheus",
               candidateAddress -> createServer(candidateAddress, serverSslContext));
       server.createContext(
           ENDPOINT_PATH,
@@ -307,62 +296,6 @@ public class PrometheusServer {
           }
         });
     return httpsServer;
-  }
-
-  /**
-   * Creates the {@link HttpServer}, retrying {@link IOException}s a bounded number of times.
-   *
-   * <p>A transient failure during startup should not crash bootstrap. Retrying the checked failures
-   * exposed by {@link HttpServer#create} lets mongot recover once the failure clears.
-   */
-  @VisibleForTesting
-  static HttpServer createHttpServerWithRetry(
-      InetSocketAddress address, Duration retryInterval, int maxRetries, HttpServerBinder binder)
-      throws IOException {
-    AtomicInteger retryCount = new AtomicInteger();
-    List<IOException> previousFailures = new ArrayList<>(MAX_SUPPRESSED_RETRY_FAILURES);
-
-    try {
-      HttpServer server =
-          Retry.withBackoff(
-                  FixedBackoffPolicy.builder().delay(retryInterval).maxRetries(maxRetries).build())
-              .onRetry(
-                  failure -> {
-                    int currentRetry = retryCount.incrementAndGet();
-                    if (currentRetry == 1) {
-                      LOG.atWarn()
-                          .addKeyValue("address", address)
-                          .addKeyValue("maxRetries", maxRetries)
-                          .addKeyValue("retryIntervalMs", retryInterval.toMillis())
-                          .setCause(failure)
-                          .log("Failed to create Prometheus endpoint, retrying");
-                    }
-                    if (previousFailures.size() < MAX_SUPPRESSED_RETRY_FAILURES) {
-                      previousFailures.add((IOException) failure);
-                    }
-                  })
-              .get(() -> binder.bind(address), IOException.class);
-      if (retryCount.get() > 0) {
-        LOG.atInfo()
-            .addKeyValue("address", address)
-            .addKeyValue("attempts", retryCount.get() + 1)
-            .log("Successfully bound Prometheus endpoint after retrying");
-      }
-      return server;
-    } catch (IOException e) {
-      previousFailures.stream().filter(failure -> failure != e).forEach(e::addSuppressed);
-      LOG.atError()
-          .addKeyValue("address", address)
-          .addKeyValue("attempts", retryCount.get() + 1)
-          .setCause(e)
-          .log("Failed to create Prometheus endpoint after retrying; giving up");
-      throw e;
-    }
-  }
-
-  @FunctionalInterface
-  interface HttpServerBinder {
-    HttpServer bind(InetSocketAddress address) throws IOException;
   }
 
   public void shutdown() {
