@@ -965,8 +965,8 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * replication -- this node is a follower. The index is opened before this manager is created, so
    * its writer is readable here. Mirrors {@link MongoDbNoOpReplicationManager}'s {@code
    * resetStatus} and the status half of {@link ReplicationIndexManager#init}: indexes are set as
-   * failed(exceededLimit), stale, doesNotExist(collectionNotFound), initialSync, steady, or
-   * notStarted.
+   * failed(exceededLimit), stale, doesNotExist(indexDropped or collectionNotFound), initialSync,
+   * steady, or notStarted.
    *
    * <p>On promotion the inner {@link ReplicationIndexManager} re-derives status via {@code
    * index.getWriter().getCommitUserData()} and resumes replication from the latest durable token
@@ -1018,8 +1018,13 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       return;
     }
 
+    Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
+    if (indexStateInfo.isPresent() && indexStateInfo.get().toIndexStatus().isIndexDropped()) {
+      setFollowerStatus(index, indexStateInfo.get().toIndexStatus());
+      return;
+    }
+
     if (featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
-      Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
         setFollowerStatus(index, IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
         return;

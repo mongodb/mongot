@@ -780,12 +780,19 @@ public class ReplicationIndexManagerTest {
   }
 
   @Test
-  public void testDroppedInitialSyncException() throws Exception {
+  public void initialSync_collectionDropped_preservesDroppedCommit() throws Exception {
     try (Mocks mocks = Mocks.exceptionalInitialSync(InitialSyncException.createDropped())) {
-      verify(mocks.index, timeout(5000)).drop();
+      var inOrder = Mockito.inOrder(mocks.documentIndexer, mocks.synonymMappingManager);
+      inOrder
+          .verify(mocks.documentIndexer, timeout(5000))
+          .clearIndex(
+              IndexCommitUserData.createFromIndexStateInfo(
+                  IndexStateInfo.create(StatusCode.DOES_NOT_EXIST, Reason.INDEX_DROPPED)));
+      inOrder.verify(mocks.synonymMappingManager, timeout(1000)).shutdown();
+      verify(mocks.index, never()).close();
+      verify(mocks.index, never()).drop();
 
-      verify(mocks.index, timeout(1000))
-          .setStatus(indexStatusWithCode(IndexStatus.StatusCode.DOES_NOT_EXIST));
+      assertThat(mocks.index.getStatus()).isEqualTo(IndexStatus.doesNotExist(Reason.INDEX_DROPPED));
 
       mocks.assertStateTransitions(IndexManager.State.INITIAL_SYNC, IndexManager.State.SHUT_DOWN);
 
@@ -1134,12 +1141,19 @@ public class ReplicationIndexManagerTest {
   }
 
   @Test
-  public void testDroppedSteadyStateException() throws Exception {
+  public void steadyState_collectionDropped_preservesDroppedCommit() throws Exception {
     try (Mocks mocks = Mocks.exceptionalSteadyState(SteadyStateException.createDropped())) {
-      verify(mocks.index, timeout(5000)).drop();
+      var inOrder = Mockito.inOrder(mocks.documentIndexer, mocks.synonymMappingManager);
+      inOrder
+          .verify(mocks.documentIndexer, timeout(5000))
+          .clearIndex(
+              IndexCommitUserData.createFromIndexStateInfo(
+                  IndexStateInfo.create(StatusCode.DOES_NOT_EXIST, Reason.INDEX_DROPPED)));
+      inOrder.verify(mocks.synonymMappingManager, timeout(1000)).shutdown();
+      verify(mocks.index, never()).close();
+      verify(mocks.index, never()).drop();
 
-      verify(mocks.index, timeout(1000))
-          .setStatus(indexStatusWithCode(IndexStatus.StatusCode.DOES_NOT_EXIST));
+      assertThat(mocks.index.getStatus()).isEqualTo(IndexStatus.doesNotExist(Reason.INDEX_DROPPED));
 
       mocks.assertStateTransitions(
           IndexManager.State.STEADY_STATE, IndexManager.State.STEADY_STATE_SHUT_DOWN);
@@ -1150,6 +1164,42 @@ public class ReplicationIndexManagerTest {
           SteadyStateException.class, SteadyStateException.Type.DROPPED.toString(), "None", "None");
 
       mocks.assertDropMetric(Reason.INDEX_DROPPED);
+    }
+  }
+
+  @Test
+  public void init_droppedIndexCommitData_staysDroppedWithoutReplication() throws Exception {
+    try (Mocks mocks = Mocks.droppedUserData()) {
+      mocks.manager.getInitFuture().get(5, TimeUnit.SECONDS);
+
+      assertThat(mocks.index.getStatus()).isEqualTo(IndexStatus.doesNotExist(Reason.INDEX_DROPPED));
+      assertThat(mocks.manager.getState()).isEqualTo(State.SHUT_DOWN);
+      verify(mocks.index, never()).close();
+      verify(mocks.index, never()).drop();
+      verify(mocks.synonymMappingManager).shutdown();
+      verifyNoInteractions(mocks.initialSyncQueue, mocks.steadyStateManager, mocks.documentIndexer);
+    }
+  }
+
+  @Test
+  public void handleCollectionDropped_duringShutdown_leavesIndexUntouched() throws Exception {
+    try (Mocks mocks = Mocks.validUserData()) {
+      mocks.manager.getInitFuture().get(5, TimeUnit.SECONDS);
+      var stopped = new CompletableFuture<ChangeStreamResumeInfo>();
+      when(mocks.steadyStateManager.stop(MOCK_INDEX_GENERATION_ID)).thenReturn(stopped);
+      var shutdown = mocks.manager.shutdown();
+      clearInvocations(mocks.index, mocks.documentIndexer, mocks.synonymMappingManager);
+
+      try {
+        mocks.manager.handleCollectionDropped();
+
+        verifyNoInteractions(mocks.index, mocks.documentIndexer, mocks.synonymMappingManager);
+        assertThat(mocks.manager.getState()).isEqualTo(State.SHUT_DOWN);
+        assertThat(shutdown.isDone()).isFalse();
+      } finally {
+        stopped.complete(Mocks.RESUME_INFO);
+        shutdown.get(5, TimeUnit.SECONDS);
+      }
     }
   }
 
@@ -1578,7 +1628,7 @@ public class ReplicationIndexManagerTest {
           0);
 
       mocks.latch.orElseThrow(AssertionError::new).countDown();
-      verify(mocks.index, timeout(5000)).drop();
+      verify(mocks.synonymMappingManager, timeout(5000)).shutdown();
 
       assertEquals(
           1,
@@ -1611,7 +1661,7 @@ public class ReplicationIndexManagerTest {
 
       mocks.latch.orElseThrow(AssertionError::new).countDown();
 
-      verify(mocks.index, timeout(5000)).drop();
+      verify(mocks.synonymMappingManager, timeout(5000)).shutdown();
 
       assertEquals(
           1,
@@ -1692,9 +1742,8 @@ public class ReplicationIndexManagerTest {
   @Test
   public void testDropShutsDownSynonymMappingManager() throws Exception {
     try (Mocks mocks = Mocks.exceptionalInitialSync(InitialSyncException.createDropped())) {
-      verify(mocks.index, timeout(5000)).drop();
-
       verify(mocks.synonymMappingManager, timeout(1000)).shutdown();
+      verify(mocks.index, never()).close();
       verifyNoMoreInteractions(mocks.synonymMappingManager);
     }
   }
@@ -2340,6 +2389,18 @@ public class ReplicationIndexManagerTest {
           HANGING_SYNONYM_MANAGER,
           Optional.empty(),
           mockIndexGeneration(unsupportedDefinitionGeneration),
+          Optional.empty(),
+          Optional.empty());
+    }
+
+    static Mocks droppedUserData() throws Exception {
+      return create(
+          Optional.of(
+              IndexCommitUserData.createFromIndexStateInfo(
+                  IndexStateInfo.create(StatusCode.DOES_NOT_EXIST, Reason.INDEX_DROPPED))),
+          HANGING_INITIAL_SYNC_QUEUE,
+          HANGING_STEADY_STATE_MANAGER,
+          HANGING_SYNONYM_MANAGER,
           Optional.empty(),
           Optional.empty());
     }

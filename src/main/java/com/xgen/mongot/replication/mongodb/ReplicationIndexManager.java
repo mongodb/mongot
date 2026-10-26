@@ -462,8 +462,16 @@ public class ReplicationIndexManager implements IndexManager {
       return;
     }
 
+    // Skip replication when commit metadata marks the index as dropped.
+    Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
+    if (indexStateInfo.isPresent() && indexStateInfo.get().toIndexStatus().isIndexDropped()) {
+      transitionState(State.SHUT_DOWN);
+      this.index.setStatus(indexStateInfo.get().toIndexStatus());
+      this.synonymMappingManagers.forEach(SynonymMappingManager::shutdown);
+      return;
+    }
+
     if (this.featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
-      Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
         // Do not start replication for indexes that cannot resolve collections on mongod.
         // This typically occurs when a collection is missing on a shard.
@@ -1573,16 +1581,35 @@ public class ReplicationIndexManager implements IndexManager {
   /**
    * Handles the tailed collection being dropped out from under this generation — a change-stream
    * drop event during steady state, or the collection no longer resolving mid-initial-sync after it
-   * had been resolved. Base behavior shuts the generation down and drops the local index.
-   * Subclasses that own shared resources keyed to the dropped collection can override to clean
-   * those up first, while the generation — and any leadership tied to it — is still live; once
-   * {@link #dropIndex()} runs, the state is terminal.
+   * had been resolved. Clears the index and persists its dropped status, leaving it open for
+   * replication restarts. Subclasses that own shared resources keyed to the dropped collection can
+   * override to clean those up first, while the generation — and any leadership tied to it — is
+   * still live; once this method completes, the state is terminal.
    *
    * <p>A collection that is merely not visible yet (start-of-sync resolution failure) never reaches
    * this: it is classified {@code DOES_NOT_EXIST} and retried.
    */
-  protected void handleCollectionDropped() {
-    dropIndex();
+  protected synchronized void handleCollectionDropped() {
+    if (isShutDown()) {
+      // Skip the marker during shutdown and keep the existing files and commit.
+      // A new manager can resume and detect the dropped collection again.
+      return;
+    }
+
+    // Use the existing INDEX_DROPPED reason since the index is being cleaned up for good.
+    // A separate reason for collection drops may be added in the future.
+    IndexStateInfo indexStateInfo =
+        IndexStateInfo.create(StatusCode.DOES_NOT_EXIST, Reason.INDEX_DROPPED);
+    IndexStatus status = indexStateInfo.toIndexStatus();
+    this.metricsFactory
+        .counter(
+            "indexesDroppedCounter", Tags.of("reason", Reason.INDEX_DROPPED.name().toLowerCase()))
+        .increment();
+    // Keep an empty commit so restart skips blobstore download and restores the dropped status.
+    // Clear before SHUT_DOWN because clearIndex() skips work after shutdown.
+    clearIndex(status, IndexCommitUserData.createFromIndexStateInfo(indexStateInfo));
+    transitionState(State.SHUT_DOWN);
+    this.synonymMappingManagers.forEach(SynonymMappingManager::shutdown);
   }
 
   private void dropIndex() {

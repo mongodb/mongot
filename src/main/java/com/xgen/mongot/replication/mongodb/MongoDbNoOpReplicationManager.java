@@ -188,8 +188,13 @@ public class MongoDbNoOpReplicationManager implements ReplicationManager {
       return;
     }
 
+    Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
+    if (indexStateInfo.isPresent() && indexStateInfo.get().toIndexStatus().isIndexDropped()) {
+      index.setStatus(indexStateInfo.get().toIndexStatus());
+      return;
+    }
+
     if (this.featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
-      Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
         index.setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
         return;

@@ -1052,6 +1052,33 @@ public class RecyclableReplicationIndexManagerTest {
   }
 
   @Test
+  public void followerInit_droppedIndex_restoresDroppedStatusWithoutReplication() throws Exception {
+    FollowerIndex index =
+        followerIndex(
+            IndexCommitUserData.createFromIndexStateInfo(
+                IndexStateInfo.create(
+                    IndexStatus.StatusCode.DOES_NOT_EXIST, IndexStatus.Reason.INDEX_DROPPED)));
+    var factory = mockWrappedFactory();
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults()
+            .disable(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)
+            .build();
+
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            featureFlags,
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+
+    assertThat(index.status())
+        .isEqualTo(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
+    assertThat(rrim.isLeader()).isFalse();
+    verify(factory, never()).get();
+    verify(index.index, never()).close();
+  }
+
+  @Test
   public void followerInit_collectionNotFound_setsDoesNotExist() {
     FeatureFlags featureFlags =
         FeatureFlags.withDefaults()

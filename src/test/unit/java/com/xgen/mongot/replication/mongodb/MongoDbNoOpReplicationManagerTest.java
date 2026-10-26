@@ -113,6 +113,24 @@ public class MongoDbNoOpReplicationManagerTest {
   }
 
   @Test
+  public void add_droppedIndexCommitData_restoresDroppedStatus() {
+    Mocks mocks = Mocks.create();
+    IndexGeneration indexGeneration = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    IndexStateInfo indexStateInfo =
+        IndexStateInfo.create(
+            IndexStatus.StatusCode.DOES_NOT_EXIST, IndexStatus.Reason.INDEX_DROPPED);
+    when(mocks.initializedIndex.getWriter().getCommitUserData())
+        .thenReturn(IndexCommitUserData.createFromIndexStateInfo(indexStateInfo).toEncodedData());
+
+    mocks.manager.add(indexGeneration);
+    new Condition.Builder().atMost(Duration.ofSeconds(30)).until(mocks.manager::isInitialized);
+
+    Assert.assertEquals(
+        IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED),
+        mocks.initializedIndex.getStatus());
+  }
+
+  @Test
   public void testAddIndex_CollectionNotFound() {
     var featureFlags =
         FeatureFlags.withDefaults()
