@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.mongodb.MongoException;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.Errors;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -56,12 +57,269 @@ public class PartitionedChangeStreamClientTest {
   }
 
   @Test
+  public void getNext_twoLaggingReaders_pausesAheadReaderUntilBothCatchUp() throws Exception {
+    var fast = reader(timedBatch(161), timedBatch(162));
+    var second = reader(timedBatch(161));
+    var third = reader(timedBatch(161));
+    try (var client = pacingClient(List.of(fast, second, third), this.fetches::add, 100, 60)) {
+      var initial = this.caller.submit(client::getNext);
+      var fastFetch = nextFetch();
+      var secondFetch = nextFetch();
+      var thirdFetch = nextFetch();
+      fastFetch.run();
+      assertThat(initial.get(10, TimeUnit.SECONDS).getPostBatchResumeToken())
+          .isEqualTo(timedBatch(161).getPostBatchResumeToken());
+
+      var next = this.caller.submit(client::getNext);
+      secondFetch.run();
+      assertThat(next.get(10, TimeUnit.SECONDS).getPartition())
+          .hasValue(new ChangeStreamPartition(1, 3));
+      assertThat(this.fetches).isEmpty();
+      var lastSlow = this.caller.submit(client::getNext);
+      thirdFetch.run();
+      assertThat(lastSlow.get(10, TimeUnit.SECONDS).getPartition())
+          .hasValue(new ChangeStreamPartition(2, 3));
+      assertThat(this.fetches).isEmpty();
+      verify(fast).getNext();
+
+      var resumed = this.caller.submit(client::getNext);
+      nextFetch().run();
+      assertThat(resumed.get(10, TimeUnit.SECONDS).getPostBatchResumeToken())
+          .isEqualTo(timedBatch(162).getPostBatchResumeToken());
+      verify(fast, times(2)).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_exactThreshold_remainsEligible() throws Exception {
+    var fast = reader(timedBatch(160), timedBatch(161));
+    try (var client =
+        pacingClient(List.of(fast, reader(timedBatch(100))), Runnable::run, 100, 60)) {
+      client.getNext();
+      client.getNext();
+
+      verify(fast, times(2)).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_zeroGap_differentIncrementsInSameSecondRemainEligible() throws Exception {
+    var fast = reader(timedBatch(new BsonTimestamp(100, -1)), timedBatch(101));
+    var slow = reader(timedBatch(100));
+    try (var client = pacingClient(List.of(fast, slow), Runnable::run, 100, 0)) {
+      client.getNext();
+      client.getNext();
+
+      verify(fast, times(2)).getNext();
+      verify(slow).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_customThreshold_pausesAboveConfiguredGap() throws Exception {
+    var fast = reader(timedBatch(111));
+    try (var client =
+        pacingClient(List.of(fast, reader(timedBatch(100))), Runnable::run, 100, 10)) {
+      client.getNext();
+      client.getNext();
+
+      verify(fast).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_unsignedTimestampSeconds_pausesAcrossSignedIntegerBoundary()
+      throws Exception {
+    int start = Integer.MAX_VALUE - 10;
+    var fast = reader(timedBatch(Integer.MIN_VALUE + 50));
+    try (var client =
+        pacingClient(List.of(fast, reader(timedBatch(start))), Runnable::run, start, 60)) {
+      client.getNext();
+      client.getNext();
+
+      verify(fast).getNext();
+    }
+  }
+
+  @Test(timeout = 10000)
+  public void getNext_finishedReader_doesNotPreventRemainingReaderReachingLifecycle()
+      throws Exception {
+    var lifecycle =
+        new ChangeStreamBatch(
+            List.of(event(50, "invalidate")),
+            timedBatch(100).getPostBatchResumeToken(),
+            Optional.empty());
+    var first = reader(lifecycle);
+    var second = reader(timedBatch(200), lifecycle);
+    try (var client = pacingClient(List.of(first, second), Runnable::run, 100, 60)) {
+      assertThat(client.getNext().getRawEvents()).isEmpty();
+      assertThat(client.getNext().getRawEvents()).containsExactly(event(50, "invalidate"));
+
+      verify(first).getNext();
+      verify(second, times(2)).getNext();
+    }
+  }
+
+  @Test(timeout = 10000)
+  public void getNext_splitRenameAcrossOptimeGap_completesWithoutPacing() throws Exception {
+    var firstRename =
+        new ChangeStreamBatch(
+            List.of(event(10, "rename")),
+            timedBatch(100).getPostBatchResumeToken(),
+            Optional.empty());
+    var secondRename =
+        new ChangeStreamBatch(
+            List.of(event(20, "rename")),
+            timedBatch(200).getPostBatchResumeToken(),
+            Optional.empty());
+    var invalidate =
+        new ChangeStreamBatch(
+            List.of(event(30, "invalidate")),
+            timedBatch(400).getPostBatchResumeToken(),
+            Optional.empty());
+    var first = reader(firstRename, invalidate);
+    var second = reader(secondRename, timedBatch(300), invalidate);
+    try (var client = pacingClient(List.of(first, second), Runnable::run, 100, 60)) {
+      var result = client.getNext();
+
+      assertThat(result.getRawEvents())
+          .containsExactly(event(20, "rename"), event(30, "invalidate"))
+          .inOrder();
+      assertThat(result.getPostBatchResumeToken()).isEqualTo(invalidate.getPostBatchResumeToken());
+      verify(first, times(2)).getNext();
+      verify(second, times(3)).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_failedSlowReader_propagatesFailureWithoutRefetchingAheadReader()
+      throws Exception {
+    var failure = SteadyStateException.createTransient(new RuntimeException("fetch failed"));
+    var fast = reader(timedBatch(161));
+    var slow = reader(timedBatch(161));
+    when(slow.getNext()).thenThrow(failure);
+    try (var client = pacingClient(List.of(fast, slow), Runnable::run, 100, 60)) {
+      client.getNext();
+      assertThat(assertThrows(SteadyStateException.class, client::getNext))
+          .isSameInstanceAs(failure);
+      verify(fast).getNext();
+      verify(slow).getNext();
+    }
+    verify(fast).close();
+    verify(slow).close();
+  }
+
+  @Test
+  public void close_fastReaderPacedAndSlowReaderStalled_wakesCaller() throws Exception {
+    try (var client =
+        pacingClient(
+            List.of(reader(timedBatch(161)), reader(timedBatch(100))),
+            this.fetches::add,
+            100,
+            60)) {
+      var initial = this.caller.submit(client::getNext);
+      var fastFetch = nextFetch();
+      var slowFetch = nextFetch();
+      fastFetch.run();
+      initial.get(10, TimeUnit.SECONDS);
+      var waiting =
+          this.caller.submit(() -> assertThrows(IllegalStateException.class, client::getNext));
+
+      client.close();
+
+      assertThat(waiting.get(10, TimeUnit.SECONDS))
+          .hasMessageThat()
+          .isEqualTo("Change stream client is closed");
+      slowFetch.run();
+      assertThat(this.fetches).isEmpty();
+    }
+  }
+
+  @Test
+  public void resume_defaultGap_initializesProgressBeforeFirstBatch() throws Exception {
+    var fast = reader(timedBatch(160), timedBatch(161));
+    var releaseSlow = new CountDownLatch(1);
+    var slow = reader(timedBatch(100));
+    when(slow.getNext())
+        .thenAnswer(
+            unused -> {
+              assertThat(releaseSlow.await(10, TimeUnit.SECONDS)).isTrue();
+              return timedBatch(100);
+            });
+    var readers = List.of(fast, slow);
+    try (var client =
+        PartitionedChangeStreamClient.resume(
+            2,
+            timedBatch(100).getPostBatchResumeToken(),
+            this.mongoClient,
+            (mongo, partition, start) -> readers.get(partition.partitionId()),
+            this.executor,
+            SteadyStateException::wrapIfThrows)) {
+      try {
+        assertThat(
+                this.caller
+                    .submit(client::getNext)
+                    .get(10, TimeUnit.SECONDS)
+                    .getPostBatchResumeToken())
+            .isEqualTo(timedBatch(160).getPostBatchResumeToken());
+        // With a starting optime of 100, exactly 60 seconds ahead remains eligible.
+        assertThat(
+                this.caller
+                    .submit(client::getNext)
+                    .get(10, TimeUnit.SECONDS)
+                    .getPostBatchResumeToken())
+            .isEqualTo(timedBatch(161).getPostBatchResumeToken());
+        verify(fast, times(2)).getNext();
+      } finally {
+        releaseSlow.countDown();
+      }
+    }
+  }
+
+  @Test
+  public void getNext_singleReader_neverPausesItself() throws Exception {
+    try (var client =
+        pacingClient(List.of(reader(timedBatch(200), timedBatch(400))), Runnable::run, 100, 60)) {
+      client.getNext();
+      assertThat(client.getNext().getPostBatchResumeToken())
+          .isEqualTo(timedBatch(400).getPostBatchResumeToken());
+    }
+  }
+
+  @Test
+  public void constructor_invalidPacingGap_throws() throws Exception {
+    var readers = List.of(reader(timedBatch(100)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new PartitionedChangeStreamClient<>(
+                readers,
+                this.fetchExecutor,
+                SteadyStateException::wrapIfThrows,
+                new BsonTimestamp(100, 0),
+                Duration.ofSeconds(-1)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new PartitionedChangeStreamClient<>(
+                readers,
+                this.fetchExecutor,
+                SteadyStateException::wrapIfThrows,
+                new BsonTimestamp(100, 0),
+                Duration.ofMillis(500)));
+  }
+
+  @Test
   public void constructor_noReaders_throws() {
     assertThrows(
         IllegalArgumentException.class,
         () ->
             new PartitionedChangeStreamClient<>(
-                List.of(), this.fetchExecutor, SteadyStateException::wrapIfThrows));
+                List.of(),
+                this.fetchExecutor,
+                SteadyStateException::wrapIfThrows,
+                new BsonTimestamp(0, 0),
+                Duration.ofSeconds(60)));
   }
 
   @Test
@@ -1141,6 +1399,14 @@ public class PartitionedChangeStreamClientTest {
   private PartitionedChangeStreamClient<SteadyStateException> client(
       List<ChangeStreamMongoClient<SteadyStateException>> readers, Executor executor)
       throws Exception {
+    return pacingClient(readers, executor, 0, 60);
+  }
+
+  private PartitionedChangeStreamClient<SteadyStateException> pacingClient(
+      List<ChangeStreamMongoClient<SteadyStateException>> readers,
+      Executor executor,
+      int startSeconds,
+      long gapSeconds) {
     doAnswer(
             invocation -> {
               executor.execute(invocation.getArgument(0));
@@ -1149,7 +1415,23 @@ public class PartitionedChangeStreamClientTest {
         .when(this.fetchExecutor)
         .execute(any(Runnable.class));
     return new PartitionedChangeStreamClient<>(
-        readers, this.fetchExecutor, SteadyStateException::wrapIfThrows);
+        readers,
+        this.fetchExecutor,
+        SteadyStateException::wrapIfThrows,
+        new BsonTimestamp(startSeconds, 0),
+        Duration.ofSeconds(gapSeconds));
+  }
+
+  private static ChangeStreamBatch timedBatch(int seconds) {
+    return timedBatch(new BsonTimestamp(seconds, 1));
+  }
+
+  private static ChangeStreamBatch timedBatch(BsonTimestamp optime) {
+    var token =
+        new BsonDocument(
+            "_data", new BsonString("82%08X%08X".formatted(optime.getTime(), optime.getInc())));
+    // Deliberately unrelated server time: pacing must use the token, including for empty batches.
+    return new ChangeStreamBatch(List.of(), token, Optional.of(new BsonTimestamp(10000, 1)));
   }
 
   private Runnable nextFetch() throws Exception {
