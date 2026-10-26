@@ -57,6 +57,19 @@ public interface IndexCapabilities {
   boolean supportsEmbeddedNumericAndDateV2();
 
   /**
+   * Returns true if Mongot should apply normalization for vectors at index and query time for
+   * float32 vector fields using COSINE similarity.
+   *
+   * <p>If this method returns true, the "indexed similarity" function from the IndexDefinition will
+   * return COSINE, but we will create KnnFields using `DOT_PRODUCT`. Lucene scorers will therefore
+   * expect query vectors to be normalized. It is not an error to manually invoke COSINE similarity
+   * on these vectors, but it is not optimal to do so.
+   *
+   * <p>Note: this is not applicable to byte or bit vectors
+   */
+  boolean shouldNormalizeCosineVectors();
+
+  /**
    * True if the autocomplete field is indexed with reduced Lucene IndexOptions ({@code
    * DOCS_AND_FREQS}) that omit the positions and offsets never consulted by the autocomplete query
    * path. Older indexes index it with {@code DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS}.

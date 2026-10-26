@@ -11,6 +11,7 @@ import com.xgen.mongot.index.definition.BooleanFieldDefinition;
 import com.xgen.mongot.index.definition.DateFieldDefinition;
 import com.xgen.mongot.index.definition.EmbeddedDocumentsFieldDefinition;
 import com.xgen.mongot.index.definition.FieldDefinition;
+import com.xgen.mongot.index.definition.KnnVectorFieldDefinition;
 import com.xgen.mongot.index.definition.NumberFieldDefinition;
 import com.xgen.mongot.index.definition.NumericFieldOptions;
 import com.xgen.mongot.index.definition.ObjectIdFieldDefinition;
@@ -87,6 +88,13 @@ public class SearchQueryFactoryContext implements QueryFactoryContext {
     return this.fieldDefinitionResolver
         .getFieldDefinition(path, embeddedRoot)
         .flatMap(FieldDefinition::autocompleteFieldDefinition);
+  }
+
+  public Optional<KnnVectorFieldDefinition> getKnnVectorFieldDefinition(
+      FieldPath path, Optional<FieldPath> embeddedRoot) {
+    return this.fieldDefinitionResolver
+        .getFieldDefinition(path, embeddedRoot)
+        .flatMap(FieldDefinition::knnVectorFieldDefinition);
   }
 
   public Optional<BooleanFieldDefinition> getBooleanFieldDefinition(

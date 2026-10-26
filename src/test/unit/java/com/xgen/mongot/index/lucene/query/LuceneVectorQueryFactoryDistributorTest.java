@@ -24,6 +24,7 @@ import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.index.definition.VectorDataFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.query.ApproximateVectorQueryCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.ExactVectorCriteriaBuilder;
 import com.xgen.testing.mongot.index.query.VectorQueryBuilder;
@@ -119,6 +120,82 @@ public class LuceneVectorQueryFactoryDistributorTest {
                     .quantization(VectorQuantization.NONE)
                     .build()))
         .assertTranslatedTo(mongotQuery, luceneQuery);
+  }
+
+  @Test
+  public void testCosineQuery_featureVersionFive_normalizesTargetWithoutMutatingQueryVector()
+      throws IOException, InvalidQueryException {
+    var path = FieldPath.parse("foo.bar");
+    var queryVector = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+
+    var luceneQuery = translateCosineApproximateQuery(path, queryVector, 5);
+
+    Assert.assertEquals(
+        new MongotKnnFloatQuery(metrics, "$type:knnVector/foo.bar", new float[] {0.6f, 0.8f}, 20),
+        luceneQuery);
+    // The query vector is shared by every partition's query, so it must not be modified.
+    Assert.assertArrayEquals(new float[] {3f, 4f}, queryVector.asFloatVector().getFloatVector(), 0);
+  }
+
+  @Test
+  public void testCosineQuery_featureVersionFive_sharedQueryVectorGivesEveryPartitionUnitTarget()
+      throws IOException, InvalidQueryException {
+    var path = FieldPath.parse("foo.bar");
+    var queryVector = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+    var expected =
+        new MongotKnnFloatQuery(metrics, "$type:knnVector/foo.bar", new float[] {0.6f, 0.8f}, 20);
+
+    // Each partition builds its own Lucene query from the same shared query vector.
+    var firstPartition = translateCosineApproximateQuery(path, queryVector, 5);
+    var secondPartition = translateCosineApproximateQuery(path, queryVector, 5);
+    var thirdPartition = translateCosineApproximateQuery(path, queryVector, 5);
+
+    Assert.assertEquals(expected, firstPartition);
+    Assert.assertEquals(expected, secondPartition);
+    Assert.assertEquals(expected, thirdPartition);
+  }
+
+  @Test
+  public void testCosineQuery_featureVersionFour_doesNotNormalize()
+      throws IOException, InvalidQueryException {
+    var path = FieldPath.parse("foo.bar");
+    var queryVector = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+
+    var luceneQuery = translateCosineApproximateQuery(path, queryVector, 4);
+
+    Assert.assertEquals(
+        new MongotKnnFloatQuery(metrics, "$type:knnVector/foo.bar", new float[] {3f, 4f}, 20),
+        luceneQuery);
+    Assert.assertArrayEquals(new float[] {3f, 4f}, queryVector.asFloatVector().getFloatVector(), 0);
+  }
+
+  private static Query translateCosineApproximateQuery(
+      FieldPath path, Vector queryVector, int indexFeatureVersion)
+      throws IOException, InvalidQueryException {
+    var mongotQuery =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(path)
+                    .numCandidates(20)
+                    .limit(10)
+                    .queryVector(queryVector)
+                    .build())
+            .build();
+    var indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    VectorDataFieldDefinitionBuilder.builder()
+                        .path(path)
+                        .numDimensions(2)
+                        .similarity(VectorSimilarity.COSINE)
+                        .quantization(VectorQuantization.NONE)
+                        .build()))
+            .indexFeatureVersion(indexFeatureVersion)
+            .build();
+    return new LuceneVectorTranslation(indexDefinition).translate(mongotQuery);
   }
 
   @Test

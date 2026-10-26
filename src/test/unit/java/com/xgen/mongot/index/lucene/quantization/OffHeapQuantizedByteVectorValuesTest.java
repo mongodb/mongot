@@ -109,7 +109,8 @@ public class OffHeapQuantizedByteVectorValuesTest {
                 vector.length,
                 this.spec.similarity,
                 VectorQuantization.BINARY,
-                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+            SearchIndexCapabilities.CURRENT);
         w.addDocument(document.luceneDocument);
 
         if (this.spec.sparse) {

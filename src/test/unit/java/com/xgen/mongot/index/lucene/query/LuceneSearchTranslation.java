@@ -142,6 +142,21 @@ class LuceneSearchTranslation {
     return new LuceneSearchTranslation(Optional.empty(), Optional.of(mapping));
   }
 
+  /** Like {@link #mapped}, but for an index created at the given index feature version. */
+  static LuceneSearchTranslation mappedAtFeatureVersion(
+      DocumentFieldDefinition mapping, int indexFeatureVersion) {
+    return new LuceneSearchTranslation(
+        AnalyzerRegistryBuilder.empty(),
+        SearchIndexDefinitionBuilder.builder()
+            .defaultMetadata()
+            .mappings(mapping)
+            .indexFeatureVersion(indexFeatureVersion)
+            .build(),
+        LuceneSynonymRegistry.create(
+            AnalyzerRegistryBuilder.empty(), Collections.emptyMap(), Optional.empty()),
+        FeatureFlags.getDefault());
+  }
+
   static LuceneSearchTranslation gated(FeatureFlags featureFlags) {
     return new LuceneSearchTranslation(
         Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(featureFlags));

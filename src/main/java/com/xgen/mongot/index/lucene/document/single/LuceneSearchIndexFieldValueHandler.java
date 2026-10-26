@@ -334,7 +334,12 @@ public class LuceneSearchIndexFieldValueHandler implements FieldValueHandler {
 
     VectorFieldSpecification fieldSpec = maybeFieldSpec.get();
     Vector vector = maybeVector.get();
-    IndexableFieldFactory.addKnnVectorField(this.documentWrapper, this.path, vector, fieldSpec);
+    IndexableFieldFactory.addKnnVectorField(
+        this.documentWrapper,
+        this.path,
+        vector,
+        fieldSpec,
+        this.documentWrapper.resolver.indexCapabilities);
   }
 
   @Override

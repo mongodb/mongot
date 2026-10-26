@@ -21,6 +21,7 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.NumericFieldOptions.Representation;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
@@ -32,13 +33,17 @@ import com.xgen.mongot.index.version.IndexFormatVersion;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.LoggableIdUtils;
 import com.xgen.mongot.util.bson.Vector;
+import com.xgen.testing.TestUtils;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import java.util.List;
 import java.util.Optional;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
+import org.apache.lucene.document.KnnByteVectorField;
+import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.IndexableField;
+import org.apache.lucene.index.VectorSimilarityFunction;
 import org.bson.BsonBinary;
 import org.bson.BsonBinarySubType;
 import org.bson.BsonInt32;
@@ -48,7 +53,9 @@ import org.bson.BsonValue;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.theories.DataPoints;
+import org.junit.experimental.theories.FromDataPoints;
 import org.junit.experimental.theories.Theories;
+import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
 import org.slf4j.LoggerFactory;
 
@@ -182,7 +189,8 @@ public class IndexableFieldFactoryTest {
             testFloatVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // KNN vector field should account for the 3rd field in the document.
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -218,7 +226,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // KNN vector field should account for the 3rd field in the document.
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -254,7 +263,8 @@ public class IndexableFieldFactoryTest {
             testFloatVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.SCALAR,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // KNN vector field should account for the 3rd field in the document.
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -290,7 +300,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.SCALAR,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // No fields should be added to the document.
     // ID field and embedded root field should account for the 2 fields in the document.
@@ -324,7 +335,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.BINARY,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // Flag is disabled — field should be rejected, no vector field added.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -357,7 +369,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.BINARY,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // Flag is enabled — field should be added with KNN_BYTE_Q1 field name.
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -393,7 +406,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.BINARY,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // Flag is disabled via injected FeatureFlags — vector should be skipped.
     assertEquals(initialFieldCount, wrapper.luceneDocument.getFields().size());
@@ -427,7 +441,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.BINARY,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // Flag is enabled via injected FeatureFlags — vector should be indexed.
     assertEquals(initialFieldCount + 1, wrapper.luceneDocument.getFields().size());
@@ -464,7 +479,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.EUCLIDEAN,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // KNN vector field should account for the 3rd field in the document.
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -500,7 +516,8 @@ public class IndexableFieldFactoryTest {
             testFloatVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // No fields should be added to the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -534,7 +551,8 @@ public class IndexableFieldFactoryTest {
             testFloatVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // No fields should be added to the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -568,7 +586,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // No fields should be added to the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -602,7 +621,8 @@ public class IndexableFieldFactoryTest {
             testByteVector.numDimensions(),
             VectorSimilarity.EUCLIDEAN,
             VectorQuantization.SCALAR,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        SearchIndexCapabilities.CURRENT);
 
     // No fields should be added to the document.
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -643,7 +663,8 @@ public class IndexableFieldFactoryTest {
             expectedDimensions,
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        VectorIndexCapabilities.CURRENT);
 
     // No field should be added due to dimension mismatch
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -659,7 +680,8 @@ public class IndexableFieldFactoryTest {
             expectedDimensions,
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        VectorIndexCapabilities.CURRENT);
 
     // Still no field should be added because the field was marked invalid
     assertEquals(2, wrapper.luceneDocument.getFields().size());
@@ -706,7 +728,8 @@ public class IndexableFieldFactoryTest {
             expectedDimensions,
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        VectorIndexCapabilities.CURRENT);
 
     // First vector should be added to the document
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -723,7 +746,8 @@ public class IndexableFieldFactoryTest {
             expectedDimensions,
             VectorSimilarity.COSINE,
             VectorQuantization.NONE,
-            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+            new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+        VectorIndexCapabilities.CURRENT);
 
     // Still only one vector field should be in the document (the first one)
     assertEquals(3, wrapper.luceneDocument.getFields().size());
@@ -740,6 +764,148 @@ public class IndexableFieldFactoryTest {
             .count();
     // The duplicate check should have logged a warning
     assertTrue("Expected duplicate check warning to be logged", count > 0);
+  }
+
+  // Index capabilities pinned to feature version 5, the first that normalizes cosine vectors.
+  // CURRENT_FEATURE_VERSION is still 4, so CURRENT never exercises this path.
+  private static final VectorIndexCapabilities NORMALIZING_CAPABILITIES =
+      new VectorIndexCapabilities(IndexFormatVersion.CURRENT, 5);
+  private static final VectorIndexCapabilities NON_NORMALIZING_CAPABILITIES =
+      new VectorIndexCapabilities(IndexFormatVersion.CURRENT, 4);
+
+  @DataPoints("floatQuantizations")
+  public static final ImmutableList<VectorQuantization> floatQuantizations =
+      ImmutableList.of(
+          VectorQuantization.NONE, VectorQuantization.SCALAR, VectorQuantization.BINARY);
+
+  private static VectorIndexDocumentWrapper newVectorWrapper(VectorIndexCapabilities capabilities) {
+    return VectorIndexDocumentWrapper.createRoot(
+        DUMMY_ENCODED_BYTES,
+        capabilities,
+        new IndexingMetricsUpdater(SearchIndex.mockMetricsFactory(), IndexDefinition.Type.SEARCH),
+        IndexingPolicyBuilderContext.builder().build(),
+        FeatureFlags.getDefault());
+  }
+
+  private static VectorFieldSpecification vectorSpec(
+      int dimensions, VectorSimilarity similarity, VectorQuantization quantization) {
+    return new VectorFieldSpecification(
+        dimensions, similarity, quantization, new VectorIndexingAlgorithm.HnswIndexingAlgorithm());
+  }
+
+  // Fields 0 and 1 are the document id and embedded root; the vector field is the third.
+  private static KnnFloatVectorField floatVectorField(VectorIndexDocumentWrapper wrapper) {
+    return (KnnFloatVectorField) wrapper.luceneDocument.getFields().get(2);
+  }
+
+  @Theory
+  public void addKnnVectorField_cosineFloatNormalizingIfv_storesUnitVectorWithDotProduct(
+      @FromDataPoints("floatQuantizations") VectorQuantization quantization) {
+    var wrapper = newVectorWrapper(NORMALIZING_CAPABILITIES);
+    Vector vector = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        FieldPath.newRoot("root"),
+        vector,
+        vectorSpec(2, VectorSimilarity.COSINE, quantization),
+        NORMALIZING_CAPABILITIES);
+
+    KnnFloatVectorField field = floatVectorField(wrapper);
+    assertThat(field.vectorValue()).usingTolerance(TestUtils.EPSILON).containsExactly(0.6f, 0.8f);
+    assertEquals(
+        VectorSimilarityFunction.DOT_PRODUCT, field.fieldType().vectorSimilarityFunction());
+  }
+
+  @Test
+  public void addKnnVectorField_cosineFloatNonNormalizingIfv_keepsCosineAndOriginalValues() {
+    var wrapper = newVectorWrapper(NON_NORMALIZING_CAPABILITIES);
+    Vector vector = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        FieldPath.newRoot("root"),
+        vector,
+        vectorSpec(2, VectorSimilarity.COSINE, VectorQuantization.NONE),
+        NON_NORMALIZING_CAPABILITIES);
+
+    KnnFloatVectorField field = floatVectorField(wrapper);
+    assertThat(field.vectorValue()).isEqualTo(new float[] {3f, 4f});
+    assertEquals(VectorSimilarityFunction.COSINE, field.fieldType().vectorSimilarityFunction());
+  }
+
+  @Test
+  public void addKnnVectorField_dotProductFloatNormalizingIfv_isNotNormalized() {
+    var wrapper = newVectorWrapper(NORMALIZING_CAPABILITIES);
+    Vector vector = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        FieldPath.newRoot("root"),
+        vector,
+        vectorSpec(2, VectorSimilarity.DOT_PRODUCT, VectorQuantization.NONE),
+        NORMALIZING_CAPABILITIES);
+
+    KnnFloatVectorField field = floatVectorField(wrapper);
+    assertThat(field.vectorValue()).isEqualTo(new float[] {3f, 4f});
+    assertEquals(
+        VectorSimilarityFunction.DOT_PRODUCT, field.fieldType().vectorSimilarityFunction());
+  }
+
+  @Test
+  public void addKnnVectorField_sharedCosineFloatVectorAcrossDocuments_isNeverMutated() {
+    // Auto-embedding hands the same Vector instance to every document with identical text.
+    Vector shared = Vector.fromFloats(new float[] {3f, 4f}, NATIVE);
+    var firstWrapper = newVectorWrapper(NORMALIZING_CAPABILITIES);
+    var secondWrapper = newVectorWrapper(NORMALIZING_CAPABILITIES);
+    VectorFieldSpecification spec = vectorSpec(2, VectorSimilarity.COSINE, VectorQuantization.NONE);
+
+    IndexableFieldFactory.addKnnVectorField(
+        firstWrapper, FieldPath.newRoot("root"), shared, spec, NORMALIZING_CAPABILITIES);
+    IndexableFieldFactory.addKnnVectorField(
+        secondWrapper, FieldPath.newRoot("root"), shared, spec, NORMALIZING_CAPABILITIES);
+
+    assertThat(shared.asFloatVector().getFloatVector()).isEqualTo(new float[] {3f, 4f});
+    assertThat(floatVectorField(firstWrapper).vectorValue())
+        .usingTolerance(TestUtils.EPSILON)
+        .containsExactly(0.6f, 0.8f);
+    assertThat(floatVectorField(secondWrapper).vectorValue())
+        .usingTolerance(TestUtils.EPSILON)
+        .containsExactly(0.6f, 0.8f);
+  }
+
+  @Test
+  public void addKnnVectorField_cosineByteVectorNormalizingIfv_isNotNormalized() {
+    var wrapper = newVectorWrapper(NORMALIZING_CAPABILITIES);
+    Vector vector = Vector.fromBytes(new byte[] {3, 4});
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        FieldPath.newRoot("root"),
+        vector,
+        vectorSpec(2, VectorSimilarity.COSINE, VectorQuantization.NONE),
+        NORMALIZING_CAPABILITIES);
+
+    KnnByteVectorField field = (KnnByteVectorField) wrapper.luceneDocument.getFields().get(2);
+    assertThat(field.vectorValue()).isEqualTo(new byte[] {3, 4});
+    assertEquals(VectorSimilarityFunction.COSINE, field.fieldType().vectorSimilarityFunction());
+  }
+
+  @Test
+  public void addKnnVectorField_euclideanBitVectorNormalizingIfv_isNotNormalized() {
+    var wrapper = newVectorWrapper(NORMALIZING_CAPABILITIES);
+    Vector vector = Vector.fromBits(new byte[] {(byte) 0x0F, (byte) 0xF0});
+
+    IndexableFieldFactory.addKnnVectorField(
+        wrapper,
+        FieldPath.newRoot("root"),
+        vector,
+        vectorSpec(16, VectorSimilarity.EUCLIDEAN, VectorQuantization.NONE),
+        NORMALIZING_CAPABILITIES);
+
+    KnnByteVectorField field = (KnnByteVectorField) wrapper.luceneDocument.getFields().get(2);
+    assertThat(field.vectorValue()).isEqualTo(new byte[] {(byte) 0x0F, (byte) 0xF0});
+    assertEquals(VectorSimilarityFunction.EUCLIDEAN, field.fieldType().vectorSimilarityFunction());
   }
 
   @Test

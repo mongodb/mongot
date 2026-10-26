@@ -24,6 +24,9 @@ public final class VectorIndexCapabilities implements IndexCapabilities {
    */
   public static final int CURRENT_FEATURE_VERSION = 4;
 
+  public static final VectorIndexCapabilities CURRENT =
+      new VectorIndexCapabilities(IndexFormatVersion.CURRENT, CURRENT_FEATURE_VERSION);
+
   /**
    * Separate index feature version for vector indexes was introduced at index feature version 3 so
    * anything less than 3 is unsupported. Only used in integration tests for now.
@@ -58,6 +61,11 @@ public final class VectorIndexCapabilities implements IndexCapabilities {
     // embedded documents support v2 fields. We also want to ensure that when embedded document
     // support is added, we do index v2 fields and prefer them at query time.
     return true;
+  }
+
+  @Override
+  public boolean shouldNormalizeCosineVectors() {
+    return this.effectiveVersion >= 5;
   }
 
   @Override

@@ -84,7 +84,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(document.luceneDocument);
       w.commit();
 
@@ -132,7 +133,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(document.luceneDocument);
       w.commit();
 
@@ -180,7 +182,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(document.luceneDocument);
       w.commit();
 
@@ -235,7 +238,9 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
+
       w.addDocument(wrappedDocument.luceneDocument);
       w.commit();
       w.deleteDocuments(new Term("id", "1"));
@@ -289,7 +294,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.EUCLIDEAN,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(wrappedDocument.luceneDocument);
       w.commit();
       w.deleteDocuments(new Term("id", "1"));
@@ -333,7 +339,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(document.luceneDocument);
       w.commit();
 
@@ -567,7 +574,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsReaderTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(wrappedDocument.luceneDocument);
       w.commit();
       w.forceMerge(1);

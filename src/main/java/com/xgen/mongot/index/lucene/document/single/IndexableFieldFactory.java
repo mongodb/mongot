@@ -22,7 +22,9 @@ import com.xgen.mongot.index.lucene.field.FieldValue;
 import com.xgen.mongot.index.lucene.util.AnalyzedText;
 import com.xgen.mongot.index.lucene.util.FieldTypeBuilder;
 import com.xgen.mongot.index.lucene.util.LuceneDoubleConversionUtils;
+import com.xgen.mongot.index.lucene.util.VectorSearchUtil;
 import com.xgen.mongot.index.path.string.StringMultiFieldPath;
+import com.xgen.mongot.index.version.IndexCapabilities;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.LoggableIdUtils;
 import com.xgen.mongot.util.bson.ByteUtils;
@@ -505,7 +507,8 @@ public class IndexableFieldFactory {
       AbstractDocumentWrapper document,
       FieldPath field,
       Vector vector,
-      VectorFieldSpecification specification) {
+      VectorFieldSpecification specification,
+      IndexCapabilities indexCapabilities) {
     // This is the field name we use to check for duplicate vectors and invalid vectors. The
     // embeddedRoot is set to be empty when we are retrieving the field name for this purpose.
     String checkFieldName =
@@ -524,7 +527,7 @@ public class IndexableFieldFactory {
     }
 
     int dimensions = specification.numDimensions();
-    VectorSimilarity similarity = specification.similarity();
+    VectorSimilarity requestedSimilarity = specification.similarity();
     VectorQuantization quantization = specification.quantization();
 
     if (vector.numDimensions() != dimensions) {
@@ -535,7 +538,7 @@ public class IndexableFieldFactory {
       return;
     }
 
-    if (similarity == VectorSimilarity.COSINE && vector.isZeroVector()) {
+    if (requestedSimilarity == VectorSimilarity.COSINE && vector.isZeroVector()) {
       FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).log(
           "Cosine similarity does not support zero vectors. Skipping. _id=%s",
           lazy(() -> getLoggingId(document)));
@@ -552,16 +555,23 @@ public class IndexableFieldFactory {
       return;
     }
 
-    VectorSimilarityFunction similarityFunction = similarity.getLuceneSimilarityFunction();
+    // Normalizes a copy: the vector may be shared with other documents (auto-embedding).
+    VectorSearchUtil.NormalizedVector normalized =
+        VectorSearchUtil.normalizeIfNeeded(vector, requestedSimilarity, indexCapabilities);
+    Vector indexedVector = normalized.vector();
+    VectorSimilarityFunction similarityFunction =
+        normalized.similarity().getLuceneSimilarityFunction();
     String vectorFieldName =
-        VectorTypeFieldResolver.resolveTypeField(quantization, vector.getVectorType())
+        VectorTypeFieldResolver.resolveTypeField(quantization, indexedVector.getVectorType())
             .getLuceneFieldName(field, document.getEmbeddedRoot());
     try {
-      switch (vector.getVectorType()) {
+      switch (indexedVector.getVectorType()) {
         case FLOAT -> {
           document.addVectorField(
               new KnnFloatVectorField(
-                  vectorFieldName, vector.asFloatVector().getFloatVector(), similarityFunction),
+                  vectorFieldName,
+                  indexedVector.asFloatVector().getFloatVector(),
+                  similarityFunction),
               checkFieldName);
         }
         // float16 is guarded out above (vectorlite-only); unreachable here.
@@ -586,7 +596,9 @@ public class IndexableFieldFactory {
           }
           document.addVectorField(
               new KnnByteVectorField(
-                  vectorFieldName, vector.asByteVector().getByteVector(), similarityFunction),
+                  vectorFieldName,
+                  indexedVector.asByteVector().getByteVector(),
+                  similarityFunction),
               checkFieldName);
         }
         case BIT -> {
@@ -597,15 +609,15 @@ public class IndexableFieldFactory {
                 lazy(() -> getLoggingId(document)));
             return;
           }
-          if (similarity != VectorSimilarity.EUCLIDEAN) {
+          if (requestedSimilarity != VectorSimilarity.EUCLIDEAN) {
             FLOGGER.atWarning().atMostEvery(10, TimeUnit.MINUTES).log(
                 "Cannot index binary vector with %s similarity, skipping. _id=%s",
-                similarity, lazy(() -> getLoggingId(document)));
+                requestedSimilarity, lazy(() -> getLoggingId(document)));
             return;
           }
           document.addVectorField(
               new KnnByteVectorField(
-                  vectorFieldName, vector.asBitVector().getBitVector(), similarityFunction),
+                  vectorFieldName, indexedVector.asBitVector().getBitVector(), similarityFunction),
               checkFieldName);
         }
       }

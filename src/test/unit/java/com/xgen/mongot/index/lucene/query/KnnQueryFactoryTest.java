@@ -68,6 +68,39 @@ public class KnnQueryFactoryTest {
   }
 
   @Test
+  public void testKnnBetaCosineField_featureVersionFive_normalizesQueryVector() throws Exception {
+    var definition =
+        OperatorBuilder.knnBeta()
+            .path(PATH_A)
+            .vector(List.of(new BsonDouble(3.0), new BsonDouble(4.0)))
+            .k(10)
+            .build();
+
+    var expected =
+        new MongotKnnFloatQuery(metrics, "$type:knnVector/a", new float[] {0.6f, 0.8f}, 10);
+
+    LuceneSearchTranslation.mappedAtFeatureVersion(MAPPED_TO_KNN, 5)
+        .assertTranslatedTo(definition, expected);
+  }
+
+  @Test
+  public void testKnnBetaCosineField_featureVersionFour_doesNotNormalizeQueryVector()
+      throws Exception {
+    var definition =
+        OperatorBuilder.knnBeta()
+            .path(PATH_A)
+            .vector(List.of(new BsonDouble(3.0), new BsonDouble(4.0)))
+            .k(10)
+            .build();
+
+    var expected =
+        new MongotKnnFloatQuery(metrics, "$type:knnVector/a", new float[] {3.0f, 4.0f}, 10);
+
+    LuceneSearchTranslation.mappedAtFeatureVersion(MAPPED_TO_KNN, 4)
+        .assertTranslatedTo(definition, expected);
+  }
+
+  @Test
   public void testBasicKnnBetaWithMultiplePaths() throws Exception {
     var definition =
         OperatorBuilder.knnBeta()

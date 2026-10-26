@@ -78,6 +78,11 @@ public class SearchIndexCapabilities implements IndexCapabilities {
   }
 
   @Override
+  public boolean shouldNormalizeCosineVectors() {
+    return this.effectiveVersion >= 5;
+  }
+
+  @Override
   public boolean usesReducedAutocompleteIndexOptions() {
     return this.effectiveVersion >= 5;
   }

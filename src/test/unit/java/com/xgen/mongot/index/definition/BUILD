@@ -17,6 +17,7 @@ java_test_suite(
         "FieldHierarchyContextTest.java",
         "FieldTypeDefinitionTest.java",
         "GeoFieldDefinitionTest.java",
+        "IndexCapabilitiesNormalizeCosineTest.java",
         "IndexSortValidatorTest.java",
         "KnnVectorFieldDefinitionTest.java",
         "MaterializedViewIndexDefinitionGenerationTest.java",

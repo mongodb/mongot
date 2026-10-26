@@ -13,6 +13,7 @@ import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
+import com.xgen.mongot.index.definition.VectorIndexCapabilities;
 import com.xgen.mongot.index.definition.VectorIndexingAlgorithm;
 import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.quantization.VectorQuantization;
@@ -97,7 +98,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsWriterTest {
               vector.length,
               VectorSimilarity.COSINE,
               VectorQuantization.BINARY,
-              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+              new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+          SearchIndexCapabilities.CURRENT);
       w.addDocument(wrappedDocument.luceneDocument);
       w.deleteDocuments(new Term("id", "1"));
       w.commit();
@@ -144,7 +146,8 @@ public class Mongot01042BinaryQuantizedFlatVectorsWriterTest {
                 vector.length,
                 similarity,
                 VectorQuantization.BINARY,
-                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()));
+                new VectorIndexingAlgorithm.HnswIndexingAlgorithm()),
+            VectorIndexCapabilities.CURRENT);
         docs.add(document.luceneDocument);
       }
       w.addDocuments(docs); // create randomized segments
