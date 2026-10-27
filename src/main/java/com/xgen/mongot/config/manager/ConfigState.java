@@ -42,6 +42,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BinaryOperator;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -130,6 +131,7 @@ public class ConfigState {
   private final LifecycleManager lifecycleManager;
 
   private final MetricsFactory metricsFactory;
+  final AtomicLong overdueIndexDropBatches;
   private final JournalWriter journalWriter;
 
   private ConfigState(
@@ -159,6 +161,7 @@ public class ConfigState {
     this.indexFactory = indexFactory;
     this.materializedViewIndexFactory = materializedViewIndexFactory;
     this.metricsFactory = metricsFactory;
+    this.overdueIndexDropBatches = metricsFactory.numGauge("overdueIndexDropBatches");
     this.dynamicFeatureFlagRegistry = dynamicFeatureFlagRegistry;
 
     this.journalWriter = journalWriter;

@@ -16,6 +16,7 @@ java_library(
         "IncompatibleIndexes.java",
         "IndexActions.java",
         "IndexChangeReason.java",
+        "IndexDropWatchdog.java",
         "IndexFormatVersionUpgrader.java",
         "IndexInitialSyncRecovery.java",
         "IndexRecoveryStager.java",

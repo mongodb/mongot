@@ -20,10 +20,13 @@ import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Crash;
 import com.xgen.mongot.util.FutureUtils;
+import com.xgen.mongot.util.Runtime;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
@@ -42,13 +45,35 @@ import org.slf4j.LoggerFactory;
  */
 public class IndexActions {
   private static final Logger LOG = LoggerFactory.getLogger(IndexActions.class);
+  private static final Duration DROP_ALERT_AFTER = Duration.ofMinutes(5);
 
   private final boolean withReplication;
   private final ConfigState configState;
+  private final Duration dropAlertAfter;
+  private final Consumer<List<GenerationId>> onDropOverdue;
 
   private IndexActions(boolean withReplication, ConfigState configState) {
+    this(
+        withReplication,
+        configState,
+        DROP_ALERT_AFTER,
+        ids ->
+            LOG.atWarn()
+                .addKeyValue("generationIds", ids)
+                .log(
+                    "Index drop exceeded alert threshold; waiting for completion. Thread dump:\n{}",
+                    Runtime.INSTANCE.getThreadDump()));
+  }
+
+  IndexActions(
+      boolean withReplication,
+      ConfigState configState,
+      Duration dropAlertAfter,
+      Consumer<List<GenerationId>> onDropOverdue) {
     this.withReplication = withReplication;
     this.configState = configState;
+    this.dropAlertAfter = dropAlertAfter;
+    this.onDropOverdue = onDropOverdue;
   }
 
   public static IndexActions withReplication(ConfigState configState) {
@@ -303,12 +328,25 @@ public class IndexActions {
   }
 
   private void dropAllOrFail(List<IndexGeneration> indexes) {
-    List<CompletableFuture<?>> dropFutures =
-        indexes.stream().map(this::dropIndex).collect(Collectors.toList());
-
-    CompletableFuture<Void> allDrops = FutureUtils.allOf(dropFutures);
-
-    Crash.because("failed to drop indexes").ifThrows(() -> allDrops.get());
+    List<GenerationId> ids = indexes.stream().map(IndexGeneration::getGenerationId).toList();
+    Crash.because("failed to drop index generations: " + ids)
+        .withThreadDump()
+        .ifThrows(
+            () -> {
+              // Arm before invoking dropIndex: lifecycle.dropIndex and handle(close) may run
+              // inline.
+              try (var watchdog =
+                  new IndexDropWatchdog(
+                      this.dropAlertAfter,
+                      this.configState.overdueIndexDropBatches,
+                      () -> this.onDropOverdue.accept(ids))) {
+                List<CompletableFuture<?>> dropFutures =
+                    indexes.stream().map(this::dropIndex).collect(Collectors.toList());
+                // An overdue drop remains in progress; do not advance config processing until it
+                // ends.
+                FutureUtils.allOf(dropFutures).get();
+              }
+            });
   }
 
   private CompletableFuture<Void> dropIndex(IndexGeneration indexGeneration) {

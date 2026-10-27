@@ -67,7 +67,11 @@ public class ConfigInitializerTest {
     // Make sure that the index was actually dropped
     Assert.assertEquals(1, mocks.createdIndexes.size());
     Index dropped = mocks.createdIndexes.get(0).getIndex();
-    verify(dropped).drop();
+    InOrder cleanup = Mockito.inOrder(dropped);
+    cleanup.verify(dropped).close();
+    cleanup.verify(dropped).drop();
+    verify(mocks.indexFactory, never()).getInitializedIndex(any(), any());
+    verify(mocks.lifecycleManager, never()).dropIndex(any());
 
     // Should have written an updated config journal with no deleted indexes.
     mocks.assertJournalPersistedAtLeastOnce();
@@ -91,7 +95,11 @@ public class ConfigInitializerTest {
     // Make sure that the index was actually dropped
     Assert.assertEquals(1, mocks.createdIndexes.size());
     Index dropped = mocks.createdIndexes.get(0).getIndex();
-    verify(dropped).drop();
+    InOrder cleanup = Mockito.inOrder(dropped);
+    cleanup.verify(dropped).close();
+    cleanup.verify(dropped).drop();
+    verify(mocks.indexFactory, never()).getInitializedIndex(any(), any());
+    verify(mocks.lifecycleManager, never()).dropIndex(any());
 
     // Should have written an updated config journal with no deleted indexes.
     mocks.assertJournalPersistedAtLeastOnce();

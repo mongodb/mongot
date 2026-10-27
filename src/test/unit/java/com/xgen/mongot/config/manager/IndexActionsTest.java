@@ -46,11 +46,14 @@ import com.xgen.testing.mongot.mock.index.IndexGeneration;
 import com.xgen.testing.mongot.mock.index.SearchIndex;
 import com.xgen.testing.mongot.mock.index.VectorIndex;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonTimestamp;
@@ -61,6 +64,137 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class IndexActionsTest {
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void dropFromCatalog_asyncDropOverdue_reportsAndWaitsForCompletion() throws Exception {
+    this.actions.addNewIndexes(List.of(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION));
+    var indexes = List.copyOf(this.mocks.indexCatalog.getIndexes());
+    var initialized = this.mocks.waitAndGetInitializedIndex(indexes.getFirst().getGenerationId());
+    var pendingDrop = new CompletableFuture<Void>();
+    doReturn(pendingDrop).when(this.mocks.lifecycleManager).dropIndex(any());
+    CountDownLatch timeout = new CountDownLatch(1);
+    AtomicReference<List<GenerationId>> timedOutIds = new AtomicReference<>();
+    var actions =
+        new IndexActions(
+            true,
+            this.mocks.configState,
+            Duration.ofMillis(100),
+            ids -> {
+              timedOutIds.set(ids);
+              timeout.countDown();
+            });
+    Crash.setHaltHandlerForTesting(
+        code -> {
+          throw new HaltError();
+        });
+
+    try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+      var drop = executor.submit(() -> actions.dropFromCatalog(indexes));
+      try {
+        Assert.assertTrue(timeout.await(5, TimeUnit.SECONDS));
+        Assert.assertEquals(List.of(indexes.getFirst().getGenerationId()), timedOutIds.get());
+        Assert.assertFalse(drop.isDone());
+        Assert.assertFalse(pendingDrop.isCancelled());
+        Assert.assertEquals(
+            1.0,
+            this.mocks.meterRegistry.get("configState.overdueIndexDropBatches").gauge().value(),
+            0.0);
+        verify(initialized, never()).close();
+      } finally {
+        pendingDrop.complete(null);
+        drop.get(5, TimeUnit.SECONDS);
+      }
+    }
+    Assert.assertEquals(
+        0.0,
+        this.mocks.meterRegistry.get("configState.overdueIndexDropBatches").gauge().value(),
+        0.0);
+    this.mocks.assertIndexDropped(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION, initialized);
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void dropFromCatalog_inlineCloseBlocks_reportsAndAllowsLateCompletion() throws Exception {
+    this.actions.addNewIndexes(List.of(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION));
+    var indexes = List.copyOf(this.mocks.indexCatalog.getIndexes());
+    var initialized = this.mocks.waitAndGetInitializedIndex(indexes.getFirst().getGenerationId());
+    CountDownLatch deadline = new CountDownLatch(1);
+    AtomicReference<List<GenerationId>> timedOutIds = new AtomicReference<>();
+    doReturn(CompletableFuture.completedFuture(null))
+        .when(this.mocks.lifecycleManager)
+        .dropIndex(any());
+    doAnswer(
+            invocation -> {
+              Assert.assertTrue(deadline.await(5, TimeUnit.SECONDS));
+              return null;
+            })
+        .when(initialized)
+        .close();
+    var actions =
+        new IndexActions(
+            true,
+            this.mocks.configState,
+            Duration.ofMillis(100),
+            ids -> {
+              timedOutIds.set(ids);
+              deadline.countDown();
+            });
+    Crash.setHaltHandlerForTesting(
+        code -> {
+          throw new HaltError();
+        });
+    try {
+      actions.dropFromCatalog(indexes);
+
+      Assert.assertEquals(List.of(indexes.getFirst().getGenerationId()), timedOutIds.get());
+      Assert.assertEquals(0L, this.mocks.configState.overdueIndexDropBatches.get());
+      this.mocks.assertIndexDropped(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION, initialized);
+    } finally {
+      deadline.countDown();
+      Crash.clearHaltHandlerForTesting();
+    }
+  }
+
+  @Test
+  @Crash.TestOnlyHaltHandler
+  public void dropFromCatalog_lifecycleBlocksBeforeReturningFuture_reportsAndAllowsLateCompletion()
+      throws Exception {
+    this.actions.addNewIndexes(List.of(SearchIndex.MOCK_INDEX_DEFINITION_GENERATION));
+    var indexes = List.copyOf(this.mocks.indexCatalog.getIndexes());
+    this.mocks.waitAndGetInitializedIndex(indexes.getFirst().getGenerationId());
+    CountDownLatch deadline = new CountDownLatch(1);
+    AtomicReference<List<GenerationId>> timedOutIds = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              Assert.assertTrue(deadline.await(5, TimeUnit.SECONDS));
+              return CompletableFuture.completedFuture(null);
+            })
+        .when(this.mocks.lifecycleManager)
+        .dropIndex(any());
+    var actions =
+        new IndexActions(
+            true,
+            this.mocks.configState,
+            Duration.ofMillis(100),
+            ids -> {
+              timedOutIds.set(ids);
+              deadline.countDown();
+            });
+    Crash.setHaltHandlerForTesting(
+        code -> {
+          throw new HaltError();
+        });
+    try {
+      actions.dropFromCatalog(indexes);
+
+      Assert.assertEquals(List.of(indexes.getFirst().getGenerationId()), timedOutIds.get());
+      Assert.assertEquals(0L, this.mocks.configState.overdueIndexDropBatches.get());
+    } finally {
+      deadline.countDown();
+      Crash.clearHaltHandlerForTesting();
+    }
+  }
+
   private static final IndexDefinitionGeneration STAGED_INDEX_DEFINITION_GENERATION =
       SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.incrementUser(
           SearchIndex.MOCK_INDEX_DEFINITION_GENERATION.definition());
