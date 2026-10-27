@@ -132,6 +132,10 @@ public class LuceneAggregationSearchManager
     // and slices. Recording after time() so a thrown collection does not emit a partial sample.
     this.metricsReporter.recordObservedBuckets(context.observedBuckets());
     this.metricsReporter.recordObservedHeapBytes(heapAccountant.currentBytes());
+    long denseSpills = context.denseSpills();
+    if (denseSpills > 0) {
+      this.metricsReporter.recordDenseSpills(denseSpills);
+    }
 
     AggregationResult aggResult = Check.instanceOf(results[0], AggregationResult.class);
     TopDocs topDocs = Check.instanceOf(results[1], TopDocs.class);

@@ -11,16 +11,23 @@ public abstract class BucketsAccumulator extends Accumulator {
 
   protected final BucketCollector childrenCollector;
 
-  // Per-bucket document counts, indexed by this accumulator's bucket ordinal. Shared by all
+  // Per-bucket document counts, keyed by this accumulator's bucket ordinal. Shared by all
   // bucket-producing accumulators (terms now, boundary later) for top-N ordering and for
-  // reporting bucket counts in results.
-  private final LongArray docCounts;
+  // reporting bucket counts in results. Sparse until occupancy justifies a dense array: at a
+  // dense root the ordinal space is the reader's full term cardinality.
+  private final BucketLongStore docCounts;
 
   protected BucketsAccumulator(
       String name, List<Accumulator> childAccumulators, AggregationContext context) {
     super(name, childAccumulators, context);
-    this.docCounts = new LongArray(64, context.getHeapAccountant()::add);
+    this.docCounts =
+        new BucketLongStore(context.getHeapAccountant()::add, this.context::recordDenseSpill);
     this.childrenCollector = MultiBucketCollector.of(this.children);
+  }
+
+  @Override
+  protected void releaseState() {
+    this.docCounts.close();
   }
 
   /**
@@ -30,7 +37,7 @@ public abstract class BucketsAccumulator extends Accumulator {
   protected final void collectBucket(LeafBucketCollector children, int doc, long bucketOrd)
       throws IOException {
     maybeRecordCollectInvocation();
-    this.docCounts.increment(Math.toIntExact(bucketOrd), 1);
+    this.docCounts.add(bucketOrd, 1);
     children.collect(doc, bucketOrd);
   }
 
@@ -39,13 +46,25 @@ public abstract class BucketsAccumulator extends Accumulator {
    * {@code docCounts} by the same ordinal space.
    */
   protected final void mergeDocCountsFrom(BucketsAccumulator other) {
-    this.docCounts.add(other.docCounts);
+    this.docCounts.addAll(other.docCounts);
   }
 
   /** Number of documents collected into {@code bucketOrd}; 0 if the bucket never received docs. */
   protected final long bucketDocCount(long bucketOrd) {
-    int index = Math.toIntExact(bucketOrd);
-    return index >= this.docCounts.size() ? 0 : this.docCounts.get(index);
+    return this.docCounts.get(bucketOrd, 0);
+  }
+
+  /**
+   * Visit every non-empty bucket as (bucket ordinal, doc count). Order is unspecified while the
+   * store is sparse. Callers that need ordinal order must sort.
+   */
+  protected final void forEachBucket(BucketLongStore.OrdValueConsumer consumer) {
+    this.docCounts.forEach(consumer);
+  }
+
+  /** Whether {@link #forEachBucket} visits buckets in ascending ordinal order. */
+  protected final boolean bucketsInOrdinalOrder() {
+    return this.docCounts.iteratesInOrdinalOrder();
   }
 
   @Override

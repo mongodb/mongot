@@ -65,6 +65,11 @@ final class ExplainAwareSearchAggregationMetricsReporter
   }
 
   @Override
+  public void recordDenseSpills(long spills) {
+    this.delegate.recordDenseSpills(spills);
+  }
+
+  @Override
   public void recordObservedBuckets(long observedBuckets) {
     this.delegate.recordObservedBuckets(observedBuckets);
   }

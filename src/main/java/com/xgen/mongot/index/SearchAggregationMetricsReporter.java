@@ -56,6 +56,12 @@ public interface SearchAggregationMetricsReporter {
   String BUCKET_LIMIT_REJECTIONS_COUNTER = "aggregationBucketLimitRejections";
 
   /**
+   * Process counter of bucket stores that migrated from a sparse map to a dense array. One
+   * increment per store per partition search, not per query plan.
+   */
+  String DENSE_SPILLS_COUNTER = "aggregationDenseSpills";
+
+  /**
    * Histogram of grouping buckets instantiated by one aggregation partition search, summed over
    * grouping nodes and search slices. Read against {@link #REQUESTED_BUCKETS_HISTOGRAM}: observed
    * can exceed requested by orders of magnitude when cardinality explodes.
@@ -108,6 +114,12 @@ public interface SearchAggregationMetricsReporter {
   void recordBucketLimitRejection();
 
   /**
+   * Adds {@code spills} to the process counter of sparse-to-dense bucket-store migrations. Callers
+   * pass the partition search total, so one store that spilled increments the counter by one.
+   */
+  void recordDenseSpills(long spills);
+
+  /**
    * Records grouping buckets instantiated by one aggregation partition search. One sample per
    * successful collection, not per node: callers sum across grouping nodes and slices first.
    */
@@ -157,6 +169,11 @@ public interface SearchAggregationMetricsReporter {
 
     @Override
     public void recordBucketLimitRejection() {
+      // Intentionally empty: tests and disabled aggregations record nothing.
+    }
+
+    @Override
+    public void recordDenseSpills(long spills) {
       // Intentionally empty: tests and disabled aggregations record nothing.
     }
 

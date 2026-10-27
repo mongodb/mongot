@@ -16,6 +16,8 @@ import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.LongValues;
+import org.jetbrains.annotations.Nullable;
 
 /** The base class to aggregate on term based doc-value fields (TOKEN, UUID, ObjectID, etc). */
 public abstract sealed class TermsAccumulator extends BucketsAccumulator
@@ -49,17 +51,6 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   }
 
   /**
-   * Map a segment-local ordinal to a global ordinal.
-   *
-   * <p>segmentOrd is returned when there is only single segment, i.e. no ordinalMap.
-   */
-  protected final long segmentToGlobal(int segmentIndex, long segmentOrd) {
-    return this.ordinalMap
-        .map(map -> map.getGlobalOrds(segmentIndex).get(segmentOrd))
-        .orElse(segmentOrd);
-  }
-
-  /**
    * Strategy-specific hook called from getLeafCollector for each (doc, globalOrd) pair.
    *
    * @param owningBucketOrd The ordinal from the parent collector's bucket that owns this document.
@@ -90,17 +81,23 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
     SortedSetDocValues segmentValues = DocValues.getSortedSet(leaf.reader(), this.luceneField);
     int segmentIndex = leaf.ord;
 
+    // Resolve segment -> global ordinals once per leaf. A single-segment index has no OrdinalMap,
+    // and a null mapping means the segment ordinal is already global.
+    @Nullable
+    LongValues globalOrds =
+        this.ordinalMap.map(map -> map.getGlobalOrds(segmentIndex)).orElse(null);
+
     // Single-value unwrap to avoid wrapping class overhead.
-    Optional<SortedDocValues> singleValues =
-        Optional.ofNullable(DocValues.unwrapSingleton(segmentValues));
-    if (singleValues.isPresent()) {
+    @Nullable SortedDocValues singleValues = DocValues.unwrapSingleton(segmentValues);
+    if (singleValues != null) {
       return new LeafBucketCollector() {
         @Override
         public void collect(int doc, long owningBucketOrd) throws IOException {
-          if (!singleValues.get().advanceExact(doc)) {
+          if (!singleValues.advanceExact(doc)) {
             return;
           }
-          long globalOrd = segmentToGlobal(segmentIndex, singleValues.get().ordValue());
+          long segmentOrd = singleValues.ordValue();
+          long globalOrd = globalOrds == null ? segmentOrd : globalOrds.get(segmentOrd);
           collectGlobalOrd(owningBucketOrd, doc, globalOrd, children);
         }
       };
@@ -116,7 +113,8 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
           context.markMultiValued(doc);
         }
         for (int i = 0; i < segmentValues.docValueCount(); i++) {
-          long globalOrd = segmentToGlobal(segmentIndex, segmentValues.nextOrd());
+          long segmentOrd = segmentValues.nextOrd();
+          long globalOrd = globalOrds == null ? segmentOrd : globalOrds.get(segmentOrd);
           collectGlobalOrd(owningBucketOrd, doc, globalOrd, children);
         }
       }
@@ -131,9 +129,9 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
   @Override
   protected final List<AggregationResult> buildResults(LongArray parentOrdsToCollect)
       throws IOException {
-    // Collect all children owning buckets. Full cardinality is returned -- no top-N pruning here.
-    // The `limit` is carried into the result and applied later (see AggregationResult#applyLimit)
-    // so that segment / partition / shard merges all operate on the complete bucket set.
+    // childOwningOrds returns every non-empty bucket, except on the terminal reduce where it
+    // already kept the top-N and recorded the rest. The limit is still carried into the result
+    // and applied later (see AggregationResult#applyLimit) for merges that did not prune.
     List<List<OrdPair>> childPairsPerParent = childOwningOrds(parentOrdsToCollect);
 
     // Flatten all child-level owning bucket ordinals to build children results.
@@ -144,9 +142,9 @@ public abstract sealed class TermsAccumulator extends BucketsAccumulator
             .flatMap(List::stream)
             .mapToLong(OrdPair::childOwningBucketOrd)
             .toArray();
-    // Both ordinal strategies converge here. RemapTermsAccumulator compacts ordinals and
-    // DenseTermsAccumulator indexes by global term ordinal, so neither the bucket-ord space nor
-    // docCounts.size() is a bucket count on both paths -- this flattened array is, by construction.
+    // This is the buckets materialized below. On a terminal top-N reduce the omitted buckets
+    // were already recorded, so adding the flattened length keeps the total at the full
+    // non-empty cardinality.
     this.context.addObservedBuckets(allChildOwningOrds.length);
     maybeRecordObservedBuckets(allChildOwningOrds.length);
     IntFunction<AggregationResults> childResultsFor =

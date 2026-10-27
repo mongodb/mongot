@@ -1,6 +1,5 @@
 package com.xgen.mongot.index.query.aggregation;
 
-import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.Check;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -72,13 +71,14 @@ final class DenseTermsAccumulator extends TermsAccumulator {
       maybeRecordObservedBuckets(omitted);
       return List.of(selected.pairs());
     }
+    // Dense uses the identity mapping: the child owning ord IS the global ord. While the doc-count
+    // store is sparse it visits in hash order, so sort before buildResults resolves keys. After it
+    // spills, iteration is already ascending. Ascending ordinal is ascending term, so the
+    // term-dictionary walk stays forward.
     List<OrdPair> childPairs = new ArrayList<>();
-    // Dense uses the identity mapping: the child owning ord IS the global ord. A bucket
-    // exists iff it received at least one document.
-    for (long ord = 0; ord < this.valueCount; ord++) {
-      if (bucketDocCount(ord) > 0) {
-        childPairs.add(new OrdPair(ord, ord));
-      }
+    forEachBucket((ord, count) -> childPairs.add(new OrdPair(ord, ord)));
+    if (!bucketsInOrdinalOrder()) {
+      childPairs.sort(Comparator.comparingLong(OrdPair::childOwningBucketOrd));
     }
     return List.of(childPairs);
   }
@@ -97,26 +97,23 @@ final class DenseTermsAccumulator extends TermsAccumulator {
     Comparator<OrdCount> topKOrder =
         Comparator.comparingLong(OrdCount::count).reversed().thenComparingLong(OrdCount::ord);
     PriorityQueue<OrdCount> heap = new PriorityQueue<>(topKOrder.reversed());
-    @Var long nonEmpty = 0;
-    for (long ord = 0; ord < this.valueCount; ord++) {
-      long count = bucketDocCount(ord);
-      if (count == 0) {
-        continue;
-      }
-      nonEmpty++;
-      OrdCount candidate = new OrdCount(ord, count);
-      if (heap.size() < this.limit) {
-        heap.add(candidate);
-      } else if (this.limit > 0 && topKOrder.compare(candidate, heap.peek()) < 0) {
-        heap.poll();
-        heap.add(candidate);
-      }
-    }
+    long[] nonEmpty = new long[1];
+    forEachBucket(
+        (ord, count) -> {
+          nonEmpty[0]++;
+          OrdCount candidate = new OrdCount(ord, count);
+          if (heap.size() < this.limit) {
+            heap.add(candidate);
+          } else if (this.limit > 0 && topKOrder.compare(candidate, heap.peek()) < 0) {
+            heap.poll();
+            heap.add(candidate);
+          }
+        });
     List<OrdPair> pairs =
         heap.stream()
             .sorted(Comparator.comparingLong(OrdCount::ord))
             .map(oc -> new OrdPair(oc.ord(), oc.ord()))
             .toList();
-    return new SelectedBuckets(pairs, nonEmpty);
+    return new SelectedBuckets(pairs, nonEmpty[0]);
   }
 }

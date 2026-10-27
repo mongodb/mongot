@@ -1,6 +1,7 @@
 package com.xgen.mongot.index.query.aggregation;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,7 +17,7 @@ import java.util.Optional;
  * as their parent backpointer. Consequently {@link #parent()} is empty during a node's own
  * construction and must not be read there.
  */
-public abstract class Accumulator extends BucketCollector {
+public abstract class Accumulator extends BucketCollector implements AutoCloseable {
   protected final String name;
   protected final List<Accumulator> children;
   protected final AggregationContext context;
@@ -169,4 +170,21 @@ public abstract class Accumulator extends BucketCollector {
       this.children.get(i).mergeStateFrom(other.children.get(i));
     }
   }
+
+  /**
+   * Drops per-bucket buffers in this tree. Call after results have been built. A query holds these
+   * buffers only for the search, and releasing them here lets the large arrays be collected without
+   * waiting for the accumulator objects themselves to drop.
+   */
+  @Override
+  public final void close() {
+    // Children first, then this node's own buffers. A failure must not skip the rest.
+    List<AutoCloseable> resources = new ArrayList<>(this.children.size() + 1);
+    resources.addAll(this.children);
+    resources.add(this::releaseState);
+    AutoCloseables.closeAll(resources);
+  }
+
+  /** Releases this node's own buffers. Subclasses that store per-bucket state override this. */
+  protected void releaseState() {}
 }

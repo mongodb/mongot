@@ -11,12 +11,13 @@ import org.apache.lucene.index.SortedNumericDocValues;
 /** Lucene leaf accumulator for the {@code sum} aggregation operator. */
 final class SumAccumulator extends Accumulator {
   private final ResolvedNumericMetricField metricField;
-  private final DoubleArray sums;
+  private final BucketDoubleStore sums;
 
   SumAccumulator(String name, ResolvedNumericMetricField metricField, AggregationContext context) {
     super(name, List.of(), context);
     this.metricField = metricField;
-    this.sums = new DoubleArray(8, context.getHeapAccountant()::add);
+    this.sums =
+        new BucketDoubleStore(context.getHeapAccountant()::add, this.context::recordDenseSpill);
     declareMetric(Optional.of(metricField.luceneFieldName()));
   }
 
@@ -37,12 +38,16 @@ final class SumAccumulator extends Accumulator {
         if (!values.advanceExact(doc) || values.docValueCount() != 1) {
           return;
         }
-        int bucketOrd = Math.toIntExact(owningBucketOrd);
         var representation = SumAccumulator.this.metricField.representation();
-        SumAccumulator.this.sums.increment(
-            bucketOrd, NumericMetricValues.decode(values.nextValue(), representation));
+        SumAccumulator.this.sums.add(
+            owningBucketOrd, NumericMetricValues.decode(values.nextValue(), representation));
       }
     };
+  }
+
+  @Override
+  protected void releaseState() {
+    this.sums.close();
   }
 
   @Override
@@ -52,15 +57,15 @@ final class SumAccumulator extends Accumulator {
 
   @Override
   public void mergeStateFrom(Accumulator other) {
-    this.sums.add(Check.instanceOf(other, SumAccumulator.class).sums);
+    this.sums.addAll(Check.instanceOf(other, SumAccumulator.class).sums);
   }
 
   @Override
   protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
     List<AggregationResult> results = new ArrayList<>();
     for (int i = 0; i < ordsToCollect.size(); i++) {
-      int bucketOrd = (int) ordsToCollect.get(i);
-      double sum = bucketOrd < this.sums.size() ? this.sums.get(bucketOrd) : 0.0;
+      long bucketOrd = ordsToCollect.get(i);
+      double sum = this.sums.get(bucketOrd, 0.0);
       results.add(new SumAggregationResult(this.name, sum));
     }
     return results;

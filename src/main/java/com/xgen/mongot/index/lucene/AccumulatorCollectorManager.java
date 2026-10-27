@@ -7,6 +7,7 @@ import com.xgen.mongot.index.query.aggregation.AggregationNodeStats;
 import com.xgen.mongot.index.query.aggregation.AggregationResult;
 import com.xgen.mongot.index.query.aggregation.AggregationResultBuilder;
 import com.xgen.mongot.index.query.aggregation.AggregationSpec;
+import com.xgen.mongot.index.query.aggregation.AutoCloseables;
 import com.xgen.mongot.index.query.aggregation.BucketCollector.BucketCollectorWrapper;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.CheckedStream;
@@ -62,35 +63,39 @@ public class AccumulatorCollectorManager
       accumulators.add(Check.instanceOf(collector.bucketCollector(), Accumulator.class));
     }
 
-    Accumulator first = accumulators.get(0);
-    AggregationResult result;
-    if (first.supportsStateMerge()) {
-      for (int i = 1; i < accumulators.size(); i++) {
-        first.mergeStateFrom(accumulators.get(i));
+    // Close every slice even when one close() fails, and keep a close failure from replacing an
+    // exception thrown while building the result.
+    try (var closing = AutoCloseables.allOf(accumulators)) {
+      Accumulator first = accumulators.get(0);
+      AggregationResult result;
+      if (first.supportsStateMerge()) {
+        for (int i = 1; i < accumulators.size(); i++) {
+          first.mergeStateFrom(accumulators.get(i));
+        }
+        if (this.applyLimitOnReduce) {
+          // Counts are fully merged, so this selects the same buckets a later applyLimit would,
+          // without resolving terms for the ones that would be dropped.
+          first.enableTerminalTopK();
+        }
+        result = first.buildTopLevelResult();
+      } else {
+        // Term fold. Partitions, nested groups, and first/last land here. buildTopLevelResult
+        // throws IOException, so CheckedStream stands in for Stream.map. Each slice still resolves
+        // every ordinal, because top-N on a partial slice would drop buckets another slice needs.
+        List<AggregationResult> results =
+            CheckedStream.from(accumulators).mapAndCollectChecked(Accumulator::buildTopLevelResult);
+        AggregationResultBuilder builder = results.get(0).toBuilder();
+        results.forEach(builder::add);
+        result = builder.build();
       }
-      if (this.applyLimitOnReduce) {
-        // Counts are fully merged, so this selects the same buckets a later applyLimit would,
-        // without resolving terms for the ones that would be dropped.
-        first.enableTerminalTopK();
-      }
-      result = first.buildTopLevelResult();
-    } else {
-      // Term fold. Partitions, nested groups, and first/last land here. buildTopLevelResult
-      // throws IOException, so CheckedStream stands in for Stream.map. Each slice still resolves
-      // every ordinal, because top-N on a partial slice would drop buckets another slice needs.
-      List<AggregationResult> results =
-          CheckedStream.from(accumulators).mapAndCollectChecked(Accumulator::buildTopLevelResult);
-      AggregationResultBuilder builder = results.get(0).toBuilder();
-      results.forEach(builder::add);
-      result = builder.build();
-    }
 
-    // After build, so observed-bucket counters recorded while materializing are included.
-    // Ordinary searches already recorded the process histogram on the context.
-    if (this.context.recordExplainNodeStats()) {
-      recordNodeStats(collectors);
+      // After build, so observed-bucket counters recorded while materializing are included.
+      // Ordinary searches already recorded the process histogram on the context.
+      if (this.context.recordExplainNodeStats()) {
+        recordNodeStats(collectors);
+      }
+      return result;
     }
-    return result;
   }
 
   /**

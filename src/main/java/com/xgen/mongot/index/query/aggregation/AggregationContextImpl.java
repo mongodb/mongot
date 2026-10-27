@@ -18,6 +18,7 @@ final class AggregationContextImpl implements AggregationContext {
   private final Optional<MultiValueDocMarker> multiValueDocMarker;
   private final Optional<LeafReaderContext> leafReaderContext;
   private final AtomicLong observedBuckets;
+  private final AtomicLong denseSpills;
   private final boolean recordExplainNodeStats;
   private final AggregationHeapAccountant heapAccountant;
 
@@ -32,6 +33,7 @@ final class AggregationContextImpl implements AggregationContext {
       Optional<MultiValueDocMarker> multiValueDocMarker,
       Optional<LeafReaderContext> leafReaderContext,
       AtomicLong observedBuckets,
+      AtomicLong denseSpills,
       boolean recordExplainNodeStats,
       AggregationHeapAccountant heapAccountant) {
     Check.checkArg(
@@ -47,6 +49,7 @@ final class AggregationContextImpl implements AggregationContext {
     this.multiValueDocMarker = multiValueDocMarker;
     this.leafReaderContext = leafReaderContext;
     this.observedBuckets = observedBuckets;
+    this.denseSpills = denseSpills;
     this.recordExplainNodeStats = recordExplainNodeStats;
     this.heapAccountant = heapAccountant;
   }
@@ -72,6 +75,7 @@ final class AggregationContextImpl implements AggregationContext {
         Optional.empty(),
         Optional.empty(),
         new AtomicLong(),
+        new AtomicLong(),
         recordExplainNodeStats,
         heapAccountant);
   }
@@ -89,6 +93,7 @@ final class AggregationContextImpl implements AggregationContext {
         this.multiValueDocMarker,
         Optional.of(context),
         this.observedBuckets,
+        this.denseSpills,
         this.recordExplainNodeStats,
         this.heapAccountant);
   }
@@ -106,6 +111,7 @@ final class AggregationContextImpl implements AggregationContext {
         Optional.of(marker),
         this.leafReaderContext,
         this.observedBuckets,
+        this.denseSpills,
         this.recordExplainNodeStats,
         this.heapAccountant);
   }
@@ -169,6 +175,16 @@ final class AggregationContextImpl implements AggregationContext {
   @Override
   public long observedBuckets() {
     return this.observedBuckets.get();
+  }
+
+  @Override
+  public void recordDenseSpill() {
+    this.denseSpills.incrementAndGet();
+  }
+
+  @Override
+  public long denseSpills() {
+    return this.denseSpills.get();
   }
 
   @Override

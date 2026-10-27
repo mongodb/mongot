@@ -11,14 +11,16 @@ import org.apache.lucene.index.SortedNumericDocValues;
 /** Lucene leaf accumulator for the {@code avg} aggregation operator. */
 final class AvgAccumulator extends Accumulator {
   private final ResolvedNumericMetricField metricField;
-  private final DoubleArray sums;
-  private final LongArray counts;
+  private final BucketDoubleStore sums;
+  private final BucketLongStore counts;
 
   AvgAccumulator(String name, ResolvedNumericMetricField metricField, AggregationContext context) {
     super(name, List.of(), context);
     this.metricField = metricField;
-    this.sums = new DoubleArray(8, context.getHeapAccountant()::add);
-    this.counts = new LongArray(8, context.getHeapAccountant()::add);
+    this.sums =
+        new BucketDoubleStore(context.getHeapAccountant()::add, this.context::recordDenseSpill);
+    this.counts =
+        new BucketLongStore(context.getHeapAccountant()::add, this.context::recordDenseSpill);
     declareMetric(Optional.of(metricField.luceneFieldName()));
   }
 
@@ -39,13 +41,17 @@ final class AvgAccumulator extends Accumulator {
         if (!values.advanceExact(doc) || values.docValueCount() != 1) {
           return;
         }
-        int bucketOrd = Math.toIntExact(owningBucketOrd);
         var representation = AvgAccumulator.this.metricField.representation();
         double value = NumericMetricValues.decode(values.nextValue(), representation);
-        AvgAccumulator.this.sums.increment(bucketOrd, value);
-        AvgAccumulator.this.counts.increment(bucketOrd, 1L);
+        AvgAccumulator.this.sums.add(owningBucketOrd, value);
+        AvgAccumulator.this.counts.add(owningBucketOrd, 1L);
       }
     };
+  }
+
+  @Override
+  protected void releaseState() {
+    AutoCloseables.closeAll(List.of(this.sums, this.counts));
   }
 
   @Override
@@ -57,17 +63,17 @@ final class AvgAccumulator extends Accumulator {
   @Override
   public void mergeStateFrom(Accumulator other) {
     AvgAccumulator that = Check.instanceOf(other, AvgAccumulator.class);
-    this.sums.add(that.sums);
-    this.counts.add(that.counts);
+    this.sums.addAll(that.sums);
+    this.counts.addAll(that.counts);
   }
 
   @Override
   protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
     List<AggregationResult> results = new ArrayList<>();
     for (int i = 0; i < ordsToCollect.size(); i++) {
-      int bucketOrd = (int) ordsToCollect.get(i);
-      double sum = bucketOrd < this.sums.size() ? this.sums.get(bucketOrd) : 0.0;
-      long count = bucketOrd < this.counts.size() ? this.counts.get(bucketOrd) : 0L;
+      long bucketOrd = ordsToCollect.get(i);
+      double sum = this.sums.get(bucketOrd, 0.0);
+      long count = this.counts.get(bucketOrd, 0L);
       results.add(new AvgAggregationResult(this.name, sum, count));
     }
     return results;

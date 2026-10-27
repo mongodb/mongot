@@ -5,6 +5,7 @@ import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.AGGREGATION_METRIC_TAG_PREFIX;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.BUCKET_LIMIT_REJECTIONS_COUNTER;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.COLLECTION_LATENCY_TIMER;
+import static com.xgen.mongot.index.SearchAggregationMetricsReporter.DENSE_SPILLS_COUNTER;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.MAX_PATH_BUCKETS_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.NESTING_HISTOGRAM;
 import static com.xgen.mongot.index.SearchAggregationMetricsReporter.OBSERVED_BUCKETS_HISTOGRAM;
@@ -89,6 +90,20 @@ public class SearchAggregationMetricsReporterTest {
                 .counter()
                 .count())
         .isEqualTo(2.0);
+  }
+
+  @Test
+  public void recordDenseSpills_incrementsProcessCounter() {
+    PerIndexMetricsFactory metricsFactory = SearchIndex.mockMetricsFactory();
+    SearchAggregationMetricsReporter reporter =
+        new IndexMetricsUpdater.QueryingMetricsUpdater(metricsFactory)
+            .getSearchAggregationMetricsReporter();
+
+    reporter.recordDenseSpills(3);
+
+    assertThat(
+            metricsFactory.getProcessMetricsFactory().get(DENSE_SPILLS_COUNTER).counter().count())
+        .isEqualTo(3.0);
   }
 
   @Test

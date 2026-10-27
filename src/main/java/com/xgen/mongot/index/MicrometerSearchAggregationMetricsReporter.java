@@ -58,6 +58,7 @@ public final class MicrometerSearchAggregationMetricsReporter
   private final DistributionSummary requestedBucketsHistogram;
   private final DistributionSummary maxPathBucketsHistogram;
   private final Counter bucketLimitRejectionsCounter;
+  private final Counter denseSpillsCounter;
   private final DistributionSummary observedBucketsHistogram;
   private final DistributionSummary observedHeapBytesHistogram;
 
@@ -81,6 +82,7 @@ public final class MicrometerSearchAggregationMetricsReporter
         processMetricsFactory.histogram(REQUESTED_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
         processMetricsFactory.histogram(MAX_PATH_BUCKETS_HISTOGRAM, REQUESTED_BUCKETS_BOUNDS),
         processMetricsFactory.counter(BUCKET_LIMIT_REJECTIONS_COUNTER),
+        processMetricsFactory.counter(DENSE_SPILLS_COUNTER),
         processMetricsFactory.histogram(OBSERVED_BUCKETS_HISTOGRAM, OBSERVED_BUCKETS_BOUNDS),
         processMetricsFactory.histogram(OBSERVED_HEAP_BYTES_HISTOGRAM, OBSERVED_HEAP_BYTES_BOUNDS));
   }
@@ -94,6 +96,7 @@ public final class MicrometerSearchAggregationMetricsReporter
       DistributionSummary requestedBucketsHistogram,
       DistributionSummary maxPathBucketsHistogram,
       Counter bucketLimitRejectionsCounter,
+      Counter denseSpillsCounter,
       DistributionSummary observedBucketsHistogram,
       DistributionSummary observedHeapBytesHistogram) {
     this.collectionTimer = collectionTimer;
@@ -104,6 +107,7 @@ public final class MicrometerSearchAggregationMetricsReporter
     this.requestedBucketsHistogram = requestedBucketsHistogram;
     this.maxPathBucketsHistogram = maxPathBucketsHistogram;
     this.bucketLimitRejectionsCounter = bucketLimitRejectionsCounter;
+    this.denseSpillsCounter = denseSpillsCounter;
     this.observedBucketsHistogram = observedBucketsHistogram;
     this.observedHeapBytesHistogram = observedHeapBytesHistogram;
   }
@@ -137,6 +141,11 @@ public final class MicrometerSearchAggregationMetricsReporter
   @Override
   public void recordBucketLimitRejection() {
     this.bucketLimitRejectionsCounter.increment();
+  }
+
+  @Override
+  public void recordDenseSpills(long spills) {
+    this.denseSpillsCounter.increment(spills);
   }
 
   @Override

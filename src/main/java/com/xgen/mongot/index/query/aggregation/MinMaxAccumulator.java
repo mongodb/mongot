@@ -69,15 +69,16 @@ final class MinMaxAccumulator extends Accumulator {
 
   private final FieldPath path;
   private final Extremum extremum;
-  // Running extremum per bucket ord. An unset slot reads as empty, which is what distinguishes a
-  // bucket that has seen no value from one whose extremum happens to be a falsy value.
-  private final ObjectArray<BsonValue> extrema;
+  // Running extremum per bucket ord. Absence means the bucket has seen no value, which is
+  // distinct from an extremum that happens to be a falsy BSON value.
+  private final BucketObjectStore<BsonValue> extrema;
 
   MinMaxAccumulator(String name, FieldPath path, Extremum extremum, AggregationContext context) {
     super(name, List.of(), context);
     this.path = path;
     this.extremum = extremum;
-    this.extrema = new ObjectArray<>(8, context.getHeapAccountant()::add);
+    this.extrema =
+        new BucketObjectStore<>(context.getHeapAccountant()::add, this.context::recordDenseSpill);
     declareMetric(Optional.of(path.toString()));
   }
 
@@ -101,9 +102,7 @@ final class MinMaxAccumulator extends Accumulator {
         //
         // Missing metric values do not contribute. BSON null does: it is a type, not an absence.
         extremumOf(values, doc)
-            .ifPresent(
-                candidate ->
-                    MinMaxAccumulator.this.update(Math.toIntExact(owningBucketOrd), candidate));
+            .ifPresent(candidate -> MinMaxAccumulator.this.update(owningBucketOrd, candidate));
       }
     };
   }
@@ -139,6 +138,11 @@ final class MinMaxAccumulator extends Accumulator {
   }
 
   @Override
+  protected void releaseState() {
+    this.extrema.close();
+  }
+
+  @Override
   public boolean supportsStateMerge() {
     return true;
   }
@@ -148,18 +152,13 @@ final class MinMaxAccumulator extends Accumulator {
     MinMaxAccumulator that = Check.instanceOf(other, MinMaxAccumulator.class);
     // Unset slots are empty, not a stored extremum. Skip them so a slice that never saw the
     // bucket cannot overwrite the other side with a missing value.
-    for (int ord = 0; ord < that.extrema.size(); ord++) {
-      Optional<BsonValue> value = that.extrema.get(ord);
-      if (value.isPresent()) {
-        update(ord, value.get());
-      }
-    }
+    that.extrema.forEach(this::update);
   }
 
-  private void update(int bucketOrd, BsonValue candidate) {
+  private void update(long bucketOrd, BsonValue candidate) {
     Optional<BsonValue> current = this.extrema.get(bucketOrd);
     if (current.isEmpty() || this.extremum.replaces(candidate, current.get())) {
-      this.extrema.set(bucketOrd, candidate);
+      this.extrema.put(bucketOrd, candidate);
     }
   }
 
@@ -167,7 +166,7 @@ final class MinMaxAccumulator extends Accumulator {
   protected List<AggregationResult> buildResults(LongArray ordsToCollect) {
     List<AggregationResult> results = new ArrayList<>();
     for (int i = 0; i < ordsToCollect.size(); i++) {
-      int bucketOrd = (int) ordsToCollect.get(i);
+      long bucketOrd = ordsToCollect.get(i);
       results.add(this.extremum.newResult(this.name, this.extrema.get(bucketOrd)));
     }
     return results;

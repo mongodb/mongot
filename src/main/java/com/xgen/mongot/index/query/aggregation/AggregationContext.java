@@ -154,6 +154,17 @@ public interface AggregationContext {
   }
 
   /**
+   * One sparse-to-dense bucket-store migration. Shared across derived contexts so every store in
+   * the query contributes to one total. Default is a no-op for tests that do not assert the metric.
+   */
+  default void recordDenseSpill() {}
+
+  /** Sparse-to-dense migrations recorded on this context for the current partition search. */
+  default long denseSpills() {
+    return 0L;
+  }
+
+  /**
    * Whether this query records per-node explain counters ({@code collectInvocations}, the stats
    * tree merge). False on the ordinary search path so those stay off the per-document collect path.
    * Default is false for tests that do not assert explain stats.
