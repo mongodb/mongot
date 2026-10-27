@@ -402,6 +402,11 @@ public class PerIndexMetricsFactory {
     return this.perIndexAllFactory.objectValueGauge(name, stateObject, valueFunc, meterTags);
   }
 
+  public <T> T perIndexFunctionCounter(
+      String name, T stateObject, ToDoubleFunction<T> countFunc, Tags meterTags) {
+    return this.perIndexAllFactory.functionCounter(name, stateObject, countFunc, meterTags);
+  }
+
   /**
    * Re-registers the per-index gauge for {@code stateObject} only if it is missing from the
    * registry. See {@link MetricsFactory#ensureObjectValueGaugeRegistered}.

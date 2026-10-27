@@ -17,6 +17,10 @@ public interface IndexMetricValuesSupplier {
 
   class MetricNames {
     public static final String INDEX_SIZE_BYTES = "indexSizeBytes";
+    public static final String COLD_STORAGE_SIZE_BYTES = "coldStorageSizeBytes";
+    public static final String WARM_CACHE_SIZE_BYTES = "warmCacheSizeBytes";
+    public static final String WARM_QUERIES = "warmQueries";
+    public static final String COLD_QUERIES = "coldQueries";
     public static final String LARGEST_INDEX_FILE_SIZE_BYTES = "largestIndexFileSizeBytes";
     public static final String NUMBER_OF_FILES_IN_INDEX = "numFilesInIndex";
     public static final String REQUIRED_MEMORY = "requiredMemoryBytes";

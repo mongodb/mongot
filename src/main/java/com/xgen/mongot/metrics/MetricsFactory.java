@@ -11,6 +11,7 @@ import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.Enums;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Meter;
@@ -252,6 +253,28 @@ public class MetricsFactory {
           .addKeyValue("newStateObjectIdentity", System.identityHashCode(stateObject))
           .log("Re-registered gauge with same id");
     }
+    return stateObject;
+  }
+
+  /**
+   * Exports a counter whose cumulative value is countFunc(stateObject), for totals owned elsewhere.
+   *
+   * <p>Note: creating a function counter with the same name and tags will remove the previous one.
+   */
+  public synchronized <T> T functionCounter(
+      String name, T stateObject, ToDoubleFunction<T> countFunc, Tags meterTags) {
+    var fullName = metricName(name);
+    var fullTags = this.factoryTags.and(meterTags);
+
+    Meter.Id counterId = new Meter.Id(fullName, fullTags, null, null, Meter.Type.COUNTER);
+    Optional<Meter> previousCounter = Optional.ofNullable(this.registry.remove(counterId));
+    previousCounter.ifPresent(this.registeredMeters::remove);
+
+    FunctionCounter functionCounter =
+        FunctionCounter.builder(fullName, stateObject, countFunc)
+            .tags(fullTags)
+            .register(this.registry);
+    this.registeredMeters.add(functionCounter);
     return stateObject;
   }
 

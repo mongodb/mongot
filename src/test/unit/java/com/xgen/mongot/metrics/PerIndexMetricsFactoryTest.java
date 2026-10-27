@@ -10,6 +10,7 @@ import com.google.common.base.CaseFormat;
 import com.xgen.mongot.util.Enums;
 import com.xgen.testing.mongot.metrics.FilteredCompositeRegistry;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.LongTaskTimer;
 import io.micrometer.core.instrument.Meter;
@@ -126,6 +127,29 @@ public class PerIndexMetricsFactoryTest {
     assertEquals(list.size(), gauge.value(), 0.0);
 
     assertSame(list, this.metricsFactory.perIndexObjectValueGauge("objectGauge", list, List::size));
+  }
+
+  @Test
+  public void testFunctionCounter() {
+    var meterRegistry = this.meterAndFtdcRegistry.meterRegistry();
+    AtomicLong total = new AtomicLong(3);
+
+    this.metricsFactory.perIndexFunctionCounter(
+        "functionCounter", total, AtomicLong::doubleValue, Tags.empty());
+
+    List<Meter> meters = meterRegistry.getMeters();
+    assertEquals(1, meters.size());
+    assertSame(Meter.Type.COUNTER, meters.get(0).getId().getType());
+    assertTrue(hasIndexGenerationId(meters.get(0)));
+    assertTrue(hasIndexId(meters.get(0)));
+    FunctionCounter counter = (FunctionCounter) meters.get(0);
+    assertEquals(3, counter.count(), 0.0);
+
+    total.set(10);
+    assertEquals(10, counter.count(), 0.0);
+
+    this.metricsFactory.close();
+    assertTrue(meterRegistry.getMeters().isEmpty());
   }
 
   @Test
