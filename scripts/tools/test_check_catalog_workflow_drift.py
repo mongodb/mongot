@@ -106,6 +106,22 @@ class CheckDriftTest(unittest.TestCase):
         task = _task(_DEFAULT_NAME, ExecutionMode="manual", Activity="A")
         self.assertFalse(self._check([task], []))
 
+    def test_non_prod_rollout_barrier_descriptive_drift_fails(self):
+        task = _task(
+            "NON_PROD_ENV_PVM_ROLLOUT",
+            ExecutionMode="automated",
+            Type="simple_gate",
+            Notes="All three environment responses are verified.",
+            Description="Require verified non-production PVM updates.",
+        )
+        self.assertTrue(self._check([task], [dict(task)]))
+        for field in ("Notes", "Description"):
+            with self.subTest(field=field):
+                changed = dict(task)
+                changed[field] = "DRIFTED"
+                self.assertFalse(self._check([task], [changed]))
+                self.assertFalse(self._check([changed], [task]))
+
     # --- exempt task: allowed to diverge entirely ----------------------------
 
     def test_exempt_task_drift_is_allowed(self):
