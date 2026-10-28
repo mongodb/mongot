@@ -11,6 +11,8 @@ public class GrpcContext {
   public static final Context.Key<Integer> ENVOY_MAX_ATTEMPT_COUNT_KEY =
       Context.key("envoy-max-attempt-count");
   public static final Context.Key<Boolean> IS_SHADOW_KEY = Context.key("is-shadow");
+  public static final Context.Key<Boolean> ROUTER_MATERIALIZED_KEY =
+      Context.key("router-materialized");
 
   /**
    * Whether search envoy appears to be in front of this request, from the presence of the {@code

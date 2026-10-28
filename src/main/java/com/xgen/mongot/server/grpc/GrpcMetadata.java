@@ -40,6 +40,12 @@ public class GrpcMetadata {
           "search-envoy-metadata-bin",
           ProtoUtils.metadataMarshaller(SearchEnvoyMetadata.getDefaultInstance()));
 
+  // Request header set by the mongot-extension on wire commands it built from a
+  // router-materialized stage (the extension is the only client that can set transport headers,
+  // so the mark cannot be forged through the BSON command). Absent on all other paths.
+  public static final Metadata.Key<String> MONGODB_MATERIALIZED_KEY =
+      Metadata.Key.of("x-mongodb-materialized", Metadata.ASCII_STRING_MARSHALLER);
+
   // Request headers for MongoDB gRPC protocol.
   public static final Metadata.Key<Integer> MONGODB_WIRE_VERSION_METADATA_KEY =
       Metadata.Key.of("mongodb-wireversion", INT32_MARSHALLER);

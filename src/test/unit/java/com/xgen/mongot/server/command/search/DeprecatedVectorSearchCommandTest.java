@@ -10,6 +10,7 @@ import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockDefinitionG
 import static com.xgen.testing.mongot.mock.index.IndexGeneration.mockVectorIndexGeneration;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -63,6 +64,7 @@ import com.xgen.mongot.metrics.MeterAndFtdcRegistry;
 import com.xgen.mongot.metrics.PerIndexMetricsFactory;
 import com.xgen.mongot.searchenvoy.grpc.SearchEnvoyMetadata;
 import com.xgen.mongot.server.command.Command;
+import com.xgen.mongot.server.command.search.definition.request.VectorSearchCommandDefinition;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -84,6 +86,7 @@ import com.xgen.testing.mongot.server.command.search.definition.request.ExplainD
 import com.xgen.testing.mongot.server.command.search.definition.request.VectorSearchCommandDefinitionBuilder;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -160,6 +163,52 @@ public class DeprecatedVectorSearchCommandTest {
   @DataPoints
   public static final List<MongoDbVersion> mdbVersions =
       List.of(new MongoDbVersion(8, 1, 0), new MongoDbVersion(7, 0, 0));
+
+  @Test
+  public void testDelegationForwardsRouterMaterializedMark() throws Exception {
+    // The registered vectorSearch command is the deprecated one; the mark must survive its
+    // delegation to VectorSearchCommand or the expectedModel check never runs on real traffic.
+    VectorSearchCommand.Factory factory = mock(VectorSearchCommand.Factory.class);
+    VectorSearchCommand inner = mock(VectorSearchCommand.class);
+    when(factory.create(any(VectorSearchCommandDefinition.class))).thenReturn(inner);
+    when(inner.run()).thenReturn(new BsonDocument());
+    when(inner.getCreatedCursorIds()).thenReturn(Collections.emptyList());
+    IndexCatalog indexCatalog = mock(IndexCatalog.class);
+    doReturn(Optional.of(mockVectorIndexGeneration()))
+        .when(indexCatalog)
+        .getIndex(any(), any(), any(), any());
+
+    DeprecatedVectorSearchCommand command =
+        new DeprecatedVectorSearchCommand(
+            getCursorManager(),
+            VectorSearchCommandDefinitionBuilder.builder()
+                .db(DATABASE_NAME)
+                .collectionName(COLLECTION_NAME)
+                .collectionUuid(COLLECTION_UUID)
+                .vectorSearchQuery(
+                    VectorQueryBuilder.builder()
+                        .index(INDEX_NAME)
+                        .criteria(
+                            ApproximateVectorQueryCriteriaBuilder.builder()
+                                .limit(LIMIT)
+                                .numCandidates(NUM_CANDIDATES)
+                                .queryVector(QUERY_VECTOR)
+                                .path(PATH)
+                                .build())
+                        .build())
+                .build(),
+            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT,
+            indexCatalog,
+            getInitializedIndexCatalog(),
+            new IncompatibleIndexes(TestMeterRegistry.get()),
+            factory,
+            BOOTSTRAPPER_METADATA);
+
+    command.handleRouterMaterialized(true);
+    command.run();
+
+    verify(inner).handleRouterMaterialized(true);
+  }
 
   @Test
   public void testValidIndex() throws Exception {

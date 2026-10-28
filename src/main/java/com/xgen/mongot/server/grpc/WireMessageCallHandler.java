@@ -24,6 +24,7 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
       int envoyMaxAttemptCount,
       boolean isShadow,
       boolean envoyInRequestPath,
+      boolean routerMaterialized,
       StreamObserver<MessageMessage> responseObserver) {
     super(
         commandRegistry,
@@ -34,6 +35,7 @@ public class WireMessageCallHandler extends ServerCallHandler<MessageMessage> {
         envoyMaxAttemptCount,
         isShadow,
         envoyInRequestPath,
+        routerMaterialized,
         responseObserver);
   }
 

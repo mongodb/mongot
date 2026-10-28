@@ -100,6 +100,9 @@ import org.slf4j.LoggerFactory;
 public class VectorSearchCommand implements Command {
 
   private static final Logger LOG = LoggerFactory.getLogger(VectorSearchCommand.class);
+  // The mismatch WARN fires per query for the whole rebuild window; this throttles it to one
+  // line per minute while expectedModelMismatches keeps the true rate.
+  private static final FluentLogger MISMATCH_LOG = FluentLogger.forEnclosingClass();
 
   private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
@@ -116,6 +119,9 @@ public class VectorSearchCommand implements Command {
   private final List<Long> createdCursorIds;
 
   private @Var Optional<SearchEnvoyMetadata> searchEnvoyMetadata;
+  // Whether the request carried the x-mongodb-materialized mark (set by the gRPC layer before
+  // run() via handleRouterMaterialized; false on headerless paths).
+  private boolean routerMaterialized;
   private final VectorQueryEmbedder embedder;
 
   VectorSearchCommand(
@@ -156,6 +162,11 @@ public class VectorSearchCommand implements Command {
   @Override
   public String name() {
     return VectorSearchCommandDefinition.NAME;
+  }
+
+  @Override
+  public void handleRouterMaterialized(boolean routerMaterialized) {
+    this.routerMaterialized = routerMaterialized;
   }
 
   @Override
@@ -363,6 +374,10 @@ public class VectorSearchCommand implements Command {
   }
 
   @VisibleForTesting
+  public Counter getExpectedModelMismatches() {
+    return this.metrics.expectedModelMismatches;
+  }
+
   public Counter getBsonFloatVectorQueries() {
     return this.metrics.bsonFloatVectorQueries;
   }
@@ -450,11 +465,13 @@ public class VectorSearchCommand implements Command {
 
       var timer = Timer.start();
       var commandTimer = Timer.start();
-      var materializedQuery =
-          this.embedder.materializeQuery(
-              vectorSearchQuery,
-              this.embedder.findEmbedRequestInfo(
-                  optionalIndex.get().getDefinition(), vectorSearchQuery));
+      var embedRequestInfo =
+          this.embedder.findEmbedRequestInfo(
+              optionalIndex.get().getDefinition(), vectorSearchQuery);
+      // Observe-only: a mismatch logs and counts; failing the query is a later rollout step
+      // once the observe-only window ends.
+      observeExpectedModelMismatch(vectorSearchQuery, embedRequestInfo);
+      var materializedQuery = this.embedder.materializeQuery(vectorSearchQuery, embedRequestInfo);
       var context = buildQueryExecutionContext();
       if (vectorSearchQuery.returnStoredSource()) {
         return getBatch(
@@ -620,6 +637,62 @@ public class VectorSearchCommand implements Command {
       IndexDefinition regularIndexDefinition, VectorSearchQuery vectorSearchQuery)
       throws InvalidQueryException {
     return this.embedder.findEmbedRequestInfo(regularIndexDefinition, vectorSearchQuery);
+  }
+
+  /**
+   * Observe-only expectedModel check, run only for router-materialized commands (the
+   * x-mongodb-materialized mark): the router's materializeVectorSearch stamps the model that
+   * embedded the query into the scattered command, and a shard whose applied index model differs
+   * would score the query vector in a different vector space. Log and count the mismatch only;
+   * promoting it to a hard error is a separate rollout step. Unmarked commands carry no
+   * server-produced stamp, so the field is ignored for them exactly as unknown fields are.
+   */
+  private void observeExpectedModelMismatch(
+      VectorSearchQuery vectorSearchQuery,
+      Optional<VectorQueryEmbedder.EmbedRequestInfo> embedRequestInfo)
+      throws InvalidQueryException {
+    if (!this.routerMaterialized) {
+      return;
+    }
+    Optional<String> expectedModel = this.definition.expectedModel();
+    if (expectedModel.isEmpty() || embedRequestInfo.isEmpty()) {
+      return;
+    }
+    // A queryVector carries no resolved model (no embed is needed on this shard), so resolve the
+    // applied model from the source auto-embedding definition the embed request already carries.
+    Optional<String> appliedModel =
+        embedRequestInfo
+            .get()
+            .modelName()
+            .or(
+                () ->
+                    Optional.ofNullable(
+                        embedRequestInfo
+                            .get()
+                            .sourceDefinition()
+                            .asVectorDefinition()
+                            .getModelNamePerPath()
+                            .get(vectorSearchQuery.criteria().path())));
+    if (appliedModel.isEmpty() || expectedModel.equals(appliedModel)) {
+      return;
+    }
+    // A stamp that differs from the index model is only skew when the two models are
+    // incompatible: a compatible query-model override is resolved into the stamp legitimately
+    // (SearchAutoEmbeddingHelper.resolveQueryModel at the router), so validate it the same way.
+    try {
+      SearchAutoEmbeddingHelper.resolveQueryModel(appliedModel.get(), expectedModel);
+      return;
+    } catch (InvalidQueryException e) {
+      // Incompatible with the applied index model: a real mismatch.
+    }
+    this.metrics.expectedModelMismatches.increment();
+    MISMATCH_LOG.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+        "expectedModel mismatch (observe-only): expected model %s but the applied index model"
+            + " is %s for ns %s.%s; results may be from a different vector space",
+        expectedModel.get(),
+        appliedModel.get(),
+        this.definition.db(),
+        this.definition.collectionName());
   }
 
   private MongotCursorBatch createExhaustedCursorBatch(BsonArray results)
@@ -1041,6 +1114,7 @@ public class VectorSearchCommand implements Command {
     private final Counter invalidQueries;
     private final Counter wrappedInvalidQueryExceptions;
     private final Counter nonexistentIndexQueries;
+    private final Counter expectedModelMismatches;
     private final Counter queriesAgainstView;
     private final Counter queriesAgainstViewSourceCollection;
     private final Counter exactVectorSearchQueries;
@@ -1069,6 +1143,8 @@ public class VectorSearchCommand implements Command {
       this.wrappedInvalidQueryExceptions =
           metricsFactory.counter("vectorSearchCommandWrappedInvalidQueryException");
       this.nonexistentIndexQueries = metricsFactory.counter("vectorSearchCommandNonexistentIndex");
+      this.expectedModelMismatches =
+          metricsFactory.counter("vectorSearchCommandExpectedModelMismatches");
       this.queriesAgainstView = metricsFactory.counter("queriesAgainstView");
       this.queriesAgainstViewSourceCollection =
           metricsFactory.counter("queriesAgainstViewSourceCollection");

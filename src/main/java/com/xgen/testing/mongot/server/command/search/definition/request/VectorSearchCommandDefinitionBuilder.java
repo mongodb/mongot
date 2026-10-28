@@ -19,6 +19,7 @@ public class VectorSearchCommandDefinitionBuilder {
   private Optional<VectorSearchCommandDefinition.VectorSearchQueryOrUserError> vectorSearchQuery =
       Optional.empty();
   private Optional<CursorOptionsDefinition> cursorOptions = Optional.empty();
+  private Optional<String> expectedModel = Optional.empty();
 
   public static VectorSearchCommandDefinitionBuilder builder() {
     return new VectorSearchCommandDefinitionBuilder();
@@ -73,6 +74,11 @@ public class VectorSearchCommandDefinitionBuilder {
     return this;
   }
 
+  public VectorSearchCommandDefinitionBuilder expectedModel(String expectedModel) {
+    this.expectedModel = Optional.ofNullable(expectedModel);
+    return this;
+  }
+
   /** Builds the VectorSearchCommandDefinition. */
   public VectorSearchCommandDefinition build() {
     Check.isPresent(this.db, "db");
@@ -87,6 +93,7 @@ public class VectorSearchCommandDefinitionBuilder {
         this.viewName,
         this.explain,
         this.deadlineTimestampMs,
-        this.cursorOptions);
+        this.cursorOptions,
+        this.expectedModel);
   }
 }

@@ -246,6 +246,7 @@ public class GrpcStreamingServer implements CommandServer {
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get(context),
                   Boolean.TRUE.equals(GrpcContext.IS_SHADOW_KEY.get(context)),
                   GrpcContext.ENVOY_IN_REQUEST_PATH_KEY.get(context),
+                  Boolean.TRUE.equals(GrpcContext.ROUTER_MATERIALIZED_KEY.get(context)),
                   responseStream);
             });
 
@@ -265,6 +266,7 @@ public class GrpcStreamingServer implements CommandServer {
                   GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY.get(context),
                   Boolean.TRUE.equals(GrpcContext.IS_SHADOW_KEY.get(context)),
                   GrpcContext.ENVOY_IN_REQUEST_PATH_KEY.get(context),
+                  Boolean.TRUE.equals(GrpcContext.ROUTER_MATERIALIZED_KEY.get(context)),
                   responseStream);
             });
 

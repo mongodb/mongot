@@ -175,6 +175,125 @@ public class VectorSearchCommandAutoEmbedTest {
     Assert.assertEquals(0, command.getAutoEmbeddingMultiModalQueries().count(), 0);
   }
 
+  private static VectorSearchQuery textQuery() throws BsonParseException {
+    return VectorQueryBuilder.builder()
+        .index(INDEX_NAME)
+        .criteria(
+            ApproximateVectorQueryCriteriaBuilder.builder()
+                .limit(LIMIT)
+                .numCandidates(NUM_CANDIDATES)
+                .query(new VectorSearchQueryInput.Text("test query"))
+                .path(PATH)
+                .filter(getFilter())
+                .build())
+        .build();
+  }
+
+  private static VectorSearchQuery queryVectorQuery() {
+    return VectorQueryBuilder.builder()
+        .index(INDEX_NAME)
+        .criteria(
+            ApproximateVectorQueryCriteriaBuilder.builder()
+                .limit(LIMIT)
+                .numCandidates(NUM_CANDIDATES)
+                .queryVector(QUERY_VECTOR)
+                .path(PATH)
+                .build())
+        .build();
+  }
+
+  @Test
+  public void markedQueryVectorWithMismatchedStamp_recordsMismatchAndStillServes()
+      throws Exception {
+    // The shape the router scatters: queryVector + stamp, on a marked request. The mismatch is
+    // logged and counted, never fatal (observe-only).
+    var mocks = new Mocks();
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(
+            mocks, queryVectorQuery(), Optional.of("voyage-4"));
+    command.handleRouterMaterialized(true);
+    var result = command.run();
+
+    Assert.assertEquals(
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson(),
+        result);
+    Assert.assertEquals(1, command.getExpectedModelMismatches().count(), 0);
+  }
+
+  @Test
+  public void markedQueryVectorWithMatchingStamp_doesNotRecordMismatch() throws Exception {
+    var mocks = new Mocks();
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(
+            mocks, queryVectorQuery(), Optional.of("voyage-3-large"));
+    command.handleRouterMaterialized(true);
+    var result = command.run();
+
+    Assert.assertEquals(
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson(),
+        result);
+    Assert.assertEquals(0, command.getExpectedModelMismatches().count(), 0);
+  }
+
+  @Test
+  public void markedQueryVectorWithCompatibleModelOverride_doesNotRecordMismatch()
+      throws Exception {
+    // The router resolves a compatible query-model override into the stamp; that is a valid
+    // query, not skew. Register the mock index's model as compatible with the stamp's model,
+    // then restore the catalog (process-wide) so later tests are not order-dependent.
+    EmbeddingModelCatalog.registerCompatibleModels("voyage-3-large", Set.of("voyage-4-lite"));
+    try {
+      var mocks = new Mocks();
+      var command =
+          buildAutoEmbeddingVectorSearchCommandWithMocks(
+              mocks, queryVectorQuery(), Optional.of("voyage-4-lite"));
+      command.handleRouterMaterialized(true);
+      var result = command.run();
+
+      Assert.assertEquals(
+          mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+              .toBson(),
+          result);
+      Assert.assertEquals(0, command.getExpectedModelMismatches().count(), 0);
+    } finally {
+      EmbeddingModelCatalog.registerCompatibleModels("voyage-3-large", Set.of());
+    }
+  }
+
+  @Test
+  public void stampedQueryVectorWithoutMark_isIgnoredEntirely() throws Exception {
+    // An unmarked request cannot carry a server-produced stamp (native paths hoist user BSON
+    // into command fields but cannot set transport headers), so the field is ignored exactly as
+    // an unknown field: no log, no counter, no behavior change.
+    var mocks = new Mocks();
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(
+            mocks, queryVectorQuery(), Optional.of("voyage-4"));
+    var result = command.run();
+
+    Assert.assertEquals(
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson(),
+        result);
+    Assert.assertEquals(0, command.getExpectedModelMismatches().count(), 0);
+  }
+
+  @Test
+  public void stampedTextQueryWithoutMark_isIgnoredEntirely() throws Exception {
+    var mocks = new Mocks();
+    var command =
+        buildAutoEmbeddingVectorSearchCommandWithMocks(mocks, textQuery(), Optional.of("voyage-4"));
+    var result = command.run();
+
+    Assert.assertEquals(
+        mockInitialMongotCursorBatchForVectorSearch(0, new VectorSearchResultBatch(4), NAMESPACE)
+            .toBson(),
+        result);
+    Assert.assertEquals(0, command.getExpectedModelMismatches().count(), 0);
+  }
+
   @Test
   public void run_unresolvedAutoEmbeddingOffline_servesFromReconstructedDerivedIndex()
       throws Exception {
@@ -1270,6 +1389,26 @@ public class VectorSearchCommandAutoEmbedTest {
       Mocks mocks, VectorSearchQuery vectorSearchQuery) {
     return buildAutoEmbeddingVectorSearchCommandWithMocks(
         mocks, vectorSearchQuery, MOCK_EMBEDDING_SERVICE);
+  }
+
+  private static VectorSearchCommand buildAutoEmbeddingVectorSearchCommandWithMocks(
+      Mocks mocks, VectorSearchQuery vectorSearchQuery, Optional<String> expectedModel) {
+    return new VectorSearchCommand(
+        VectorSearchCommandDefinitionBuilder.builder()
+            .db(DATABASE_NAME)
+            .collectionName(COLLECTION_NAME)
+            .collectionUuid(COLLECTION_UUID)
+            .vectorSearchQuery(vectorSearchQuery)
+            .expectedModel(expectedModel.orElse(null))
+            .build(),
+        mocks.catalog,
+        mocks.initializedIndexCatalog,
+        new IncompatibleIndexes(TestMeterRegistry.get()),
+        BOOTSTRAPPER_METADATA,
+        MOCK_EMBEDDING_SERVICE,
+        new VectorSearchCommand.Metrics(mockMetricsFactory()),
+        mocks.cursorManager,
+        CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
   }
 
   private static VectorSearchCommand buildAutoEmbeddingVectorSearchCommandWithMocks(

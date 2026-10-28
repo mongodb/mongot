@@ -92,6 +92,7 @@ public class ServerCallHandlerTest {
           envoyMaxAttemptCount,
           isShadow,
           envoyInRequestPath,
+          /* routerMaterialized */ false,
           responseObserver);
       this.failure = failure;
     }
@@ -184,6 +185,7 @@ public class ServerCallHandlerTest {
             3,
             false,
             false,
+            /* routerMaterialized */ false,
             observer);
     handler.createdCursorIds = List.copyOf(ownedCursorIds);
     return handler;

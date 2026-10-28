@@ -22,7 +22,8 @@ public record VectorSearchCommandDefinition(
     Optional<String> viewName,
     Optional<ExplainDefinition> explain,
     Optional<Long> deadlineTimestampMs,
-    Optional<CursorOptionsDefinition> cursorOptions)
+    Optional<CursorOptionsDefinition> cursorOptions,
+    Optional<String> expectedModel)
     implements DocumentEncodable {
 
   static class Fields {
@@ -46,6 +47,12 @@ public record VectorSearchCommandDefinition(
 
     static final Field.Optional<Long> DEADLINE_TIMESTAMP_MS =
         Field.builder("deadlineTimestampMs").longField().optional().noDefault();
+
+    // Stamped by the router's materializeVectorSearch; the shard-side check runs only when the
+    // request also carried the x-mongodb-materialized mark, and mongots that predate the field
+    // ignore it (top-level parsing allows unknown fields).
+    static final Field.Optional<String> EXPECTED_MODEL =
+        Field.builder("expectedModel").stringField().optional().noDefault();
 
     static final Field.Optional<CursorOptionsDefinition> CURSOR_OPTIONS =
         Field.builder("cursorOptions")
@@ -123,7 +130,8 @@ public record VectorSearchCommandDefinition(
         parser.getField(Fields.VIEW_NAME).unwrap(),
         parser.getField(Fields.EXPLAIN).unwrap(),
         parser.getField(Fields.DEADLINE_TIMESTAMP_MS).unwrap(),
-        parser.getField(Fields.CURSOR_OPTIONS).unwrap());
+        parser.getField(Fields.CURSOR_OPTIONS).unwrap(),
+        parser.getField(Fields.EXPECTED_MODEL).unwrap());
   }
 
   @Override
@@ -141,6 +149,7 @@ public record VectorSearchCommandDefinition(
             .field(Fields.EXPLAIN, this.explain)
             .field(Fields.DEADLINE_TIMESTAMP_MS, this.deadlineTimestampMs)
             .field(Fields.CURSOR_OPTIONS, this.cursorOptions)
+            .field(Fields.EXPECTED_MODEL, this.expectedModel)
             .build();
 
     withoutVectorQuery.putAll(

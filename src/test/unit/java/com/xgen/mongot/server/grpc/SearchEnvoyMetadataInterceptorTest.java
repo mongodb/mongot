@@ -169,6 +169,36 @@ public class SearchEnvoyMetadataInterceptorTest {
     triggerInterceptorAndCheckEnvoyInRequestPath(metadata, false);
   }
 
+  @Test
+  public void testRouterMaterialized_trueWhenMaterializedHeaderPresent() {
+    Metadata metadata = new Metadata();
+    metadata.put(GrpcMetadata.MONGODB_MATERIALIZED_KEY, "1");
+    triggerInterceptorAndCheckRouterMaterialized(metadata, true);
+  }
+
+  @Test
+  public void testRouterMaterialized_falseWhenHeaderMissing() {
+    triggerInterceptorAndCheckRouterMaterialized(new Metadata(), false);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void triggerInterceptorAndCheckRouterMaterialized(
+      Metadata metadata, boolean expectedRouterMaterialized) {
+    ServerCall<Object, Object> serverCall = mock(ServerCall.class);
+    ServerCall.Listener<Object> listener = mock(ServerCall.Listener.class);
+    doAnswer(
+            invocation -> {
+              assertEquals(expectedRouterMaterialized, GrpcContext.ROUTER_MATERIALIZED_KEY.get());
+              return null;
+            })
+        .when(listener)
+        .onReady();
+    var interceptor = new SearchEnvoyMetadataInterceptor();
+    var interceptedCall =
+        interceptor.interceptCall(serverCall, metadata, (call, headers) -> listener);
+    interceptedCall.onReady();
+  }
+
   /**
    * A malformed header still came from something that sets it, so the request is treated as
    * envoy-fronted even though the count itself falls back to 1.

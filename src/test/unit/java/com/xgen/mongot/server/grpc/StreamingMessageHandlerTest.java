@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
@@ -80,6 +81,7 @@ public class StreamingMessageHandlerTest {
           /* envoyMaxAttemptCount */ 3,
           /* isShadow */ false,
           /* envoyInRequestPath */ false,
+          /* routerMaterialized */ false,
           this.responseObserver);
 
   final InOrder inOrder = Mockito.inOrder(this.responseObserver, this.cursorManager);
@@ -464,6 +466,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             this.responseObserver);
 
     BsonDocument document = new BsonDocument().append(IdentityCommand.Name, new BsonString("foo"));
@@ -663,6 +666,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ true,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             this.responseObserver);
     BsonDocument document = new BsonDocument().append(CreateCursorsCommand.Name, BsonBoolean.TRUE);
 
@@ -672,6 +676,41 @@ public class StreamingMessageHandlerTest {
     // are killed as soon as the response is built rather than waiting for stream cancellation.
     verifyServerResponse(new BsonDocument());
     verifyKilledCursors(CreateCursorsCommand.SEARCH_CURSOR_ID, CreateCursorsCommand.META_CURSOR_ID);
+  }
+
+  @Test
+  public void onNext_deliversRouterMaterializedMarkToCommand() {
+    // The x-mongodb-materialized mark flows stream-creation -> handler -> command before run().
+    AtomicBoolean receivedMark = new AtomicBoolean(false);
+    this.commandRegistry.registerCommand(
+        IdentityCommand.Name,
+        (CommandFactory)
+            args ->
+                new IdentityCommand(args, Command.ExecutionPolicy.SYNC) {
+                  @Override
+                  public void handleRouterMaterialized(boolean routerMaterialized) {
+                    receivedMark.set(routerMaterialized);
+                  }
+                },
+        true);
+    WireMessageCallHandler markedHandler =
+        new WireMessageCallHandler(
+            this.commandRegistry,
+            this.executorManager.commandExecutor,
+            this.cursorManager,
+            SearchEnvoyMetadata.getDefaultInstance(),
+            /* envoyAttemptCount */ 1,
+            /* envoyMaxAttemptCount */ 3,
+            /* isShadow */ false,
+            /* envoyInRequestPath */ false,
+            /* routerMaterialized */ true,
+            this.responseObserver);
+    BsonDocument document = new BsonDocument().append(IdentityCommand.Name, new BsonDocument());
+
+    markedHandler.onNext(createOpMsgFromBsonDocument(document));
+
+    verifyServerResponse(new BsonDocument().append(IdentityCommand.Name, new BsonDocument()));
+    Assert.assertTrue(receivedMark.get());
   }
 
   @Test
@@ -794,6 +833,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -947,6 +987,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1076,6 +1117,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1198,6 +1240,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 3,
             /* isShadow */ false,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);
@@ -1326,6 +1369,7 @@ public class StreamingMessageHandlerTest {
             /* envoyMaxAttemptCount */ 5,
             /* isShadow */ false,
             /* envoyInRequestPath */ false,
+            /* routerMaterialized */ false,
             boundedResponseObserver);
 
     CountDownLatch blockingLatch = new CountDownLatch(1);

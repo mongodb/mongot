@@ -64,6 +64,10 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
   // cursor ids, which never match this node, so cursors created here are killed as soon as the
   // command response is built rather than lingering until the idle-cursor reaper runs.
   private final boolean isShadow;
+  // Whether the stream carried the x-mongodb-materialized mark header, set by the
+  // mongot-extension on commands built from a router-materialized stage. See
+  // GrpcMetadata.MONGODB_MATERIALIZED_KEY.
+  private final boolean routerMaterialized;
   // Whether search envoy looks to be in front of this stream, from the presence of the
   // `x-envoy-attempt-count` header. A retryable status is only worth sending to a caller that can
   // fail over; direct callers get the error body instead. Not spoof-proof, but a forged header
@@ -91,6 +95,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
       int envoyMaxAttemptCount,
       boolean isShadow,
       boolean envoyInRequestPath,
+      boolean routerMaterialized,
       StreamObserver<T> responseObserver) {
     this.commandRegistry = commandRegistry;
     this.commandExecutor = commandExecutor;
@@ -100,6 +105,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
     this.envoyMaxAttemptCount = envoyMaxAttemptCount;
     this.isShadow = isShadow;
     this.envoyInRequestPath = envoyInRequestPath;
+    this.routerMaterialized = routerMaterialized;
     this.commandManager = new CommandManager<T>(responseObserver);
     this.createdCursorIds = Collections.emptyList();
     this.envoyRetryMetrics =
@@ -197,6 +203,7 @@ abstract class ServerCallHandler<T> implements StreamObserver<T> {
                 "%s addresses a cursor that was not created by this gRPC stream", command.name()));
       }
       command.handleSearchEnvoyMetadata(this.searchEnvoyMetadata);
+      command.handleRouterMaterialized(this.routerMaterialized);
 
       return this.commandExecutor
           .execute(command, this.commandManager::isStreamCancelled)

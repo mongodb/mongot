@@ -68,6 +68,16 @@ public interface Command {
   default void handleSearchEnvoyMetadata(SearchEnvoyMetadata searchEnvoyMetadata) {}
 
   /**
+   * Handle the router-materialized mark from the {@code x-mongodb-materialized} gRPC header, set by
+   * the mongot-extension on wire commands it built from a router-materialized stage. The extension
+   * is the only client that can set transport headers, so the mark cannot be forged through the
+   * BSON command.
+   *
+   * <p>This method is called before {@code Command::run}.
+   */
+  default void handleRouterMaterialized(boolean routerMaterialized) {}
+
+  /**
    * Indicates whether this command may be load shed under high load conditions.
    *
    * <p>Commands that return {@code false} are executed on a dedicated unbounded thread pool to

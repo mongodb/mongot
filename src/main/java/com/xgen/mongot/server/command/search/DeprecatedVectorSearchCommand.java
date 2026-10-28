@@ -70,6 +70,8 @@ public class DeprecatedVectorSearchCommand implements Command {
   private final SearchCommandsRegister.BootstrapperMetadata metadata;
 
   private @Var Optional<SearchEnvoyMetadata> searchEnvoyMetadata;
+  // Forwarded to the delegated VectorSearchCommand; see handleRouterMaterialized.
+  private boolean routerMaterialized;
 
   DeprecatedVectorSearchCommand(
       MongotCursorManager cursorManager,
@@ -101,6 +103,11 @@ public class DeprecatedVectorSearchCommand implements Command {
   @Override
   public void handleSearchEnvoyMetadata(SearchEnvoyMetadata searchEnvoyMetadata) {
     this.searchEnvoyMetadata = Optional.of(searchEnvoyMetadata);
+  }
+
+  @Override
+  public void handleRouterMaterialized(boolean routerMaterialized) {
+    this.routerMaterialized = routerMaterialized;
   }
 
   @Override
@@ -144,6 +151,7 @@ public class DeprecatedVectorSearchCommand implements Command {
           // Propagate important info between the two Commands.
           // Envoy metadata must be ready before the run.
           this.searchEnvoyMetadata.ifPresent(vectorCommand::handleSearchEnvoyMetadata);
+          vectorCommand.handleRouterMaterialized(this.routerMaterialized);
           // Run the VectorSearchCommand.
           BsonDocument response = vectorCommand.run();
           // Cursor ID's are only available after the run.

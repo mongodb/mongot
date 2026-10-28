@@ -30,6 +30,7 @@ public class SearchEnvoyMetadataInterceptor implements ServerInterceptor {
     int maxAttemptCount = parseMaxAttemptCount(headers);
     boolean isShadow = isShadowAuthority(call.getAuthority());
     boolean envoyInRequestPath = headers.containsKey(GrpcMetadata.ENVOY_ATTEMPT_COUNT_KEY);
+    boolean routerMaterialized = headers.containsKey(GrpcMetadata.MONGODB_MATERIALIZED_KEY);
 
     Context context =
         Context.current()
@@ -39,7 +40,8 @@ public class SearchEnvoyMetadataInterceptor implements ServerInterceptor {
             .withValue(GrpcContext.ENVOY_ATTEMPT_COUNT_KEY, attemptCount)
             .withValue(GrpcContext.ENVOY_MAX_ATTEMPT_COUNT_KEY, maxAttemptCount)
             .withValue(GrpcContext.IS_SHADOW_KEY, isShadow)
-            .withValue(GrpcContext.ENVOY_IN_REQUEST_PATH_KEY, envoyInRequestPath);
+            .withValue(GrpcContext.ENVOY_IN_REQUEST_PATH_KEY, envoyInRequestPath)
+            .withValue(GrpcContext.ROUTER_MATERIALIZED_KEY, routerMaterialized);
 
     return Contexts.interceptCall(context, call, headers, next);
   }

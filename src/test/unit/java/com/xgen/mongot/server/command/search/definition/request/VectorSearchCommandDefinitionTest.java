@@ -97,6 +97,36 @@ public class VectorSearchCommandDefinitionTest {
     Assert.assertEquals(definition.toBson(), roundTripped.toBson());
   }
 
+  @Test
+  public void testExpectedModelRoundTripThroughBson() throws Exception {
+    VectorSearchCommandDefinition definition =
+        VectorSearchCommandDefinitionBuilder.builder()
+            .collectionName("my-collection")
+            .db("my-database")
+            .collectionUuid(UUID.fromString("522cdf5e-54fc-4230-9d45-49da990e8ea7"))
+            .vectorSearchQuery(
+                VectorQueryBuilder.builder()
+                    .index("vecSearch")
+                    .criteria(
+                        ApproximateVectorQueryCriteriaBuilder.builder()
+                            .path(FieldPath.parse("vec"))
+                            .limit(100)
+                            .numCandidates(100)
+                            .queryVector(Vector.fromFloats(new float[] {1f, 2f, 3f}, NATIVE))
+                            .build())
+                    .build())
+            .expectedModel("voyage-3-large")
+            .build();
+
+    VectorSearchCommandDefinition roundTripped;
+    try (var parser = BsonDocumentParser.fromRoot(definition.toBson()).build()) {
+      roundTripped = VectorSearchCommandDefinition.fromBson(parser, true);
+    }
+
+    Assert.assertEquals("voyage-3-large", roundTripped.expectedModel().get());
+    Assert.assertEquals(definition.toBson(), roundTripped.toBson());
+  }
+
   private static BsonDeserializationTestSuite.ValidSpec<VectorSearchCommandDefinition>
       vectorSearch() {
     return BsonDeserializationTestSuite.TestSpec.valid(
