@@ -20,7 +20,8 @@
           "enableNaturalOrderScan": false,
           "avoidNaturalOrderScanSyncSourceChangeResync": false,
           "enableParallelNaturalOrderScan": false,
-          "parallelPartitionCount": 4
+          "parallelPartitionCount": 4,
+          "parallelScanMaxConcurrentBatches": 1
         }
       },
       "bson": {
@@ -40,6 +41,9 @@
           "enableParallelNaturalOrderScan": false,
           "parallelPartitionCount": {
             "$numberInt": "4"
+          },
+          "parallelScanMaxConcurrentBatches": {
+            "$numberInt": "1"
           }
         }
       }
@@ -55,7 +59,8 @@
           "enableNaturalOrderScan": false,
           "avoidNaturalOrderScanSyncSourceChangeResync": false,
           "enableParallelNaturalOrderScan": false,
-          "parallelPartitionCount": 4
+          "parallelPartitionCount": 4,
+          "parallelScanMaxConcurrentBatches": 1
         }
       },
       "bson": {
@@ -75,6 +80,9 @@
           "enableParallelNaturalOrderScan": false,
           "parallelPartitionCount": {
             "$numberInt": "4"
+          },
+          "parallelScanMaxConcurrentBatches": {
+            "$numberInt": "1"
           }
         }
       }
@@ -90,7 +98,8 @@
           "enableNaturalOrderScan": false,
           "avoidNaturalOrderScanSyncSourceChangeResync": false,
           "enableParallelNaturalOrderScan": false,
-          "parallelPartitionCount": 4
+          "parallelPartitionCount": 4,
+          "parallelScanMaxConcurrentBatches": 1
         }
       },
       "bson": {
@@ -110,6 +119,9 @@
           "enableParallelNaturalOrderScan": false,
           "parallelPartitionCount": {
             "$numberInt": "4"
+          },
+          "parallelScanMaxConcurrentBatches": {
+            "$numberInt": "1"
           }
         }
       }
@@ -125,7 +137,8 @@
           "enableNaturalOrderScan": false,
           "avoidNaturalOrderScanSyncSourceChangeResync": false,
           "enableParallelNaturalOrderScan": false,
-          "parallelPartitionCount": 4
+          "parallelPartitionCount": 4,
+          "parallelScanMaxConcurrentBatches": 1
         }
       },
       "bson": {
@@ -145,6 +158,9 @@
           "enableParallelNaturalOrderScan": false,
           "parallelPartitionCount": {
             "$numberInt": "4"
+          },
+          "parallelScanMaxConcurrentBatches": {
+            "$numberInt": "1"
           }
         }
       }
@@ -160,7 +176,8 @@
           "enableNaturalOrderScan": true,
           "avoidNaturalOrderScanSyncSourceChangeResync": true,
           "enableParallelNaturalOrderScan": false,
-          "parallelPartitionCount": 4
+          "parallelPartitionCount": 4,
+          "parallelScanMaxConcurrentBatches": 1
         }
       },
       "bson": {
@@ -180,6 +197,9 @@
           "enableParallelNaturalOrderScan": false,
           "parallelPartitionCount": {
             "$numberInt": "4"
+          },
+          "parallelScanMaxConcurrentBatches": {
+            "$numberInt": "1"
           }
         }
       }
@@ -195,7 +215,8 @@
           "enableNaturalOrderScan": true,
           "avoidNaturalOrderScanSyncSourceChangeResync": false,
           "enableParallelNaturalOrderScan": true,
-          "parallelPartitionCount": 8
+          "parallelPartitionCount": 8,
+          "parallelScanMaxConcurrentBatches": 3
         }
       },
       "bson": {
@@ -215,6 +236,9 @@
           "enableParallelNaturalOrderScan": true,
           "parallelPartitionCount": {
             "$numberInt": "8"
+          },
+          "parallelScanMaxConcurrentBatches": {
+            "$numberInt": "3"
           }
         }
       }

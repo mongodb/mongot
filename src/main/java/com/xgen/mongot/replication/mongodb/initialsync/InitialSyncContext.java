@@ -16,11 +16,13 @@ import com.xgen.mongot.replication.mongodb.common.IndexingWorkScheduler;
 import com.xgen.mongot.replication.mongodb.common.InitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.PauseInitialSyncException;
 import com.xgen.mongot.replication.mongodb.common.SchedulerQueue;
+import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.bson.BsonTimestamp;
 import org.bson.types.ObjectId;
+import org.jetbrains.annotations.TestOnly;
 
 /** InitialSyncContext consolidates data and interfaces used throughout initial sync. */
 public class InitialSyncContext {
@@ -38,6 +40,7 @@ public class InitialSyncContext {
   private final boolean useNaturalOrderScan;
   private final boolean enableParallelNaturalOrderScan;
   private final int parallelPartitionCount;
+  private final int parallelScanMaxConcurrentBatches;
   private final boolean removeMatchCollectionUuid;
   private final Gate initialSyncGate;
   private final Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig;
@@ -55,6 +58,7 @@ public class InitialSyncContext {
       boolean useNaturalOrderScan,
       boolean enableParallelNaturalOrderScan,
       int parallelPartitionCount,
+      int parallelScanMaxConcurrentBatches,
       Gate initialSyncGate,
       Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
       FeatureFlags featureFlags) {
@@ -72,12 +76,14 @@ public class InitialSyncContext {
     this.useNaturalOrderScan = useNaturalOrderScan;
     this.enableParallelNaturalOrderScan = enableParallelNaturalOrderScan;
     this.parallelPartitionCount = parallelPartitionCount;
+    this.parallelScanMaxConcurrentBatches = parallelScanMaxConcurrentBatches;
     this.removeMatchCollectionUuid = removeMatchCollectionUuid;
     this.initialSyncGate = initialSyncGate;
     this.autoEmbeddingMaterializedViewConfig = autoEmbeddingMaterializedViewConfig;
     this.featureFlags = featureFlags;
   }
 
+  @TestOnly
   static InitialSyncContext create(
       IndexDefinitionGeneration indexDefinitionGeneration,
       IndexingWorkScheduler indexingWorkScheduler,
@@ -99,6 +105,7 @@ public class InitialSyncContext {
         useNaturalOrderScan,
         enableParallelNaturalOrderScan,
         parallelPartitionCount,
+        InitialSyncConfig.DEFAULT_PARALLEL_SCAN_MAX_CONCURRENT_BATCHES,
         initialSyncGate,
         Optional.empty(),
         FeatureFlags.getDefault());
@@ -114,6 +121,7 @@ public class InitialSyncContext {
       boolean useNaturalOrderScan,
       boolean enableParallelNaturalOrderScan,
       int parallelPartitionCount,
+      int parallelScanMaxConcurrentBatches,
       Gate initialSyncGate,
       Optional<AutoEmbeddingMaterializedViewConfig> autoEmbeddingMaterializedViewConfig,
       FeatureFlags featureFlags) {
@@ -130,6 +138,7 @@ public class InitialSyncContext {
         useNaturalOrderScan,
         enableParallelNaturalOrderScan,
         parallelPartitionCount,
+        parallelScanMaxConcurrentBatches,
         initialSyncGate,
         autoEmbeddingMaterializedViewConfig,
         featureFlags);
@@ -220,6 +229,14 @@ public class InitialSyncContext {
   /** Returns the number of partitions to use when parallel natural-order scan is enabled. */
   public int getParallelPartitionCount() {
     return this.parallelPartitionCount;
+  }
+
+  /**
+   * Returns the configured maximum number of one index's collection-scan batches indexed at the
+   * same time during a parallel natural-order scan. 1 means batches are strictly serialized.
+   */
+  public int getParallelScanMaxConcurrentBatches() {
+    return this.parallelScanMaxConcurrentBatches;
   }
 
   /**
@@ -318,6 +335,7 @@ public class InitialSyncContext {
         this.useNaturalOrderScan,
         this.enableParallelNaturalOrderScan,
         this.parallelPartitionCount,
+        this.parallelScanMaxConcurrentBatches,
         this.initialSyncGate,
         this.autoEmbeddingMaterializedViewConfig,
         this.featureFlags);

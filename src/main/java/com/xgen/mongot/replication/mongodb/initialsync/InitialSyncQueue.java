@@ -1001,6 +1001,7 @@ public class InitialSyncQueue {
                 request.getUseNaturalOrderScan(),
                 InitialSyncQueue.this.initialSyncConfig.enableParallelNaturalOrderScan(),
                 InitialSyncQueue.this.initialSyncConfig.parallelPartitionCount(),
+                InitialSyncQueue.this.initialSyncConfig.parallelScanMaxConcurrentBatches(),
                 InitialSyncQueue.this.initialSyncGate,
                 InitialSyncQueue.this.autoEmbeddingMaterializedViewConfig,
                 InitialSyncQueue.this.featureFlags);

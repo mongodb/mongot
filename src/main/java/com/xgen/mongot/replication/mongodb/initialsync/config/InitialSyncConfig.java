@@ -24,6 +24,8 @@ import org.slf4j.LoggerFactory;
  *     natural-order scan is also enabled.
  * @param parallelPartitionCount The number of parallel partitions to use when parallel
  *     natural-order scan is enabled.
+ * @param parallelScanMaxConcurrentBatches The maximum number of one index's collection-scan batches
+ *     that may be indexed at the same time during a parallel natural-order scan.
  */
 public record InitialSyncConfig(
     Duration collectionScanTime,
@@ -33,7 +35,8 @@ public record InitialSyncConfig(
     boolean enableNaturalOrderScan,
     boolean avoidNaturalOrderScanSyncSourceChangeResync,
     boolean enableParallelNaturalOrderScan,
-    int parallelPartitionCount)
+    int parallelPartitionCount,
+    int parallelScanMaxConcurrentBatches)
     implements DocumentEncodable {
 
   /** Parses InitialSyncConfig from the provided DocumentParser. */
@@ -81,6 +84,13 @@ public record InitialSyncConfig(
             .optional()
             .withDefault(DEFAULT_PARALLEL_PARTITION_COUNT);
 
+    public static final Field.WithDefault<Integer> PARALLEL_SCAN_MAX_CONCURRENT_BATCHES =
+        Field.builder("parallelScanMaxConcurrentBatches")
+            .intField()
+            .mustBePositive()
+            .optional()
+            .withDefault(DEFAULT_PARALLEL_SCAN_MAX_CONCURRENT_BATCHES);
+
     public static final Field.Required<InitialSyncConfig> BUFFERLESS_CONFIG =
         Field.builder("bufferless")
             .classField(InitialSyncConfig::fromBson, InitialSyncConfig::initialSyncConfigToBson)
@@ -102,6 +112,9 @@ public record InitialSyncConfig(
   /** Default number of parallel partitions used when parallel natural-order scan is enabled. */
   private static final int DEFAULT_PARALLEL_PARTITION_COUNT = 4;
 
+  /** Default number of one index's collection-scan batches indexed at once. */
+  public static final int DEFAULT_PARALLEL_SCAN_MAX_CONCURRENT_BATCHES = 1;
+
   public static InitialSyncConfig fromBson(DocumentParser parser) throws BsonParseException {
     Duration collectionScanTime =
         Duration.ofMillis(parser.getField(Fields.COLLECTION_SCAN_TIME_MS).unwrap());
@@ -116,6 +129,8 @@ public record InitialSyncConfig(
     Boolean enableParallelNaturalOrderScan =
         parser.getField(Fields.ENABLE_PARALLEL_NATURAL_ORDER_SCAN).unwrap();
     Integer parallelPartitionCount = parser.getField(Fields.PARALLEL_PARTITION_COUNT).unwrap();
+    Integer parallelScanMaxConcurrentBatches =
+        parser.getField(Fields.PARALLEL_SCAN_MAX_CONCURRENT_BATCHES).unwrap();
 
     return new InitialSyncConfig(
         Optional.of(collectionScanTime),
@@ -125,11 +140,13 @@ public record InitialSyncConfig(
         Optional.of(enableNaturalOrderScan),
         Optional.of(avoidNaturalOrderScanSyncSourceChangeResync),
         Optional.of(enableParallelNaturalOrderScan),
-        Optional.of(parallelPartitionCount));
+        Optional.of(parallelPartitionCount),
+        Optional.of(parallelScanMaxConcurrentBatches));
   }
 
   public InitialSyncConfig() {
     this(
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -150,6 +167,7 @@ public record InitialSyncConfig(
         Optional.empty(),
         Optional.of(avoidNaturalOrderScanSyncSourceChangeResync),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -162,7 +180,8 @@ public record InitialSyncConfig(
       Optional<Boolean> enableNaturalOrderScan,
       Optional<Boolean> avoidNaturalOrderScanSyncSourceChangeResync,
       Optional<Boolean> enableParallelNaturalOrderScan,
-      Optional<Integer> parallelPartitionCount) {
+      Optional<Integer> parallelPartitionCount,
+      Optional<Integer> parallelScanMaxConcurrentBatches) {
     this(
         collectionScanTime.orElse(setDefault("collectionScanTimeMs", DEFAULT_COLLECTION_SCAN_TIME)),
         changeStreamCatchupTimeout.orElse(
@@ -173,7 +192,8 @@ public record InitialSyncConfig(
         enableNaturalOrderScan.orElse(false),
         avoidNaturalOrderScanSyncSourceChangeResync.orElse(false),
         enableParallelNaturalOrderScan.orElse(false),
-        parallelPartitionCount.orElse(DEFAULT_PARALLEL_PARTITION_COUNT));
+        parallelPartitionCount.orElse(DEFAULT_PARALLEL_PARTITION_COUNT),
+        parallelScanMaxConcurrentBatches.orElse(DEFAULT_PARALLEL_SCAN_MAX_CONCURRENT_BATCHES));
 
     useAggregateCommand.ifPresent(
         value ->
@@ -191,6 +211,9 @@ public record InitialSyncConfig(
     LOG.info(
         "parallelPartitionCount is {}",
         parallelPartitionCount.orElse(DEFAULT_PARALLEL_PARTITION_COUNT));
+    LOG.info(
+        "parallelScanMaxConcurrentBatches is {}",
+        parallelScanMaxConcurrentBatches.orElse(DEFAULT_PARALLEL_SCAN_MAX_CONCURRENT_BATCHES));
   }
 
   @Override
@@ -210,6 +233,7 @@ public record InitialSyncConfig(
             this.avoidNaturalOrderScanSyncSourceChangeResync)
         .field(Fields.ENABLE_PARALLEL_NATURAL_ORDER_SCAN, this.enableParallelNaturalOrderScan)
         .field(Fields.PARALLEL_PARTITION_COUNT, this.parallelPartitionCount)
+        .field(Fields.PARALLEL_SCAN_MAX_CONCURRENT_BATCHES, this.parallelScanMaxConcurrentBatches)
         .build();
   }
 

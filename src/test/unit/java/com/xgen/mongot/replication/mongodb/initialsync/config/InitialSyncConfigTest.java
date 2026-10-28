@@ -83,7 +83,7 @@ public class InitialSyncConfigTest {
         bufferlessWithParallelNaturalOrderScan() {
       return BsonDeserializationTestSuite.TestSpec.valid(
           "bufferless with parallel natural order scan",
-          InitialSyncConfigTest.createWithParallelNaturalOrderScan(true, 8));
+          InitialSyncConfigTest.createWithParallelNaturalOrderScan(true, 8, 3));
     }
 
     @Test
@@ -154,7 +154,7 @@ public class InitialSyncConfigTest {
         bufferlessWithParallelNaturalOrderScan() {
       return BsonSerializationTestSuite.TestSpec.create(
           "bufferless with parallel natural order scan",
-          InitialSyncConfigTest.createWithParallelNaturalOrderScan(true, 8));
+          InitialSyncConfigTest.createWithParallelNaturalOrderScan(true, 8, 3));
     }
 
     @Test
@@ -172,6 +172,7 @@ public class InitialSyncConfigTest {
         Optional.of(false),
         Optional.of(false),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -180,6 +181,7 @@ public class InitialSyncConfigTest {
     return new InitialSyncConfig(
         Optional.empty(),
         Optional.of(changeStreamCatchupTimeout),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
@@ -197,11 +199,14 @@ public class InitialSyncConfigTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
   public static InitialSyncConfig createWithParallelNaturalOrderScan(
-      boolean enableParallelNaturalOrderScan, int parallelPartitionCount) {
+      boolean enableParallelNaturalOrderScan,
+      int parallelPartitionCount,
+      int parallelScanMaxConcurrentBatches) {
     return new InitialSyncConfig(
         Optional.empty(),
         Optional.empty(),
@@ -210,7 +215,8 @@ public class InitialSyncConfigTest {
         Optional.of(true),
         Optional.of(false),
         Optional.of(enableParallelNaturalOrderScan),
-        Optional.of(parallelPartitionCount));
+        Optional.of(parallelPartitionCount),
+        Optional.of(parallelScanMaxConcurrentBatches));
   }
 
   public static InitialSyncConfig createWithEnableNaturalOrderScan(boolean enableNaturalOrderScan) {
@@ -221,6 +227,7 @@ public class InitialSyncConfigTest {
         Optional.empty(),
         Optional.of(enableNaturalOrderScan),
         Optional.of(true),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty());
   }

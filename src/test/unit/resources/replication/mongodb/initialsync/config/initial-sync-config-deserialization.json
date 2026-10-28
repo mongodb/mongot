@@ -76,7 +76,8 @@
           "enableNaturalOrderScan": true,
           "avoidNaturalOrderScanSyncSourceChangeResync": false,
           "enableParallelNaturalOrderScan": true,
-          "parallelPartitionCount": 8
+          "parallelPartitionCount": 8,
+          "parallelScanMaxConcurrentBatches": 3
         }
       }
     }
@@ -157,6 +158,30 @@
           "changeStreamLagTimeMs": 60000,
           "useAggregateCommand": true,
           "parallelPartitionCount": -2
+        }
+      }
+    },
+    {
+      "description": "zero parallel scan max concurrent batches",
+      "value": {
+        "bufferless": {
+          "collectionScanTimeMs": 300000,
+          "changeStreamCatchupTimeoutMs": 300000,
+          "changeStreamLagTimeMs": 60000,
+          "useAggregateCommand": true,
+          "parallelScanMaxConcurrentBatches": 0
+        }
+      }
+    },
+    {
+      "description": "negative parallel scan max concurrent batches",
+      "value": {
+        "bufferless": {
+          "collectionScanTimeMs": 300000,
+          "changeStreamCatchupTimeoutMs": 300000,
+          "changeStreamLagTimeMs": 60000,
+          "useAggregateCommand": true,
+          "parallelScanMaxConcurrentBatches": -2
         }
       }
     }

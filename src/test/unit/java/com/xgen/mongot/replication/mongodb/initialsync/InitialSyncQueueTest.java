@@ -145,7 +145,7 @@ public class InitialSyncQueueTest {
    * Guards the config plumbing from InitialSyncConfig through InitialSyncQueue onto the
    * InitialSyncContext handed to the InitialSyncManager. Every other boolean is false so a flag
    * wired from the wrong source cannot accidentally satisfy the assertion, and the partition count
-   * differs from the default of 4.
+   * and max concurrent batches differ from their defaults of 4 and 1.
    */
   @Test
   public void testParallelNaturalOrderScanConfigReachesContext() throws Exception {
@@ -161,7 +161,8 @@ public class InitialSyncQueueTest {
             Optional.of(false),
             Optional.of(false),
             Optional.of(true),
-            Optional.of(7));
+            Optional.of(7),
+            Optional.of(3));
 
     Mocks mocks =
         Mocks.create(
@@ -185,6 +186,7 @@ public class InitialSyncQueueTest {
     InitialSyncContext context = mocks.mockInitialSyncManagerFactory.getContext();
     Assert.assertTrue(context.isParallelNaturalOrderScanEnabled());
     Assert.assertEquals(7, context.getParallelPartitionCount());
+    Assert.assertEquals(3, context.getParallelScanMaxConcurrentBatches());
 
     mocks.mockInitialSyncManagerFactory.completeSync(MOCK_INDEX_GENERATION_ID);
     future.get(5, TimeUnit.SECONDS);
