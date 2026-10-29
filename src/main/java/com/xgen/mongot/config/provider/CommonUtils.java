@@ -36,6 +36,7 @@ import com.xgen.mongot.replication.mongodb.autoembedding.AutoEmbeddingMaterializ
 import com.xgen.mongot.replication.mongodb.autoembedding.MaterializedViewManager;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPauseState;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
@@ -63,7 +64,8 @@ public class CommonUtils {
       DefaultConfigManager.ReplicationMode replicationMode,
       ReplicationStateMonitor replicationStateMonitor,
       Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
-      Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar,
+      InitialSyncPauseState initialSyncPauseState) {
 
     return (Optional<SyncSourceConfig> syncConfig) -> {
       var pauseReplication = replicationStateMonitor.getReplicationGate().isClosed();
@@ -134,7 +136,8 @@ public class CommonUtils {
           meterAndFtdcRegistry,
           replicationStateMonitor.getInitialSyncGate(),
           embeddingServiceManagerSupplier,
-          leaderStatusRegistrar);
+          leaderStatusRegistrar,
+          initialSyncPauseState);
     };
   }
 

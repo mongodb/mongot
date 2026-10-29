@@ -33,6 +33,7 @@ import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.ReplicationOptimeUpdater;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SourceCollectionCountUpdater;
+import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPauseState;
 import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncQueue;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.replication.mongodb.steadystate.SteadyStateManager;
@@ -290,6 +291,42 @@ public class MongoDbReplicationManager implements ReplicationManager {
       BatchMongoClient syncBatchMongoClient,
       Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
       Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
+    return create(
+        dataPath,
+        initialSyncGate,
+        syncSourceConfig,
+        replicationConfig,
+        durabilityConfig,
+        initialSyncConfig,
+        featureFlags,
+        cursorManager,
+        indexCatalog,
+        initializedIndexCatalog,
+        meterAndFtdcRegistry,
+        replicationOptimeUpdaterInterval,
+        syncBatchMongoClient,
+        embeddingServiceManagerSupplier,
+        leaderStatusRegistrar,
+        new InitialSyncPauseState());
+  }
+
+  private static MongoDbReplicationManager create(
+      Path dataPath,
+      Gate initialSyncGate,
+      Optional<SyncSourceConfig> syncSourceConfig,
+      MongoDbReplicationConfig replicationConfig,
+      DurabilityConfig durabilityConfig,
+      InitialSyncConfig initialSyncConfig,
+      FeatureFlags featureFlags,
+      MongotCursorManager cursorManager,
+      IndexCatalog indexCatalog,
+      InitializedIndexCatalog initializedIndexCatalog,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      Duration replicationOptimeUpdaterInterval,
+      BatchMongoClient syncBatchMongoClient,
+      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar,
+      InitialSyncPauseState initialSyncPauseState) {
     if (syncSourceConfig.isEmpty()) {
       throw new IllegalArgumentException("syncSourceConfig must be provided");
     }
@@ -395,7 +432,8 @@ public class MongoDbReplicationManager implements ReplicationManager {
             dataPath,
             initialSyncGate,
             featureFlags,
-            Optional.empty());
+            Optional.empty(),
+            initialSyncPauseState);
 
     SteadyStateReplicationConfig steadyStateReplicationConfig =
         getSteadyStateReplicationConfig(replicationConfig, featureFlags);
@@ -535,6 +573,48 @@ public class MongoDbReplicationManager implements ReplicationManager {
       Optional<LeaderStatusRegistrar> leaderStatusRegistrar) {
     return create(
         dataPath,
+        syncSourceConfig,
+        replicationConfig,
+        durabilityConfig,
+        initialSyncConfig,
+        featureFlags,
+        cursorManager,
+        indexCatalog,
+        initializedIndexCatalog,
+        meterAndFtdcRegistry,
+        initialSyncGate,
+        embeddingServiceManagerSupplier,
+        leaderStatusRegistrar,
+        new InitialSyncPauseState());
+  }
+
+  public static MongoDbReplicationManager create(
+      Path dataPath,
+      Optional<SyncSourceConfig> syncSourceConfig,
+      MongoDbReplicationConfig replicationConfig,
+      DurabilityConfig durabilityConfig,
+      InitialSyncConfig initialSyncConfig,
+      FeatureFlags featureFlags,
+      MongotCursorManager cursorManager,
+      IndexCatalog indexCatalog,
+      InitializedIndexCatalog initializedIndexCatalog,
+      MeterAndFtdcRegistry meterAndFtdcRegistry,
+      Gate initialSyncGate,
+      Optional<Supplier<EmbeddingServiceManager>> embeddingServiceManagerSupplier,
+      Optional<LeaderStatusRegistrar> leaderStatusRegistrar,
+      InitialSyncPauseState initialSyncPauseState) {
+    if (syncSourceConfig.isEmpty()) {
+      throw new IllegalArgumentException("syncSourceConfig must be provided");
+    }
+    var syncBatchMongoClient =
+        getSyncBatchMongoClient(
+            syncSourceConfig.get(),
+            replicationConfig.numConcurrentChangeStreams,
+            DEFAULT.metricsNamespacePrefix,
+            meterAndFtdcRegistry.meterRegistry());
+
+    return create(
+        dataPath,
         initialSyncGate,
         syncSourceConfig,
         replicationConfig,
@@ -546,8 +626,10 @@ public class MongoDbReplicationManager implements ReplicationManager {
         initializedIndexCatalog,
         meterAndFtdcRegistry,
         ReplicationOptimeUpdater.DEFAULT_UPDATE_INTERVAL,
+        syncBatchMongoClient,
         embeddingServiceManagerSupplier,
-        leaderStatusRegistrar);
+        leaderStatusRegistrar,
+        initialSyncPauseState);
   }
 
   /** Creates gauges to track the number of index replication managers by state */

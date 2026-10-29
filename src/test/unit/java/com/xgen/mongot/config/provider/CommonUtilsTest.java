@@ -27,6 +27,7 @@ import com.xgen.mongot.replication.mongodb.MongoDbNoOpReplicationManager;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.replication.mongodb.common.MongoDbReplicationConfig;
+import com.xgen.mongot.replication.mongodb.initialsync.InitialSyncPauseState;
 import com.xgen.mongot.replication.mongodb.initialsync.config.InitialSyncConfig;
 import com.xgen.mongot.util.mongodb.ConnectionStringUtil;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
@@ -115,7 +116,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.DISABLE,
             ReplicationStateMonitor.disabled(),
             mocks.embeddingServiceManagerSupplier,
-            Optional.empty());
+            Optional.empty(),
+            new InitialSyncPauseState());
     var noOpReplicationManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpReplicationManager instanceof MongoDbNoOpReplicationManager);
   }
@@ -137,7 +139,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.ENABLE,
             ReplicationStateMonitor.enabled(),
             mocks.embeddingServiceManagerSupplier,
-            Optional.empty());
+            Optional.empty(),
+            new InitialSyncPauseState());
 
     // Verify that creation of a normal replication manager is attempted but fails due to mocked
     // configs
@@ -173,7 +176,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.DISK_UTILIZATION_BASED,
             replicationStateMonitor,
             mocks.embeddingServiceManagerSupplier,
-            Optional.empty());
+            Optional.empty(),
+            new InitialSyncPauseState());
     var noOpReplicationManager = factory.create(Optional.of(mocks.syncSourceConfig));
     Assert.assertTrue(noOpReplicationManager instanceof MongoDbNoOpReplicationManager);
 
@@ -211,7 +215,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.MONGOD_DISK_UTILIZATION_BASED,
             replicationStateMonitor,
             mocks.embeddingServiceManagerSupplier,
-            Optional.empty());
+            Optional.empty(),
+            new InitialSyncPauseState());
 
     Exception exception =
         Assert.assertThrows(
@@ -238,7 +243,8 @@ public class CommonUtilsTest {
             DefaultConfigManager.ReplicationMode.ENABLE,
             ReplicationStateMonitor.enabled(),
             mocks.embeddingServiceManagerSupplier,
-            Optional.empty());
+            Optional.empty(),
+            new InitialSyncPauseState());
 
     var configWithMissingUri =
         SyncSourceConfig.builder()

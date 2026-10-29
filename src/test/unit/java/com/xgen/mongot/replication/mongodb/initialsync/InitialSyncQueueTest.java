@@ -63,6 +63,7 @@ import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionGenerationB
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -106,6 +107,42 @@ public class InitialSyncQueueTest {
   private static final DocumentIndexer DOCUMENT_INDEXER = mockDocumentIndexer();
 
   private static final String DEFAULT_MONGO_HOST_NAME = "defaultHost";
+
+  @Test
+  public void create_recreatedQueue_retainsSharedPauseState() throws Exception {
+    var state = new InitialSyncPauseState();
+    var indexId = new ObjectId();
+    var first = createQueueWithPauseState(state);
+    first.shutdown().get(5, TimeUnit.SECONDS);
+
+    state.updatePausedIndexIds(List.of(indexId));
+    var second = createQueueWithPauseState(state);
+    try {
+      assertThat(second.initialSyncPauseState).isSameInstanceAs(state);
+      assertThat(second.initialSyncPauseState.isPaused(indexId)).isTrue();
+
+      state.updatePausedIndexIds(List.of());
+
+      assertThat(second.initialSyncPauseState.isPaused(indexId)).isFalse();
+    } finally {
+      second.shutdown().get(5, TimeUnit.SECONDS);
+    }
+  }
+
+  private static InitialSyncQueue createQueueWithPauseState(InitialSyncPauseState state) {
+    return InitialSyncQueue.create(
+        new SimpleMeterRegistry(),
+        Map.of(),
+        DEFAULT_MONGO_HOST_NAME,
+        mock(IndexingWorkSchedulerFactory.class),
+        MongoDbReplicationConfig.getDefault(),
+        new InitialSyncConfig(),
+        Path.of("unused"),
+        ToggleGate.opened(),
+        FeatureFlags.getDefault(),
+        Optional.empty(),
+        state);
+  }
 
   @Test
   public void queuedSyncsGaugesCoverEveryIndexTypeTag() throws Exception {
@@ -1641,7 +1678,8 @@ public class InitialSyncQueueTest {
               mockInitialSyncManagerFactory,
               rootPath,
               initialSyncGate,
-              FeatureFlags.getDefault());
+              FeatureFlags.getDefault(),
+              new InitialSyncPauseState());
     }
 
     static Mocks create(

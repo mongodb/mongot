@@ -12,6 +12,7 @@ java_test_suite(
         "InitialSyncNamespaceChangeCheckTest.java",
         "InitialSyncPartitionPlanTest.java",
         "InitialSyncPartitionPlannerTest.java",
+        "InitialSyncPauseStateTest.java",
         "InitialSyncQueueTest.java",
         "ParallelCollectionScanDispatcherTest.java",
         "ParallelCollectionScanResumeStateTest.java",

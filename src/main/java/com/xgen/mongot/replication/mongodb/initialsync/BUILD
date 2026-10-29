@@ -25,6 +25,7 @@ java_library(
         "InitialSyncPartitionPlan.java",
         "InitialSyncPartitionPlanner.java",
         "InitialSyncPartitionPlannerFactory.java",
+        "InitialSyncPauseState.java",
         "InitialSyncQueue.java",
         "InitialSyncRequest.java",
         "ParallelCollectionScanDispatcher.java",
