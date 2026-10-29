@@ -21,6 +21,7 @@ import com.xgen.mongot.server.command.search.definition.request.MaterializeVecto
 import com.xgen.mongot.server.command.search.definition.request.VectorSearchCommandDefinition;
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.UserFacingException;
+import com.xgen.mongot.util.bson.BsonVectorParser;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -246,6 +247,10 @@ public class MaterializeVectorSearchCommand implements Command {
    * under {@code command}, plus the canonical {@code model} that produced the vector so that shards
    * can detect applied-definition skew. {@code collectionUUID} is deliberately absent: each shard
    * supplies its own.
+   *
+   * <p>{@code queryVector} is always a BSON binData vector (subtype 9), whatever the index
+   * quantization. The router forwards it to every shard, and a float32 binData vector is about a
+   * third the size of the equivalent array of doubles.
    */
   private BsonDocument buildResponse(
       VectorSearchQuery original, Vector queryVector, Optional<String> model) {
@@ -270,6 +275,8 @@ public class MaterializeVectorSearchCommand implements Command {
         .deadlineTimestampMs()
         .ifPresent(deadline -> command.put("deadlineTimestampMs", new BsonInt64(deadline)));
     command.putAll(rewritten.toBson());
+    // A float vector serializes as an array of doubles; replace it in place so field order holds.
+    command.put("queryVector", BsonVectorParser.encode(queryVector));
 
     BsonDocument response = new BsonDocument();
     response.put("ok", new BsonInt32(1));

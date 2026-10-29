@@ -29,7 +29,9 @@ import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
+import com.xgen.mongot.index.definition.VectorSimilarity;
 import com.xgen.mongot.index.definition.ViewDefinition;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.operators.VectorSearchFilter;
@@ -39,7 +41,9 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.server.command.Command;
 import com.xgen.mongot.server.command.search.definition.request.MaterializeVectorSearchCommandDefinition;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.BsonVectorParser;
 import com.xgen.mongot.util.bson.Vector;
+import com.xgen.mongot.util.bson.parser.BsonParseContext;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.Errors;
 import com.xgen.mongot.util.mongodb.MongoDbServerInfo;
@@ -54,6 +58,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.bson.BsonBinary;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonInt64;
@@ -156,14 +161,51 @@ public class MaterializeVectorSearchCommandTest {
     assertThat(command.getString("vectorSearch").getValue()).isEqualTo(COLLECTION_NAME);
     assertThat(command.getString("$db").getValue()).isEqualTo(DATABASE_NAME);
     assertThat(command.getString("index").getValue()).isEqualTo(INDEX_NAME);
-    // Text replaced by the embedded vector; the path stays as the user wrote it.
-    assertThat(command.containsKey("queryVector")).isTrue();
+    // Text replaced by the embedded vector, as a binData vector that shards parse back exactly.
+    BsonBinary queryVector = command.getBinary("queryVector");
+    assertThat(queryVector.getType()).isEqualTo(BsonVectorParser.VECTOR_SUB_TYPE);
+    assertThat(Vector.fromBson(BsonParseContext.root(), queryVector)).isEqualTo(QUERY_VECTOR);
     assertThat(command.containsKey("query")).isFalse();
+    // The path stays as the user wrote it.
     assertThat(command.getString("path").getValue()).isEqualTo(PATH.toString());
     // Each shard resolves its own UUID; the router never learns one.
     assertThat(command.containsKey("collectionUUID")).isFalse();
     assertThat(command.containsKey("viewName")).isFalse();
     assertThat(command.containsKey("deadlineTimestampMs")).isFalse();
+  }
+
+  @Test
+  public void textQuery_scalarIndex_returnsInt8BinDataVector() throws Exception {
+    Vector int8Vector = Vector.fromBytes(new byte[] {-128, -1, 0, 1, 2, 3, 64, 127});
+    catalogHolds(
+        generation(
+            autoEmbedDefinition(COLLECTION_UUID, MODEL, VectorAutoEmbedQuantization.SCALAR).build(),
+            /* queryable= */ true));
+    embedReturns(int8Vector);
+
+    BsonDocument response = run(textQuery(), Optional.empty(), Optional.empty());
+
+    BsonBinary queryVector = response.getDocument("command").getBinary("queryVector");
+    assertThat(queryVector.getType()).isEqualTo(BsonVectorParser.VECTOR_SUB_TYPE);
+    assertThat(Vector.fromBson(BsonParseContext.root(), queryVector)).isEqualTo(int8Vector);
+  }
+
+  @Test
+  public void textQuery_binaryNoRescoreIndex_returnsPackedBitBinDataVector() throws Exception {
+    Vector bitVector = Vector.fromBits(new byte[] {(byte) 0b1010_0101});
+    catalogHolds(
+        generation(
+            autoEmbedDefinition(
+                    COLLECTION_UUID, MODEL, VectorAutoEmbedQuantization.BINARY_NO_RESCORE)
+                .build(),
+            /* queryable= */ true));
+    embedReturns(bitVector);
+
+    BsonDocument response = run(textQuery(), Optional.empty(), Optional.empty());
+
+    BsonBinary queryVector = response.getDocument("command").getBinary("queryVector");
+    assertThat(queryVector.getType()).isEqualTo(BsonVectorParser.VECTOR_SUB_TYPE);
+    assertThat(Vector.fromBson(BsonParseContext.root(), queryVector)).isEqualTo(bitVector);
   }
 
   @Test
@@ -709,6 +751,31 @@ public class MaterializeVectorSearchCommandTest {
         .name(INDEX_NAME)
         .collectionUuid(collectionUuid)
         .withAutoEmbedField(PATH.toString(), model);
+  }
+
+  /** An 8-dimension autoEmbed index with the given quantization and its default similarity. */
+  private static VectorIndexDefinitionBuilder autoEmbedDefinition(
+      UUID collectionUuid, String model, VectorAutoEmbedQuantization quantization) {
+    VectorSimilarity similarity =
+        quantization == VectorAutoEmbedQuantization.BINARY_NO_RESCORE
+            ? VectorSimilarity.EUCLIDEAN
+            : VectorSimilarity.DOT_PRODUCT;
+    return VectorIndexDefinitionBuilder.builder()
+        .database(DATABASE_NAME)
+        .lastObservedCollectionName(COLLECTION_NAME)
+        .name(INDEX_NAME)
+        .collectionUuid(collectionUuid)
+        .withAutoEmbedField(PATH.toString(), model, 8, quantization, similarity);
+  }
+
+  private void embedReturns(Vector vector) {
+    doReturn(List.of(new VectorOrError(vector)))
+        .when(this.embeddingService)
+        .embed(
+            Mockito.anyList(),
+            any(EmbeddingModelConfig.class),
+            any(EmbeddingServiceConfig.ServiceTier.class),
+            any(EmbeddingRequestContext.class));
   }
 
   private static IndexGeneration autoEmbedGeneration(
