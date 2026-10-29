@@ -76,14 +76,13 @@ interface InitialSyncManager {
    * @param timeout the maximum time to wait for futures to complete
    * @param futures the futures to await
    */
-  @Crash.SafeWithoutCrashLog
   static void awaitShutdown(Duration timeout, CompletableFuture<?>... futures) {
     try {
       FutureUtils.awaitAllComplete(timeout, futures);
     } catch (TimeoutException e) {
       Crash.because("timed out waiting to shut down")
-          .withoutCrashLog(NO_CRASH_LOG_REASON)
           .withThrowable(e)
+          .withCrashCategory(Crash.CrashCategory.EXECUTOR_SHUTDOWN)
           .withThreadDump()
           .now();
     }
