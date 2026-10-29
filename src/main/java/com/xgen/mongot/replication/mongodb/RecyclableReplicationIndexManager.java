@@ -126,6 +126,13 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @VisibleForTesting
   static final String INITIAL_SYNC_ENTRY_WAIT_COUNTER_NAME = "recyclableInitialSyncEntryWait";
 
+  /**
+   * Counts state transitions, tagged by {@code fromState} and {@code toState}. Mirrors {@code
+   * ReplicationIndexManager.transitionState}.
+   */
+  @VisibleForTesting
+  static final String TRANSITION_STATE_COUNTER_NAME = "recyclableTransitionState";
+
   /** How long to wait between re-checks of a still-queued initial-sync entry. */
   private static final Duration INITIAL_SYNC_ENTRY_RECHECK_DELAY = Duration.ofSeconds(1);
 
@@ -297,7 +304,15 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @GuardedBy("this")
   private Optional<ScheduledFuture<?>> reconcileTickFuture;
 
-  /** Volatile so {@link #getStateWithoutLock()} can read it without the monitor. */
+  /**
+   * While a follower, the state {@link ReplicationIndexManager#init} would derive from the same
+   * committed user data (see {@link #publishFollowerStatus}); INITIALIZING while a leader session
+   * runs, since {@link #getState()} then reads the inner manager. SHUT_DOWN means terminal for any
+   * reason -- {@link #terminate}, or a follower that derived stale, indexDropped, or
+   * collectionNotFound -- and freezes promotion for the generation (see {@link
+   * #onLeaderStatusChange}). Volatile so {@link #getStateWithoutLock()} can read it without the
+   * monitor.
+   */
   @GuardedBy("this")
   private volatile State state;
 
@@ -374,8 +389,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
   @Override
   @SuppressWarnings("GuardedBy") // volatile reads; writes still happen under this monitor
   public IndexManager.State getStateWithoutLock() {
-    // Read wrapped first: shutdown() and drop() set state to SHUT_DOWN before clearing wrapped, so
-    // a reader that sees wrapped cleared by them also sees SHUT_DOWN.
+    // Read wrapped first: every path that clears wrapped (terminate and both demotion sites in
+    // reconcile) writes state first, so a reader that sees wrapped cleared also sees the state
+    // that goes with it.
     return this.wrapped.map(ReplicationIndexManager::getStateWithoutLock).orElse(this.state);
   }
 
@@ -408,7 +424,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
       this.desiredStatus = LeaderStatus.FOLLOWER;
       cancelReconcileTick();
       // Mark SHUT_DOWN even while leader so a late upcall or in-flight reconcile cannot re-promote.
-      this.state = State.SHUT_DOWN;
+      transitionState(State.SHUT_DOWN);
       if (this.wrapped.isEmpty()) {
         // Nothing to stop: no manager ever, already stopped, or a reconcile-owned drain in flight
         // (which settles {@code lastStop} when it completes). The physical close and drop of the
@@ -507,6 +523,13 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    */
   public synchronized void onLeaderStatusChange(LeaderStatus newStatus) {
     if (this.state == State.SHUT_DOWN) {
+      // Terminal for any reason -- terminate, or a follower that derived a terminal status -- so
+      // the index is dead for this generation and late signals are dropped. Info, not a counter:
+      // the per-state gauge already reports the manager as SHUT_DOWN.
+      LOG.atInfo().log(
+          "Dropping {} signal: index manager is SHUT_DOWN (index status: {})",
+          newStatus,
+          this.followerContext.map(context -> context.index().getStatus()).orElse(null));
       return;
     }
     // Treat every upcall as a session boundary: bump the epoch so a running
@@ -568,6 +591,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
           // A running session from an older epoch (a leadership flap): stop it,
           // then re-prepare the new term (below, off the monitor).
           toShutdown = this.wrapped.get();
+          // State before wrapped (see getStateWithoutLock): with no session, INITIALIZING is the
+          // honest state until the new term installs.
+          transitionState(State.INITIALIZING);
           this.wrapped = Optional.empty();
           endedSession = this.currentSessionIndexer;
           this.currentSessionIndexer = Optional.empty();
@@ -625,6 +651,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
         // thread. Running that drain on transitionExecutor is acceptable: the inner manager already
         // runs its whole lifecycle there, the drain is bounded (~5-10s), and transitions are rare.
         toShutdown = this.wrapped.get();
+        // State before wrapped (see getStateWithoutLock); the next follower refresh re-derives the
+        // state from committed data.
+        transitionState(State.INITIALIZING);
         this.wrapped = Optional.empty();
         endedSession = this.currentSessionIndexer;
         this.currentSessionIndexer = Optional.empty();
@@ -1027,9 +1056,9 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
    * Publishes the index status corresponding to {@code encodedUserData} without starting
    * replication -- this node is a follower. The index is opened before this manager is created, so
    * its writer is readable here. Mirrors {@link MongoDbNoOpReplicationManager}'s {@code
-   * resetStatus} and the status half of {@link ReplicationIndexManager#init}: indexes are set as
-   * failed(exceededLimit), stale, doesNotExist(indexDropped or collectionNotFound), initialSync,
-   * steady, or notStarted.
+   * resetStatus} and the status and state halves of {@link ReplicationIndexManager#init}: indexes
+   * are set as failed(exceededLimit), stale, doesNotExist(indexDropped or collectionNotFound),
+   * initialSync, steady, or notStarted.
    *
    * <p>On promotion the inner {@link ReplicationIndexManager} re-derives status via {@code
    * index.getWriter().getCommitUserData()} and resumes replication from the latest durable token
@@ -1050,6 +1079,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
     if (exceededReason.isPresent()) {
       setFollowerStatus(
           index,
+          State.FAILED_EXCEEDED,
           IndexStatus.failed(
               ReplicationIndexManager.EXCEEDED_LIMIT_REASON_PREFIX + exceededReason.get()));
       return;
@@ -1073,6 +1103,7 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             return;
           }
           opTimeInfo.update(lastOptime.getValue(), lastOptime.getValue());
+          transitionState(State.SHUT_DOWN);
           index.setStatus(
               IndexStatus.stale(
                   staleStateInfo.get().getMessage(), staleStateInfo.get().getLastOptime()));
@@ -1083,19 +1114,22 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
 
     Optional<IndexStateInfo> indexStateInfo = userData.indexStateInfo();
     if (indexStateInfo.isPresent() && indexStateInfo.get().toIndexStatus().isIndexDropped()) {
-      setFollowerStatus(index, indexStateInfo.get().toIndexStatus());
+      setFollowerStatus(index, State.SHUT_DOWN, indexStateInfo.get().toIndexStatus());
       return;
     }
 
     if (featureFlags.isEnabled(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)) {
       if (indexStateInfo.isPresent() && indexStateInfo.get().isCollectionNotFound()) {
-        setFollowerStatus(index, IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
+        setFollowerStatus(
+            index,
+            State.SHUT_DOWN,
+            IndexStatus.doesNotExist(IndexStatus.Reason.COLLECTION_NOT_FOUND));
         return;
       }
     }
 
     if (userData.initialSyncResumeInfo().isPresent()) {
-      setFollowerStatus(index, IndexStatus.initialSync());
+      setFollowerStatus(index, State.INITIAL_SYNC, IndexStatus.initialSync());
       return;
     }
 
@@ -1126,25 +1160,52 @@ public final class RecyclableReplicationIndexManager implements IndexManager {
             return;
           }
           opTimeInfo.update(lastIndexedOpTime.getValue(), lastIndexedOpTime.getValue());
+          transitionState(State.STEADY_STATE);
           index.setStatus(IndexStatus.steady());
         }
       }
       return;
     }
 
-    setFollowerStatus(index, IndexStatus.notStarted());
+    setFollowerStatus(index, State.INITIAL_SYNC, IndexStatus.notStarted());
   }
 
   /**
-   * Publishes {@code status} on the index unless this manager has since been promoted to leader
-   * (the inner {@link ReplicationIndexManager} then owns status) or shut down. The check-and-set is
-   * guarded by this monitor so a concurrent promotion or shutdown wins.
+   * Records {@code derivedState} as this manager's state and publishes {@code status} on the index,
+   * unless this manager has since been promoted to leader (the inner {@link
+   * ReplicationIndexManager} then owns status) or shut down. The check-and-set is guarded by this
+   * monitor so a concurrent promotion or shutdown wins.
    */
-  private synchronized void setFollowerStatus(InitializedIndex index, IndexStatus status) {
+  private synchronized void setFollowerStatus(
+      InitializedIndex index, State derivedState, IndexStatus status) {
     if (this.wrapped.isPresent() || this.state == State.SHUT_DOWN) {
       return;
     }
+    transitionState(derivedState);
     index.setStatus(status);
+  }
+
+  /**
+   * Mirrors {@code ReplicationIndexManager.transitionState}, minus its replication-metric resets
+   * (only a replicating manager needs those): no-op when already in {@code destination}, otherwise
+   * counts and logs the transition and assigns. Callers hold this monitor, so the from/to tags and
+   * the assignment are atomic.
+   */
+  @GuardedBy("this")
+  private void transitionState(State destination) {
+    if (destination.equals(this.state)) {
+      return;
+    }
+    this.meterRegistry
+        .counter(
+            TRANSITION_STATE_COUNTER_NAME,
+            "fromState",
+            this.state.name(),
+            "toState",
+            destination.name())
+        .increment();
+    LOG.atInfo().log("Transitioning from {} to {}.", this.state, destination);
+    this.state = destination;
   }
 
   /**

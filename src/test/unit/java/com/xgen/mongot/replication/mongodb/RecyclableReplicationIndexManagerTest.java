@@ -528,6 +528,138 @@ public class RecyclableReplicationIndexManagerTest {
     }
   }
 
+  @Test
+  public void getState_followerExceeded_returnsFailedExceeded() {
+    FollowerIndex index = followerIndex(IndexCommitUserData.createExceeded("too big"));
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.FAILED_EXCEEDED);
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.FAILED);
+  }
+
+  @Test
+  public void getState_followerStale_returnsShutDown() {
+    FollowerIndex index = followerIndex(staleCommitData());
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.STALE);
+  }
+
+  @Test
+  public void getState_followerIndexDropped_returnsShutDown() {
+    FollowerIndex index =
+        followerIndex(
+            IndexCommitUserData.createFromIndexStateInfo(
+                IndexStateInfo.create(
+                    IndexStatus.StatusCode.DOES_NOT_EXIST, IndexStatus.Reason.INDEX_DROPPED)));
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+    assertThat(index.status())
+        .isEqualTo(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
+  }
+
+  @Test
+  public void getState_followerCollectionNotFound_returnsShutDown() {
+    FeatureFlags featureFlags =
+        FeatureFlags.withDefaults()
+            .enable(Feature.SHUT_DOWN_REPLICATION_WHEN_COLLECTION_NOT_FOUND)
+            .build();
+    FollowerIndex index =
+        followerIndex(
+            IndexCommitUserData.createFromIndexStateInfo(
+                IndexStateInfo.create(
+                    IndexStatus.StatusCode.DOES_NOT_EXIST,
+                    IndexStatus.Reason.COLLECTION_NOT_FOUND)));
+    var rrim = createFollowerManager(index, featureFlags);
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.DOES_NOT_EXIST);
+    assertThat(index.status().getReason()).hasValue(IndexStatus.Reason.COLLECTION_NOT_FOUND);
+  }
+
+  @Test
+  public void getState_followerInitialSyncResume_returnsInitialSync() {
+    FollowerIndex index =
+        followerIndex(
+            IndexCommitUserData.createInitialSyncResume(
+                IndexFormatVersion.CURRENT.versionNumber,
+                new BufferlessIdOrderInitialSyncResumeInfo(
+                    new BsonTimestamp(1234567890L), new BsonString("a"))));
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.INITIAL_SYNC);
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.INITIAL_SYNC);
+  }
+
+  @Test
+  public void getState_followerSteady_returnsSteadyState() {
+    FollowerIndex index = followerIndex(steadyCommitData());
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.STEADY_STATE);
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.STEADY);
+  }
+
+  @Test
+  public void getState_followerEmpty_returnsInitialSync() {
+    // Like RIM.init: notStarted status, INITIAL_SYNC state (RIM would run an initial sync next).
+    FollowerIndex index = followerIndex(IndexCommitUserData.EMPTY);
+    var rrim = createFollowerManager(index, FeatureFlags.getDefault());
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.INITIAL_SYNC);
+    assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.NOT_STARTED);
+  }
+
+  @Test
+  public void getState_afterDemotion_returnsInitializingThenRederived() {
+    var factory = mockWrappedFactory();
+    var inner = stubShutdown(mock(ReplicationIndexManager.class));
+    when(factory.get()).thenReturn(inner);
+    FollowerIndex index = followerIndex(steadyCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.onLeaderStatusChange(LeaderStatus.FOLLOWER);
+
+    // State is written before wrapped is cleared at the demotion site, so even the lock-free read
+    // sees INITIALIZING, not the leftover follower state.
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.INITIALIZING);
+    assertThat(rrim.getStateWithoutLock()).isEqualTo(IndexManager.State.INITIALIZING);
+
+    rrim.triggerReconcileTick();
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.STEADY_STATE);
+  }
+
+  @Test
+  public void onLeaderStatusChange_afterFollowerStale_doesNotPromote() {
+    // A stale follower is terminal: a promoted RIM would derive SHUT_DOWN from the same monotone
+    // markers, so the manager refuses promotion for the generation instead.
+    var factory = mockWrappedFactory();
+    FollowerIndex index = followerIndex(staleCommitData());
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            factory,
+            index.index,
+            FeatureFlags.getDefault(),
+            mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION));
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+
+    rrim.onLeaderStatusChange(LeaderStatus.LEADER);
+    rrim.triggerReconcileTick(); // the periodic tick cannot resurrect it either
+
+    verify(factory, never()).get();
+    assertThat(rrim.isLeader()).isFalse();
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+  }
+
   // ── shutdown ────────────────────────────────────────────────────────────────
 
   @Test
@@ -710,6 +842,32 @@ public class RecyclableReplicationIndexManagerTest {
         .setStatus(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
     assertThat(index.status().getStatusCode()).isEqualTo(IndexStatus.StatusCode.DOES_NOT_EXIST);
     assertThat(index.status().getReason()).hasValue(IndexStatus.Reason.INDEX_DROPPED);
+  }
+
+  @Test
+  public void drop_afterFollowerStale_completesAndMarksDropped() {
+    // A stale follower is SHUT_DOWN without terminate() having run; drop() must still chain the
+    // dropped-finalizer path (no inner manager ever ran RIM.dropIndex).
+    var generation = mockIndexGeneration(MOCK_INDEX_DEFINITION_GENERATION);
+    FollowerIndex index = followerIndex(staleCommitData());
+    MongotCursorManager cursorManager = mock(MongotCursorManager.class);
+    var rrim =
+        RecyclableReplicationIndexManager.createForTesting(
+            mockWrappedFactory(),
+            Runnable::run,
+            index.index,
+            FeatureFlags.getDefault(),
+            generation,
+            cursorManager);
+
+    assertThat(rrim.getState()).isEqualTo(IndexManager.State.SHUT_DOWN);
+
+    var future = rrim.drop();
+
+    assertTrue(future.isDone());
+    verify(cursorManager).killIndexCursors(generation.getGenerationId());
+    assertThat(index.status())
+        .isEqualTo(IndexStatus.doesNotExist(IndexStatus.Reason.INDEX_DROPPED));
   }
 
   @Test
@@ -1190,16 +1348,7 @@ public class RecyclableReplicationIndexManagerTest {
 
   @Test
   public void followerInit_staleInfo_setsStaleAndUpdatesOptime() {
-    ChangeStreamResumeInfo staleResumeInfo =
-        ChangeStreamResumeInfo.create(
-            new MongoNamespace("db", "coll"), ChangeStreamUtils.resumeToken(STALE_OPTIME));
-    StaleStateInfo staleStateInfo =
-        StaleStateInfo.create(
-            StaleStatusReason.DOCS_EXCEEDED,
-            StaleStatusReason.DOCS_EXCEEDED.formatMessage(),
-            IndexCommitUserData.createChangeStreamResume(
-                staleResumeInfo, IndexFormatVersion.CURRENT.versionNumber));
-    FollowerIndex index = followerIndex(IndexCommitUserData.createStale(staleStateInfo));
+    FollowerIndex index = followerIndex(staleCommitData());
 
     createFollowerManager(index, FeatureFlags.getDefault());
 
@@ -2003,6 +2152,18 @@ public class RecyclableReplicationIndexManagerTest {
             new MongoNamespace("database", "collection"),
             new BsonDocument("_data", new BsonString("820000000000000000"))),
         IndexFormatVersion.CURRENT.versionNumber);
+  }
+
+  private static IndexCommitUserData staleCommitData() {
+    StaleStateInfo staleStateInfo =
+        StaleStateInfo.create(
+            StaleStatusReason.DOCS_EXCEEDED,
+            StaleStatusReason.DOCS_EXCEEDED.formatMessage(),
+            IndexCommitUserData.createChangeStreamResume(
+                ChangeStreamResumeInfo.create(
+                    new MongoNamespace("db", "coll"), ChangeStreamUtils.resumeToken(STALE_OPTIME)),
+                IndexFormatVersion.CURRENT.versionNumber));
+    return IndexCommitUserData.createStale(staleStateInfo);
   }
 
   private static FollowerIndex followerIndex(IndexCommitUserData... commitData) {
