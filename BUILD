@@ -173,6 +173,15 @@ exports_files([
     "scripts/runfiles_helper.sh",
 ])
 
+exports_files(
+    [
+        "MODULE.bazel.lock",
+        "conf/evergreen/base_tasks.yml",
+        "conf/searchfuzzer/release.yml",
+    ],
+    visibility = ["//bazel/docker:__pkg__"],
+)
+
 #package the docker config separately because it will not exist in evergreen builds
 pkg_files(
     name = "dockerConfigYaml",
