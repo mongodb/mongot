@@ -180,9 +180,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
       // acknowledged before this one.
       Optional<PartitionedBatch> partitionedBatch = registerPartitionedBatch(batch, resumeInfo);
 
-      // Look at the last two events in batch for a lifecycle event (DROP, RENAME, INVALIDATE). If
-      // found, no new batches will be submitted by upper logic and `lifecycleFuture` will get
-      // completed exceptionally after indexing completes.
+      // Check the last two events for a lifecycle change. If found, the caller stops submitting
+      // batches and lifecycleFuture completes exceptionally after successful indexing.
       Optional<SteadyStateException> lifecycleEvent = getMaybeLifecycleEventException(batch);
 
       Timed.recordSampleIgnoringMetricsFailure(preprocessingBatchTimer, timer.stop().elapsed());
@@ -222,7 +221,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
                 fullness.set(BatchFullness.classify(events.size(), rawBatchBytes));
 
                 // A list view of change-stream documents based on given raw documents. The view
-                // excludes non-CRUD events from the end of the list. Note: decoding from raw
+                // excludes lifecycle events from the end of the list. Note: decoding from raw
                 // document to change-stream document happens when calling List#get.
                 List<ChangeStreamDocument<RawBsonDocument>> indexableChangeStreamEvents =
                     getIndexableChangeStreamEvents(batch.getRawEvents(), hasLifecycleEvent);
@@ -430,7 +429,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
   protected List<ChangeStreamDocument<RawBsonDocument>> getIndexableChangeStreamEvents(
       List<RawBsonDocument> events, boolean hasLifecycleEvent) {
 
-    // If a lifecycle event was found, create a sublist view excluding the lifecycle event(s).
+    // Trim only lifecycle events. Keep OTHER so validation can request resync even before a rename.
+    // For example, [INSERT, OTHER, RENAME, INVALIDATE] retains [INSERT, OTHER] for validation.
     var eventsToIndex =
         hasLifecycleEvent ? events.subList(0, indexOfLifecycleEvent(events)) : events;
 
@@ -439,17 +439,9 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
   }
 
   /**
-   * Checks whether the given event is a lifecycle or unexpected. If so returns a matching
-   * exception.
-   *
-   * <p>In case of DROP or DROP_DATABASE event, the index is dropped. In case of RENAME, INVALIDATE
-   * and OTHER in the middle of the batch, require an initial sync.
-   *
-   * <p>This behavior matches for OTHER event and a RENAME without a following INVALIDATE, as if
-   * detected during pre-processing lifecycle check. For RENAME with following INVALIDATE or
-   * orphaned INVALIDATE in middle of batch, we require initial-sync instead of resume, but those
-   * are unexpected scenarios as RENAME should always be followed with an INVALIDATE, and INVALIDATE
-   * is expected to be the last event in change-stream.
+   * Validates events retained after lifecycle trimming. OTHER requires resync, as do unexpected
+   * RENAME or INVALIDATE events within the batch. DROP and DROP_DATABASE request dropping the
+   * index.
    */
   private Optional<SteadyStateException> checkNonIndexableEvent(
       ChangeStreamDocument<RawBsonDocument> event) {
@@ -475,9 +467,7 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
   }
 
   /**
-   * Invalidating events (DROP, DROP_DATABASE and RENAME) are guaranteed to be the last two events
-   * in stream, if they happen. Look at the last two events to search for a lifecycleEvent. If
-   * found, return an exception to trigger lifecycle changes.
+   * Checks the last two events for a lifecycle change. OTHER is handled during event validation.
    *
    * @return An {@link Optional} of SteadyStateException describing the change-stream
    *     lifecycleEvents. Otherwise {@link Optional#empty()}.
@@ -553,16 +543,8 @@ class DecodingExecutorChangeStreamIndexManager extends ChangeStreamIndexManager 
             SteadyStateException.createInvalidated(
                 ChangeStreamResumeInfo.create(this.namespace, event.getResumeToken())));
       }
-      case OTHER -> {
-        // If we saw an event we can't process, then there's no use in trying to restart
-        // the change stream. Resync and hope for the best.
-        logChangeStreamEventDetails(event);
-        return Optional.of(
-            SteadyStateException.createRequiresResync(
-                String.format("witnessed unknown change stream event: %s", event)));
-      }
-      case INSERT, UPDATE, REPLACE, DELETE -> {
-        // No-op
+      case INSERT, UPDATE, REPLACE, DELETE, OTHER -> {
+        // Non-lifecycle events are handled during decoding.
       }
     }
 

@@ -190,7 +190,7 @@ public class ChangeStreamDocumentUtilsTest {
                   ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION),
                   ChangeStreamUtils.deleteEvent(2, MOCK_INDEX_DEFINITION),
                   ChangeStreamUtils.otherEvent(3)));
-      Assert.assertEquals(3, ChangeStreamDocumentUtils.indexOfLifecycleEvent(otherAtEnd));
+      Assert.assertEquals(4, ChangeStreamDocumentUtils.indexOfLifecycleEvent(otherAtEnd));
     }
 
     {
@@ -222,6 +222,26 @@ public class ChangeStreamDocumentUtilsTest {
                   ChangeStreamUtils.insertEvent(2, MOCK_INDEX_DEFINITION)));
       Assert.assertEquals(3, ChangeStreamDocumentUtils.indexOfLifecycleEvent(otherAtMiddle));
     }
+  }
+
+  @Test
+  public void indexOfLifecycleEvent_otherBeforeRename_retainsOther() {
+    var events =
+        ChangeStreamUtils.toRawBsonDocuments(
+            List.of(
+                ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
+                ChangeStreamUtils.otherEvent(1),
+                ChangeStreamUtils.renameEvent(2),
+                ChangeStreamUtils.invalidateEvent(3)));
+
+    assertThat(ChangeStreamDocumentUtils.indexOfLifecycleEvent(events)).isEqualTo(2);
+  }
+
+  @Test
+  public void indexOfLifecycleEvent_onlyOther_hasNoLifecycleSuffix() {
+    var events = ChangeStreamUtils.toRawBsonDocuments(List.of(ChangeStreamUtils.otherEvent(0)));
+
+    assertThat(ChangeStreamDocumentUtils.indexOfLifecycleEvent(events)).isEqualTo(1);
   }
 
   @Test

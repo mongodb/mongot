@@ -1008,10 +1008,12 @@ public class ChangeStreamDocumentUtils {
   }
 
   /**
-   * Traverses the given list of raw {@link ChangeStreamDocument} and returns the index of the
-   * left-most non-indexable event (INVALIDATE, RENAME, DROP, OTHER) from the end of list. In case
-   * the list is empty returns 0, if no such elements found (or present in middle of list) returns
-   * {@link List#size()}.
+   * Identifies lifecycle events at the end of a batch that callers can handle separately from
+   * normal event validation. OTHER must still be validated, even when followed by lifecycle events,
+   * so it can trigger resync.
+   *
+   * @return the first trailing DROP, DROP_DATABASE, RENAME, or INVALIDATE event's index, or the
+   *     list size if there are none.
    */
   public static int indexOfLifecycleEvent(List<RawBsonDocument> events) {
     @Var int lastIndex = events.size();
@@ -1019,10 +1021,10 @@ public class ChangeStreamDocumentUtils {
     while (lastIndex > 0) {
 
       switch (bsonDocumentToChangeStreamDocument(events.get(lastIndex - 1)).getOperationType()) {
-        case INSERT, UPDATE, REPLACE, DELETE -> {
+        case INSERT, UPDATE, REPLACE, DELETE, OTHER -> {
           return lastIndex;
         }
-        case DROP, DROP_DATABASE, RENAME, INVALIDATE, OTHER -> lastIndex--;
+        case DROP, DROP_DATABASE, RENAME, INVALIDATE -> lastIndex--;
       }
     }
 

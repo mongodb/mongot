@@ -1369,7 +1369,19 @@ public class ChangeStreamIndexManagerTest {
           List.of(
               ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
               ChangeStreamUtils.otherEvent(1));
-      testThrowsLifecycleException(events, SteadyStateException.Type.REQUIRES_RESYNC);
+      testIndexingFutureEndsExceptionally(events, SteadyStateException.Type.REQUIRES_RESYNC);
+    }
+
+    @Test
+    public void indexBatch_otherBeforeRenameAndInvalidate_requiresResync() {
+      var events =
+          List.of(
+              ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
+              ChangeStreamUtils.otherEvent(1),
+              ChangeStreamUtils.renameEvent(2),
+              ChangeStreamUtils.invalidateEvent(3));
+
+      testIndexingFutureEndsExceptionally(events, SteadyStateException.Type.REQUIRES_RESYNC);
     }
 
     @Test
@@ -1383,7 +1395,7 @@ public class ChangeStreamIndexManagerTest {
       List<ChangeStreamDocument<RawBsonDocument>> events =
           List.of(
               ChangeStreamUtils.insertEvent(0, indexDefinition), ChangeStreamUtils.otherEvent(1));
-      testThrowsLifecycleException(events, SteadyStateException.Type.REQUIRES_RESYNC);
+      testIndexingFutureEndsExceptionally(events, SteadyStateException.Type.REQUIRES_RESYNC);
     }
 
     @Test
@@ -1952,20 +1964,6 @@ public class ChangeStreamIndexManagerTest {
             Optional.of(
                 ChangeStreamResumeInfo.create(
                     ChangeStreamUtils.NAMESPACE, invalidate.getResumeToken()))
-          },
-          new Object[] {
-            "unknown",
-            List.of(ChangeStreamUtils.otherEvent(10)),
-            List.of(),
-            Type.REQUIRES_RESYNC,
-            Optional.empty()
-          },
-          new Object[] {
-            "renameFollowedByUnknown",
-            List.of(ChangeStreamUtils.renameEvent(10)),
-            List.of(ChangeStreamUtils.otherEvent(11)),
-            Type.REQUIRES_RESYNC,
-            Optional.empty()
           });
     }
 
@@ -2106,9 +2104,38 @@ public class ChangeStreamIndexManagerTest {
       List<ChangeStreamDocument<RawBsonDocument>> events =
           List.of(
               ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
-              ChangeStreamUtils.renameEvent(1),
+              ChangeStreamUtils.otherEvent(1),
               ChangeStreamUtils.insertEvent(2, MOCK_INDEX_DEFINITION));
       testIndexingFutureEndsExceptionally(events, SteadyStateException.Type.REQUIRES_RESYNC);
+    }
+
+    @Test
+    public void indexBatch_onlyOther_requiresResyncDuringDecoding() {
+      testIndexingFutureEndsExceptionally(
+          List.of(ChangeStreamUtils.otherEvent(0)), Type.REQUIRES_RESYNC);
+    }
+
+    @Test
+    public void indexBatch_otherBeforeDropAndInvalidate_requiresResyncDuringDecoding() {
+      var events =
+          List.of(
+              ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
+              ChangeStreamUtils.otherEvent(1),
+              ChangeStreamUtils.dropEvent(2),
+              ChangeStreamUtils.invalidateEvent(3));
+
+      testIndexingFutureEndsExceptionally(events, Type.REQUIRES_RESYNC);
+    }
+
+    @Test
+    public void indexBatch_otherAfterRename_requiresResyncDuringDecoding() {
+      var events =
+          List.of(
+              ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
+              ChangeStreamUtils.renameEvent(1),
+              ChangeStreamUtils.otherEvent(2));
+
+      testIndexingFutureEndsExceptionally(events, Type.REQUIRES_RESYNC);
     }
 
     @Test
