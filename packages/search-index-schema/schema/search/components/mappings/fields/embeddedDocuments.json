@@ -30,5 +30,18 @@
     }
   },
   "required": ["type"],
+  "allOf": [
+    {
+      "not": {
+        "required": ["fields"],
+        "properties": {
+          "fields": {
+            "$ref": "../fields.json#/definitions/containsAutoEmbed"
+          }
+        }
+      },
+      "errorMessage": "autoEmbed fields are not supported inside embeddedDocuments."
+    }
+  ],
   "additionalProperties": false
 }

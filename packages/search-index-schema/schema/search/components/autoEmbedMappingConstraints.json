@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search/components/autoEmbedMappingConstraints.json",
+  "if": {
+    "required": ["mappings"],
+    "properties": {
+      "mappings": {
+        "$ref": "mappings.json#/definitions/containsAutoEmbed"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "mappings": {
+        "not": {
+          "$ref": "mappings.json#/definitions/containsEnabledDynamicMappings"
+        },
+        "errorMessage": "Dynamic mappings are not supported in an index with autoEmbed fields. Set dynamic to false at every level and map fields explicitly.",
+        "allOf": [
+          {
+            "$ref": "mappings.json#/definitions/containsNoStoredSource"
+          }
+        ],
+        "properties": {
+          "fields": {
+            "propertyNames": {
+              "not": {
+                "pattern": "^_autoEmbed(\\.|$)"
+              },
+              "errorMessage": "Field names \"_autoEmbed\" and \"_autoEmbed.*\" are reserved for internal auto-embedding materialized-view fields."
+            }
+          }
+        }
+      },
+      "storedSource": {
+        "const": false,
+        "errorMessage": "storedSource is not supported in an index with autoEmbed fields. Remove storedSource or set it to false."
+      }
+    }
+  }
+}

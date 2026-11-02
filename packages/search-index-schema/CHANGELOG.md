@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-10-30
+
+### Added
+
+- `autoEmbeddingLexicalPrefilter` feature flag and matching Atlas Search variants
+  (`search/index_autoEmbeddingLexicalPrefilter.json`,
+  `search/index_sort_autoEmbeddingLexicalPrefilter.json`). Only these variants accept `autoEmbed`
+  fields.
+- Optional `indexingMethod` (`hnsw` or `flat`) and `hnswOptions` (`maxEdges`, `numEdgeCandidates`)
+  on `autoEmbed` fields in both the Atlas Search and Vector Search schemas. `hnswOptions` is
+  rejected with `indexingMethod: "flat"`.
+
+### Changed
+
+- **BREAKING:** the base Atlas Search schemas (`search/index.json`, `search/index_sort.json`) no
+  longer accept `autoEmbed` fields. Pass `autoEmbeddingLexicalPrefilter` to `getSchema` to get them.
+- **BREAKING:** Atlas Search `autoEmbed` field mappings use their mapping key as the source path. The
+  user-supplied `path` property is no longer accepted.
+- Search indexes containing `autoEmbed` fields reject dynamic mappings at every level,
+  `document`, `embeddedDocuments`, and `geo` alternatives on the auto-embedding source field, and
+  `autoEmbed` fields beneath `embeddedDocuments`.
+- Search indexes containing `autoEmbed` fields reject root mapping keys `_autoEmbed` and
+  `_autoEmbed.*`, which are reserved for internal auto-embedding materialized-view fields.
+- Search indexes containing `autoEmbed` fields accept only an omitted or explicit `false`
+  `storedSource`, both on the index and on every `embeddedDocuments` mapping. Stored source is not
+  yet supported for automated embedding.
+
 ## [2.3.0] - 2026-10-06
 
 ### Added

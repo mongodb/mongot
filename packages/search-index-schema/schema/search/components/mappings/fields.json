@@ -24,8 +24,177 @@
             "$ref": "field.json"
           }
         }
+      ],
+      "allOf": [
+        {
+          "not": {
+            "type": "array",
+            "allOf": [
+              {
+                "contains": {
+                  "required": ["type"],
+                  "properties": {
+                    "type": {
+                      "const": "autoEmbed"
+                    }
+                  }
+                }
+              },
+              {
+                "contains": {
+                  "required": ["type"],
+                  "properties": {
+                    "type": {
+                      "enum": ["document", "embeddedDocuments", "geo"]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "errorMessage": "A field mapped as autoEmbed cannot also be mapped as document, embeddedDocuments or geo."
+        }
       ]
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "definitions": {
+    "containsAutoEmbed": {
+      "not": {
+        "$ref": "#/definitions/containsNoAutoEmbed"
+      }
+    },
+    "containsNoAutoEmbed": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/fieldDefinitionWithoutAutoEmbed"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/fieldDefinitionWithoutAutoEmbed"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "fieldDefinitionWithoutAutoEmbed": {
+      "type": "object",
+      "allOf": [
+        {
+          "not": {
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "const": "autoEmbed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["fields"]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "$ref": "#/definitions/containsNoAutoEmbed"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "containsEnabledDynamicMappings": {
+      "not": {
+        "$ref": "#/definitions/containsNoEnabledDynamicMappings"
+      }
+    },
+    "containsNoEnabledDynamicMappings": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/fieldDefinitionWithoutEnabledDynamicMappings"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/fieldDefinitionWithoutEnabledDynamicMappings"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "fieldDefinitionWithoutEnabledDynamicMappings": {
+      "type": "object",
+      "allOf": [
+        {
+          "not": {
+            "required": ["dynamic"],
+            "properties": {
+              "dynamic": {
+                "$ref": "../dynamic.json#/definitions/enabled"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["fields"]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "$ref": "#/definitions/containsNoEnabledDynamicMappings"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "containsNoStoredSource": {
+      "type": "object",
+      "patternProperties": {
+        "^.*$": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/fieldDefinitionWithoutStoredSource"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/fieldDefinitionWithoutStoredSource"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "fieldDefinitionWithoutStoredSource": {
+      "type": "object",
+      "properties": {
+        "storedSource": {
+          "const": false,
+          "errorMessage": "Field-level storedSource is not supported in an index with autoEmbed fields. Remove storedSource or set it to false."
+        }
+      },
+      "if": {
+        "required": ["fields"]
+      },
+      "then": {
+        "properties": {
+          "fields": {
+            "$ref": "#/definitions/containsNoStoredSource"
+          }
+        }
+      }
+    }
+  }
 }

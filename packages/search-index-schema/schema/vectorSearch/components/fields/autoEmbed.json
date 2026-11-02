@@ -101,7 +101,59 @@
           "const": "euclidean"
         }
       ]
+    },
+    "indexingMethod": {
+      "suggestSortText": "7",
+      "type": "string",
+      "description": "Indexing method to use",
+      "markdownDescription": "Indexing method to use. \nValues include:\n- `hnsw` - Hierarchical Navigable Small Worlds graph construction.\n- `flat` - flat index build.",
+      "default": "hnsw",
+      "oneOf": [
+        {
+          "const": "hnsw"
+        },
+        {
+          "const": "flat"
+        }
+      ]
+    },
+    "hnswOptions": {
+      "suggestSortText": "8",
+      "type": "object",
+      "markdownDescription": "Parameters to use for [Hierarchical Navigable Small Worlds](https://arxiv.org/abs/1603.09320) graph construction. If omitted, uses the default values for the maxEdges and numEdgeCandidates parameters. IMPORTANT: This is available as a Preview feature. Modifying the default values might negatively impact your MongoDB Search index and queries.",
+      "description": "Parameters to use for Hierarchical Navigable Small Worlds graph construction.",
+      "properties": {
+        "maxEdges": {
+          "type": "integer",
+          "markdownDescription": "Maximum number of edges (or connections) that a node can have in the [Hierarchical Navigable Small Worlds](https://arxiv.org/abs/1603.09320) graph. Value can be between 16 and 64, both inclusive. If omitted, defaults to 16. For example, for a value of 16, each node can have a maximum of sixteen outgoing edges at each layer of the Hierarchical Navigable Small Worlds graph. A higher number improves recall (accuracy of search results) because the graph is better connected. However, this also increases query and indexing time by increasing the number of neighbors to evaluate per graph node, and requires more memory to store the additional nodes for each connection in the Hierarchical Navigable Small Worlds graph.",
+          "description": "Maximum number of edges (or connections) that a node can have in the Hierarchical Navigable Small Worlds graph.",
+          "minimum": 16,
+          "maximum": 64
+        },
+        "numEdgeCandidates": {
+          "type": "integer",
+          "markdownDescription": "Analogous to `numCandidates` at query-time, this parameter controls the maximum number of nodes to evaluate to find the closest neighbors to connect to a new node. Value can be between 100 and 3200, both inclusive. If omitted, defaults to 100. A higher number provides a graph with high-quality connections, which can improve search quality (recall), but it can also increase query latency.",
+          "description": "Analogous to numCandidates at query-time, this parameter controls the maximum number of nodes to evaluate to find the closest neighbors to connect to a new node.",
+          "minimum": 100,
+          "maximum": 3200
+        }
+      },
+      "additionalProperties": false
     }
+  },
+  "if": {
+    "required": ["indexingMethod"],
+    "properties": {
+      "indexingMethod": {
+        "const": "flat"
+      }
+    }
+  },
+  "then": {
+    "not": {
+      "required": ["hnswOptions"]
+    },
+    "errorMessage": "hnswOptions can only be set when indexingMethod is hnsw."
   },
   "required": ["type", "modality", "path", "model"],
   "examples": [

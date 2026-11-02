@@ -5,6 +5,9 @@
   "allOf": [
     {
       "$ref": "components/baseIndex_sort.json"
+    },
+    {
+      "$ref": "components/autoEmbedDisabled.json"
     }
   ],
   "properties": {

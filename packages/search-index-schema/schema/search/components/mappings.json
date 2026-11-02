@@ -39,5 +39,67 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "definitions": {
+    "containsAutoEmbed": {
+      "not": {
+        "$ref": "#/definitions/containsNoAutoEmbed"
+      }
+    },
+    "containsNoAutoEmbed": {
+      "if": {
+        "required": ["fields"]
+      },
+      "then": {
+        "properties": {
+          "fields": {
+            "$ref": "mappings/fields.json#/definitions/containsNoAutoEmbed"
+          }
+        }
+      }
+    },
+    "containsEnabledDynamicMappings": {
+      "not": {
+        "$ref": "#/definitions/containsNoEnabledDynamicMappings"
+      }
+    },
+    "containsNoEnabledDynamicMappings": {
+      "allOf": [
+        {
+          "not": {
+            "required": ["dynamic"],
+            "properties": {
+              "dynamic": {
+                "$ref": "dynamic.json#/definitions/enabled"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["fields"]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "$ref": "mappings/fields.json#/definitions/containsNoEnabledDynamicMappings"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "containsNoStoredSource": {
+      "if": {
+        "required": ["fields"]
+      },
+      "then": {
+        "properties": {
+          "fields": {
+            "$ref": "mappings/fields.json#/definitions/containsNoStoredSource"
+          }
+        }
+      }
+    }
+  }
 }

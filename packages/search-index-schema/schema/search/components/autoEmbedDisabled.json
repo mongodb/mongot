@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search/components/autoEmbedDisabled.json",
+  "properties": {
+    "mappings": {
+      "not": {
+        "$ref": "mappings.json#/definitions/containsAutoEmbed"
+      },
+      "errorMessage": "autoEmbed fields are not available for this index yet."
+    }
+  }
+}

@@ -8,7 +8,8 @@ export type FeatureFlag =
   | 'sortedIndex'
   | 'autoEmbeddingPublicPreview'
   | 'autoEmbeddingPrivatePreview'
-  | 'vectorXPrivatePreview';
+  | 'vectorXPrivatePreview'
+  | 'autoEmbeddingLexicalPrefilter';
 
 /**
  * Return the bundled JSON schema for an index type given the set of enabled feature flags.

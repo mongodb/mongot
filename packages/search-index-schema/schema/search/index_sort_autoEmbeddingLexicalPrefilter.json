@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search/index_sort_autoEmbeddingLexicalPrefilter.json",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "components/baseIndex_sort.json"
+    }
+  ],
+  "properties": {
+    "mappings": true,
+    "synonyms": true,
+    "analyzer": true,
+    "searchAnalyzer": true,
+    "analyzers": true,
+    "storedSource": true,
+    "numPartitions": true,
+    "typeSets": true,
+    "sort": true
+  },
+  "description": "Define your Atlas Search Index",
+  "required": ["mappings"],
+  "additionalProperties": false
+}

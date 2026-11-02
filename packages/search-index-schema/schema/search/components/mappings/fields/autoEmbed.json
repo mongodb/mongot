@@ -6,8 +6,8 @@
     "type": {
       "suggestSortText": "0",
       "type": "string",
-      "markdownDescription": "Field type to use to index text data for semantic search. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you. To learn more about this data type, see [autoEmbed type](https://dochub.mongodb.org/core/avs-autoembed-type/).",
-      "description": "Field type to use to index text data for semantic search. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you.",
+      "markdownDescription": "Field type to use to index text data for semantic search. The mapping key is the source field path. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you. To learn more about this data type, see [autoEmbed type](https://dochub.mongodb.org/core/avs-autoembed-type/).",
+      "description": "Field type to use to index text data for semantic search. The mapping key is the source field path. Automated Embedding automatically generates vector embeddings for the selected field, using the embedding model chosen by you.",
       "const": "autoEmbed",
       "$ref": "../field.json#/definitions/typeErrorMessage"
     },
@@ -18,15 +18,8 @@
       "description": "Specifies the type of data this field contains.",
       "const": "text"
     },
-    "path": {
-      "suggestSortText": "2",
-      "type": "string",
-      "pattern": "^.*$",
-      "markdownDescription": "Name of the text field to use as a data source for generating embeddings. Use dot notation for embedded fields.",
-      "errorMessage": "Field name does not meet MongoDb field naming restrictions. To learn more, see [Field Names](https://dochub.mongodb.org/core/mdb-field-names) ."
-    },
     "model": {
-      "suggestSortText": "3",
+      "suggestSortText": "2",
       "type": "string",
       "description": "Embedding model to use to generate embeddings.",
       "markdownDescription": "Embedding model to use to generate embeddings. \n\n**General Purpose Models:**\n- `voyage-4` (recommended) - Optimized for general-purpose and multilingual retrieval quality.\n- `voyage-4-large` - The best general-purpose and multilingual retrieval quality.\n- `voyage-4-lite` - Optimized for latency and cost.\n\n**Domain Specific Models:**\n- `voyage-code-3` - Optimized for code retrieval.",
@@ -46,7 +39,7 @@
       ]
     },
     "quantization": {
-      "suggestSortText": "4",
+      "suggestSortText": "3",
       "type": "string",
       "description": "A compression technique to control storage and compute required for Vector Search, with possible accuracy tradeoffs.",
       "markdownDescription": "A compression technique to control storage and compute required for Vector Search, with possible accuracy tradeoffs. \nValues include:\n- `scalar` - compresses vectors into lower-precision scalar values to reduce storage while maintaining reasonable accuracy.\n- `float` - stores full-fidelity vector values without compression for maximum accuracy at higher storage cost.\n- `binary` - compresses vectors into binary representations for indexing; queries rescore against full-fidelity vectors for better accuracy. Requires `numDimensions` to be a multiple of 8.\n- `binaryNoRescore` - uses binary vectors for indexing and querying without rescoring. Supports `euclidean` similarity only.",
@@ -66,7 +59,7 @@
       ]
     },
     "numDimensions": {
-      "suggestSortText": "5",
+      "suggestSortText": "4",
       "type": "integer",
       "markdownDescription": "Number of vector dimensions.\nValues include:\n- `1024` (default)\n- `256`\n- `512`\n- `2048`",
       "description": "Number of vector dimensions.",
@@ -86,7 +79,7 @@
       ]
     },
     "similarity": {
-      "suggestSortText": "6",
+      "suggestSortText": "5",
       "type": "string",
       "markdownDescription": "Vector similarity function to use to search for top K-nearest neighbors. \nValues include:\n- `dotProduct` (default) - measures similarity based on both the angle between, and magnitude of vectors. See [Dot Product](https://en.wikipedia.org/wiki/Dot_product) to learn more.\n- `cosine` - measures similarity based on the angle between vectors allowing for similarity measurements not scaled by magnitude. See [Cosine](https://en.wikipedia.org/wiki/Cosine_similarity) to learn more.\n- `euclidean` - measures the distance between ends of vectors allowing similarity measurements based on varying dimensions. See [Euclidean](https://en.wikipedia.org/wiki/Euclidean_distance) to learn more.",
       "description": "Vector similarity function to use to search for top K-nearest neighbors.",
@@ -101,20 +94,70 @@
           "const": "euclidean"
         }
       ]
+    },
+    "indexingMethod": {
+      "suggestSortText": "6",
+      "type": "string",
+      "description": "Indexing method to use",
+      "markdownDescription": "Indexing method to use. \nValues include:\n- `hnsw` - Hierarchical Navigable Small Worlds graph construction.\n- `flat` - flat index build.",
+      "default": "hnsw",
+      "oneOf": [
+        {
+          "const": "hnsw"
+        },
+        {
+          "const": "flat"
+        }
+      ]
+    },
+    "hnswOptions": {
+      "suggestSortText": "7",
+      "type": "object",
+      "markdownDescription": "Parameters to use for [Hierarchical Navigable Small Worlds](https://arxiv.org/abs/1603.09320) graph construction. If omitted, uses the default values for the maxEdges and numEdgeCandidates parameters. IMPORTANT: This is available as a Preview feature. Modifying the default values might negatively impact your MongoDB Search index and queries.",
+      "description": "Parameters to use for Hierarchical Navigable Small Worlds graph construction.",
+      "properties": {
+        "maxEdges": {
+          "type": "integer",
+          "markdownDescription": "Maximum number of edges (or connections) that a node can have in the [Hierarchical Navigable Small Worlds](https://arxiv.org/abs/1603.09320) graph. Value can be between 16 and 64, both inclusive. If omitted, defaults to 16. For example, for a value of 16, each node can have a maximum of sixteen outgoing edges at each layer of the Hierarchical Navigable Small Worlds graph. A higher number improves recall (accuracy of search results) because the graph is better connected. However, this also increases query and indexing time by increasing the number of neighbors to evaluate per graph node, and requires more memory to store the additional nodes for each connection in the Hierarchical Navigable Small Worlds graph.",
+          "description": "Maximum number of edges (or connections) that a node can have in the Hierarchical Navigable Small Worlds graph.",
+          "minimum": 16,
+          "maximum": 64
+        },
+        "numEdgeCandidates": {
+          "type": "integer",
+          "markdownDescription": "Analogous to `numCandidates` at query-time, this parameter controls the maximum number of nodes to evaluate to find the closest neighbors to connect to a new node. Value can be between 100 and 3200, both inclusive. If omitted, defaults to 100. A higher number provides a graph with high-quality connections, which can improve search quality (recall), but it can also increase query latency.",
+          "description": "Analogous to numCandidates at query-time, this parameter controls the maximum number of nodes to evaluate to find the closest neighbors to connect to a new node.",
+          "minimum": 100,
+          "maximum": 3200
+        }
+      },
+      "additionalProperties": false
     }
   },
-  "required": ["type", "modality", "path", "model"],
+  "if": {
+    "required": ["indexingMethod"],
+    "properties": {
+      "indexingMethod": {
+        "const": "flat"
+      }
+    }
+  },
+  "then": {
+    "not": {
+      "required": ["hnswOptions"]
+    },
+    "errorMessage": "hnswOptions can only be set when indexingMethod is hnsw."
+  },
+  "required": ["type", "modality", "model"],
   "examples": [
     {
       "type": "autoEmbed",
       "modality": "text",
-      "path": "<field-name>",
       "model": "voyage-4"
     },
     {
       "type": "autoEmbed",
       "modality": "text",
-      "path": "<field-name>",
       "model": "voyage-4",
       "quantization": "binary",
       "numDimensions": 1024,

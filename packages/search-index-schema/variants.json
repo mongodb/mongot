@@ -1,7 +1,21 @@
 {
   "search": [
-    { "flags": ["sortedIndex"], "schema": "search/index_sort.json" },
-    { "flags": [], "schema": "search/index.json" }
+    {
+      "flags": ["sortedIndex", "autoEmbeddingLexicalPrefilter"],
+      "schema": "search/index_sort_autoEmbeddingLexicalPrefilter.json"
+    },
+    {
+      "flags": ["sortedIndex"],
+      "schema": "search/index_sort.json"
+    },
+    {
+      "flags": ["autoEmbeddingLexicalPrefilter"],
+      "schema": "search/index_autoEmbeddingLexicalPrefilter.json"
+    },
+    {
+      "flags": [],
+      "schema": "search/index.json"
+    }
   ],
   "vectorSearch": [
     {
@@ -24,6 +38,9 @@
       "flags": ["autoEmbeddingPrivatePreview"],
       "schema": "vectorSearch/index_autoEmbeddingPrivatePreview.json"
     },
-    { "flags": [], "schema": "vectorSearch/index.json" }
+    {
+      "flags": [],
+      "schema": "vectorSearch/index.json"
+    }
   ]
 }

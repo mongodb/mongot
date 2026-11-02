@@ -3,6 +3,11 @@
   "$id": "search/components/baseIndex.json",
   "type": "object",
   "description": "Define your Atlas Search Index",
+  "allOf": [
+    {
+      "$ref": "autoEmbedMappingConstraints.json"
+    }
+  ],
   "properties": {
     "mappings": {
       "suggestSortText": "0",
