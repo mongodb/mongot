@@ -154,7 +154,7 @@ deps.outdated:
 # including the OCI images, which need registry credentials to fetch.
 .PHONY: test.unit
 test.unit:
-	@echo 'Running unit tests for files affected by this PR'
+	@echo 'Running unit tests for files affected by this PR (FORCE_ALL_TESTS=1 runs the whole suite)'
 	@if python3 $(DIR)/scripts/ci/affected_tests.py \
 			--base-branch "$${branch_name:-master}" \
 			--bazel "$(BAZEL)" \
