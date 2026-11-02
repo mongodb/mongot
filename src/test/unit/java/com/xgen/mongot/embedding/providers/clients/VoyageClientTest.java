@@ -28,7 +28,9 @@ import com.xgen.mongot.embedding.exceptions.EmbeddingProviderBatchingException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderRateLimitException;
 import com.xgen.mongot.embedding.exceptions.EmbeddingProviderTransientException;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig.ConsolidatedWorkloadParams;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.InferenceScope;
 import com.xgen.mongot.embedding.providers.congestion.AimdCongestionControl;
 import com.xgen.mongot.embedding.providers.congestion.DynamicSemaphore;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
@@ -2164,5 +2166,88 @@ public class VoyageClientTest {
     assertTrue(scrape.contains("status=\"failed\""));
     assertTrue(scrape.contains("errorCode=\"none\""));
     assertTrue(scrape.contains("errorCode=\"408\""));
+  }
+
+  @Test
+  public void embed_inferenceScopeChanges_tagsLatencyWithCurrentScope() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.QUERY,
+            withInferenceScope(VOYAGE_3_LARGE.query(), new InferenceScope("ANY", "EU")),
+            new MetricsFactory("test", registry),
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, httpResponseClient(200, ONE_EMBEDDING_RESPONSE));
+
+    voyageClient.embed(List.of("test"), dummyContext());
+    voyageClient.embed(List.of("test"), dummyContext());
+    voyageClient.updateConfig(
+        withInferenceScope(VOYAGE_3_LARGE.query(), new InferenceScope("ANY", "US")));
+    voyageClient.embed(List.of("test"), dummyContext());
+
+    assertEquals(
+        2,
+        registry
+            .find("test.embeddingRequestLatencySeconds")
+            .tags("inferenceCloud", "ANY", "inferenceGeography", "EU")
+            .summary()
+            .count());
+    assertEquals(
+        1,
+        registry
+            .find("test.embeddingRequestLatencySeconds")
+            .tags("inferenceCloud", "ANY", "inferenceGeography", "US")
+            .summary()
+            .count());
+  }
+
+  @Test
+  public void embed_failureWithoutInferenceScope_tagsProviderErrorUnknown() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    VoyageClient voyageClient =
+        new VoyageClient(
+            VOYAGE_3_LARGE,
+            EmbeddingServiceConfig.ServiceTier.COLLECTION_SCAN,
+            VOYAGE_3_LARGE.collectionScan(),
+            new MetricsFactory("test", registry),
+            Optional.empty(),
+            false,
+            false);
+    VoyageClient.injectVoyageClient(voyageClient, httpResponseClient(400, "some error occurred"));
+
+    assertThrows(
+        EmbeddingProviderTransientException.class,
+        () -> voyageClient.embed(List.of("invalid input"), dummyContext()));
+
+    assertEquals(
+        1.0,
+        registry
+            .find("test.embeddingProviderErrors")
+            .tags("inferenceCloud", "UNKNOWN", "inferenceGeography", "UNKNOWN")
+            .counter()
+            .count(),
+        1E-7);
+  }
+
+  private static final String ONE_EMBEDDING_RESPONSE =
+      "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\","
+          + "\"embedding\":\"AKBEPACgSbw=\",\"index\":0}],\"model\":\"voyage-3-large\","
+          + "\"usage\":{\"total_tokens\":1}}";
+
+  private static ConsolidatedWorkloadParams withInferenceScope(
+      ConsolidatedWorkloadParams params, InferenceScope inferenceScope) {
+    return new ConsolidatedWorkloadParams(
+        params.modelConfig(),
+        params.errorHandlingConfig(),
+        params.credentials(),
+        params.providerEndpoint(),
+        params.rpsPerProvider(),
+        params.tenantCredentials(),
+        params.perTenantCredentials(),
+        params.isDedicatedCluster(),
+        inferenceScope);
   }
 }

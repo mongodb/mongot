@@ -39,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.net.ssl.SSLException;
 import org.apache.commons.lang3.StringUtils;
 import org.bson.BsonDocument;
@@ -92,6 +93,8 @@ public class VoyageClient implements ClientInterface {
   private final String inputType;
   private final String modelId;
   private URI endpoint;
+  // Per-request metrics labeled with the endpoint's scope; replaced with the endpoint.
+  private volatile ScopeMetrics scopeMetrics = new ScopeMetrics(Tags.empty());
   private final DistributionSummary inputTokenDistribution;
   private final Counter invalidRequestCounter;
   private final Counter congestionEventCounter;
@@ -427,14 +430,15 @@ public class VoyageClient implements ClientInterface {
         .counter(
             "embeddingProviderErrors",
             Tags.of(
-                "exceptionType",
-                "EmbeddingProviderTransientException",
-                "reason",
-                reason.name().toLowerCase(Locale.ROOT),
-                "errorCode",
-                httpStatusCode.map(Object::toString).orElse("none"),
-                "rebatchAttempt",
-                String.valueOf(isRebatchAttempt)))
+                    "exceptionType",
+                    "EmbeddingProviderTransientException",
+                    "reason",
+                    reason.name().toLowerCase(Locale.ROOT),
+                    "errorCode",
+                    httpStatusCode.map(Object::toString).orElse("none"),
+                    "rebatchAttempt",
+                    String.valueOf(isRebatchAttempt))
+                .and(this.scopeMetrics.tags()))
         .increment();
   }
 
@@ -510,6 +514,13 @@ public class VoyageClient implements ClientInterface {
   public void updateConfig(EmbeddingModelConfig.ConsolidatedWorkloadParams workloadParams) {
     this.isDedicatedCluster = workloadParams.isDedicatedCluster();
     this.endpoint = URI.create(workloadParams.providerEndpoint().orElse(DEFAULT_ENDPOINT));
+    this.scopeMetrics =
+        new ScopeMetrics(
+            Tags.of(
+                "inferenceCloud",
+                workloadParams.inferenceScope().cloud(),
+                "inferenceGeography",
+                workloadParams.inferenceScope().geography()));
 
     if (this.isDedicatedCluster) {
       configureDedicatedClusterCredentials(workloadParams);
@@ -899,11 +910,16 @@ public class VoyageClient implements ClientInterface {
           && embedResponse.embedUsage.totalTokens > VOYAGE_LATENCY_TIER_TOKEN_THRESHOLD) {
         actualTier = VOYAGE_TIER_HEADER_DOCUMENT;
       }
-      this.metricsFactory
-          .histogram(
-              "embeddingRequestLatencySeconds",
-              Tags.of("tier", actualTier),
-              REQUEST_LATENCY_SECONDS_BUCKETS)
+      ScopeMetrics scopeMetrics = this.scopeMetrics;
+      scopeMetrics
+          .latencyByTier()
+          .computeIfAbsent(
+              actualTier,
+              tier ->
+                  this.metricsFactory.histogram(
+                      "embeddingRequestLatencySeconds",
+                      Tags.of("tier", tier).and(scopeMetrics.tags()),
+                      REQUEST_LATENCY_SECONDS_BUCKETS))
           .record(elapsedSeconds);
       return results;
     } catch (BsonParseException e) {
@@ -935,5 +951,15 @@ public class VoyageClient implements ClientInterface {
     target.voyageHttpClient = mockHttpClient;
     target.voyageHttpClientCreatedEpochMs = System.currentTimeMillis();
     target.shutdownReplacedHttpClient(previous);
+  }
+
+  /**
+   * Scope tags with the latency histograms built from them, swapped together so a request never
+   * pairs one scope's tags with another's cache. Histograms are created on first use per tier.
+   */
+  private record ScopeMetrics(Tags tags, Map<String, DistributionSummary> latencyByTier) {
+    ScopeMetrics(Tags tags) {
+      this(tags, new ConcurrentHashMap<>());
+    }
   }
 }

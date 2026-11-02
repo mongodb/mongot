@@ -7,6 +7,7 @@ import static com.xgen.testing.BsonSerializationTestSuite.fromEncodable;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.EmbeddingConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ErrorHandlingConfig;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.InferenceScope;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.ModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.TruncationOption;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.VoyageEmbeddingCredentials;
@@ -19,6 +20,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonDocument;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -28,7 +31,8 @@ import org.junit.runners.Suite;
 @Suite.SuiteClasses(
     value = {
       EmbeddingServiceConfigTest.DeserializationTest.class,
-      EmbeddingServiceConfigTest.SerializationTest.class
+      EmbeddingServiceConfigTest.SerializationTest.class,
+      EmbeddingServiceConfigTest.InferenceScopeTest.class
     })
 public class EmbeddingServiceConfigTest {
   static final ModelConfig MODEL_CONFIG =
@@ -401,6 +405,50 @@ public class EmbeddingServiceConfigTest {
                   Optional.empty(),
                   false,
                   Optional.empty())));
+    }
+  }
+
+  public static class InferenceScopeTest {
+    @Test
+    public void toBson_withInferenceScope_writesCloudAndGeography() {
+      EmbeddingConfig config = configWithScope(new InferenceScope("ANY", "EU"));
+
+      BsonDocument bson = config.toBson();
+
+      Assert.assertEquals(
+          BsonDocument.parse("{\"cloud\": \"ANY\", \"geography\": \"EU\"}"),
+          bson.getDocument("inferenceScope"));
+    }
+
+    @Test
+    public void toBson_unknownInferenceScope_omitsField() {
+      EmbeddingConfig config = configWithScope(InferenceScope.UNKNOWN);
+
+      BsonDocument bson = config.toBson();
+
+      Assert.assertFalse(bson.containsKey("inferenceScope"));
+    }
+
+    @Test
+    public void constructor_nullGeography_throws() {
+      Assert.assertThrows(IllegalArgumentException.class, () -> new InferenceScope("ANY", null));
+    }
+
+    private static EmbeddingConfig configWithScope(InferenceScope inferenceScope) {
+      return new EmbeddingConfig(
+          Optional.empty(),
+          MODEL_CONFIG,
+          ERROR_HANDLING_CONFIG,
+          CREDENTIALS,
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          true,
+          Optional.of("https://eu.ai.mongodb.com/v1/embeddings"),
+          true,
+          Optional.empty(),
+          inferenceScope);
     }
   }
 }
