@@ -4,14 +4,12 @@ import static com.xgen.mongot.util.Check.checkArg;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -40,7 +38,7 @@ import org.slf4j.LoggerFactory;
  * <p>This client does not track confirmed indexing progress. Each reader stops at its first
  * lifecycle batch and retains that batch while other readers catch up. Once all readers stop, their
  * remaining documents are returned before a single copy of the lifecycle events. Trimmed batches
- * use their last document's resume token so checkpoints stay before the lifecycle event.
+ * use their last returned event's resume token so checkpoints stay before the lifecycle event.
  *
  * <p>Retries must be handled by the low-level change stream clients. If getNext() throws, the
  * caller must close this client and resume from the last confirmed checkpoint. Retrying this client
@@ -52,8 +50,6 @@ public class PartitionedChangeStreamClient<E extends Exception>
   private static final Duration DEFAULT_MAX_OPTIME_GAP = Duration.ofSeconds(60);
 
   private static final Logger LOG = LoggerFactory.getLogger(PartitionedChangeStreamClient.class);
-  private static final Set<String> SUPPORTED_OPERATION_TYPES =
-      Set.of("insert", "update", "replace", "delete");
 
   /** Creates partition readers with timestamp-based restart and split-event reassembly. */
   @FunctionalInterface
@@ -187,6 +183,11 @@ public class PartitionedChangeStreamClient<E extends Exception>
    *    Retained lifecycle batches do not advance the caller's checkpoint.
    *    Each reader combines split rename and invalidate batches within its fetch.
    * 6. After the terminal batch is returned, further calls fail without submitting more fetches.
+   * 7. OTHER does not itself finish a reader. If there is no lifecycle suffix, return the batch
+   *    without waiting for other readers to observe the event or catch up. The index manager
+   *    requests a resync, so ordering across readers is unnecessary.
+   *    For example, [INSERT, OTHER, UPDATE, DELETE] is returned unchanged. As with a single
+   *    reader, decoding fails on OTHER and requests a resync before indexing the batch.
    *
    * Example: A has a ready batch, B is idle, and C is still fetching. Submit B's fetch before
    * returning A's batch. A can fetch again on the next call. Completed document batches remain
@@ -232,18 +233,12 @@ public class PartitionedChangeStreamClient<E extends Exception>
         });
   }
 
-  /** Scans the lifecycle suffix backward; the batch size means no lifecycle event. */
+  /**
+   * Lifecycle events stop a reader until the other readers catch up. OTHER does not itself stop a
+   * reader and must reach the index manager to trigger resync.
+   */
   private static int findLifecycleStart(ChangeStreamBatch batch) {
-    var events = batch.getRawEvents();
-    @Var int lifecycleStart = events.size();
-    while (lifecycleStart > 0 && !isSupportedOperation(events.get(lifecycleStart - 1))) {
-      lifecycleStart--;
-    }
-    return lifecycleStart;
-  }
-
-  private static boolean isSupportedOperation(BsonDocument event) {
-    return SUPPORTED_OPERATION_TYPES.contains(event.getString("operationType").getValue());
+    return ChangeStreamDocumentUtils.indexOfLifecycleEvent(batch.getRawEvents());
   }
 
   /** Checks whether every reader has reached the lifecycle boundary. */
@@ -276,7 +271,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
       if (result.lifecycleStart() == 0) {
         continue;
       }
-      // Use the last document's token so the checkpoint stays before the removed lifecycle events.
+      // Use the last returned event's token to stay before the removed lifecycle events.
       var documents = batch.getRawEvents().subList(0, result.lifecycleStart());
       return new ChangeStreamBatch(
           documents,
@@ -340,7 +335,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
     this.readers.forEach(Reader::close);
   }
 
-  /** Caches the first lifecycle position, preserving it when a split rename is merged. */
+  /** Caches the retained suffix start, preserving it when a split rename is merged. */
   private record FetchResult(ChangeStreamBatch batch, int lifecycleStart) {
     boolean hasLifecycleEvent() {
       return this.lifecycleStart < this.batch.getRawEvents().size();

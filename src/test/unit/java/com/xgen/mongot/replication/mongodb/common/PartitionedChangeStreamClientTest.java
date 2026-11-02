@@ -914,6 +914,102 @@ public class PartitionedChangeStreamClientTest {
   }
 
   @Test
+  public void getNext_unknownEvent_returnsBeforeStalledReader() throws Exception {
+    var fast = reader(batch(50, event(49), event(50, "unknownOperation")));
+    var slow = reader(batch(20, event(19)));
+    try (var client = client(List.of(fast, slow), this.fetches::add)) {
+      var waiting = this.caller.submit(client::getNext);
+      var fastFetch = nextFetch();
+      var slowFetch = nextFetch();
+      try {
+        fastFetch.run();
+        var result = waiting.get(10, TimeUnit.SECONDS);
+
+        assertThat(result.getRawEvents())
+            .containsExactly(event(49), event(50, "unknownOperation"))
+            .inOrder();
+        assertThat(result.getPostBatchResumeToken()).isEqualTo(token(50));
+        assertThat(result.getPartition()).hasValue(FIRST);
+        verify(slow, never()).getNext();
+      } finally {
+        slowFetch.run();
+      }
+    }
+  }
+
+  @Test
+  public void getNext_unknownEvent_keepsReaderOpen() throws Exception {
+    var reader = reader(batch(50, event(50, "unknownOperation")), batch(51, event(51)));
+    try (var client = client(List.of(reader), Runnable::run)) {
+      var other = client.getNext();
+      var next = client.getNext();
+
+      assertThat(other.getRawEvents()).containsExactly(event(50, "unknownOperation"));
+      assertThat(next.getRawEvents()).containsExactly(event(51));
+      assertThat(next.getPostBatchResumeToken()).isEqualTo(token(51));
+      verify(reader, times(2)).getNext();
+    }
+  }
+
+  @Test
+  public void getNext_unknownEventInMiddle_preservesWholeBatch() throws Exception {
+    var fast = reader(batch(50, event(47), event(48, "unknownOperation"), event(49), event(50)));
+    var slow = reader(batch(20, event(19)));
+    try (var client = client(fast, slow)) {
+      var result = client.getNext();
+
+      assertThat(result.getRawEvents())
+          .containsExactly(event(47), event(48, "unknownOperation"), event(49), event(50))
+          .inOrder();
+      assertThat(result.getPostBatchResumeToken()).isEqualTo(token(50));
+      assertThat(result.getPartition()).hasValue(FIRST);
+    }
+  }
+
+  @Test
+  public void getNext_unknownEventBeforeRename_preservesUnknownEventAndItsToken() throws Exception {
+    var boundary =
+        batch(
+            52,
+            event(49),
+            event(50, "unknownOperation"),
+            event(51, "rename"),
+            event(52, "invalidate"));
+    try (var client = client(reader(boundary), reader(boundary))) {
+      var retained = client.getNext();
+      var lifecycle = client.getNext();
+
+      assertThat(retained.getRawEvents())
+          .containsExactly(event(49), event(50, "unknownOperation"))
+          .inOrder();
+      assertThat(retained.getPostBatchResumeToken()).isEqualTo(token(50));
+      assertThat(retained.getPartition()).hasValue(FIRST);
+      assertThat(lifecycle.getRawEvents()).isEqualTo(boundary.getRawEvents());
+      assertThat(lifecycle.getPostBatchResumeToken()).isEqualTo(token(52));
+      assertThat(lifecycle.getPartition()).hasValue(new ChangeStreamPartition(1, 2));
+    }
+  }
+
+  @Test
+  public void getNext_unknownEventBeforeRenameWithoutDocuments_retainsUnknownEvent()
+      throws Exception {
+    var boundary =
+        batch(52, event(50, "unknownOperation"), event(51, "rename"), event(52, "invalidate"));
+    try (var client = client(reader(boundary), reader(boundary))) {
+      var retained = client.getNext();
+      var lifecycle = client.getNext();
+
+      assertThat(retained.getRawEvents()).containsExactly(event(50, "unknownOperation"));
+      assertThat(retained.getPostBatchResumeToken()).isEqualTo(token(50));
+      assertThat(retained.getPartition()).hasValue(FIRST);
+      assertThat(lifecycle.getRawEvents()).isEqualTo(boundary.getRawEvents());
+      assertThat(lifecycle.getPostBatchResumeToken()).isEqualTo(token(52));
+      assertThat(lifecycle.getPartition()).hasValue(new ChangeStreamPartition(1, 2));
+      assertThrows(IllegalStateException.class, client::getNext);
+    }
+  }
+
+  @Test
   public void getNext_lifecycleBatch_stopsReaderWhileOtherReadersCatchUp() throws Exception {
     var boundary = batch(50, event(49, "rename"), event(50, "invalidate"));
     // Keep the document preceding the lifecycle event in this reader's retained batch too.

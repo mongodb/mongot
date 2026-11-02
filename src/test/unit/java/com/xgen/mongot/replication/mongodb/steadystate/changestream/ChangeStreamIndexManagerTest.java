@@ -1904,6 +1904,9 @@ public class ChangeStreamIndexManagerTest {
     @Parameter(4)
     public Optional<ChangeStreamResumeInfo> expectedResumeInfo;
 
+    @Parameter(5)
+    public List<Integer> expectedDocumentIds;
+
     @Parameters(name = "{0}")
     public static List<Object[]> cases() {
       var invalidate = ChangeStreamUtils.invalidateEvent(11);
@@ -1917,14 +1920,16 @@ public class ChangeStreamIndexManagerTest {
             List.of(ChangeStreamUtils.dropEvent(10), invalidate),
             List.of(),
             Type.DROPPED,
-            Optional.empty()
+            Optional.empty(),
+            List.of(0, 1, 2)
           },
           new Object[] {
             "dropDatabase",
             List.of(ChangeStreamUtils.dropDatabaseEvent(10), invalidate),
             List.of(),
             Type.DROPPED,
-            Optional.empty()
+            Optional.empty(),
+            List.of(0, 1, 2)
           },
           new Object[] {
             "renameOverTarget",
@@ -1933,28 +1938,48 @@ public class ChangeStreamIndexManagerTest {
                     10, ChangeStreamUtils.OTHER_NAMESPACE, ChangeStreamUtils.NAMESPACE)),
             List.of(invalidate),
             Type.DROPPED,
-            Optional.empty()
+            Optional.empty(),
+            List.of(0, 1, 2)
           },
           new Object[] {
             "renameMissingDestination",
             List.of(ChangeStreamUtils.renameEvent(10, ChangeStreamUtils.NAMESPACE, null)),
             List.of(invalidate),
             Type.NON_INVALIDATING_RESYNC,
-            Optional.empty()
+            Optional.empty(),
+            List.of(0, 1, 2)
           },
           new Object[] {
             "rename",
             List.of(ChangeStreamUtils.renameEvent(10), invalidate),
             List.of(),
             Type.RENAMED,
-            renamed
+            renamed,
+            List.of(0, 1, 2)
+          },
+          new Object[] {
+            "otherBeforeRename",
+            List.of(ChangeStreamUtils.otherEvent(9), ChangeStreamUtils.renameEvent(10), invalidate),
+            List.of(),
+            Type.REQUIRES_RESYNC,
+            Optional.empty(),
+            List.of()
           },
           new Object[] {
             "splitRename",
             List.of(ChangeStreamUtils.renameEvent(10)),
             List.of(invalidate),
             Type.RENAMED,
-            renamed
+            renamed,
+            List.of(0, 1, 2)
+          },
+          new Object[] {
+            "otherBeforeSplitRename",
+            List.of(ChangeStreamUtils.otherEvent(9), ChangeStreamUtils.renameEvent(10)),
+            List.of(invalidate),
+            Type.REQUIRES_RESYNC,
+            Optional.empty(),
+            List.of()
           },
           new Object[] {
             "invalidate",
@@ -1963,7 +1988,8 @@ public class ChangeStreamIndexManagerTest {
             Type.INVALIDATED,
             Optional.of(
                 ChangeStreamResumeInfo.create(
-                    ChangeStreamUtils.NAMESPACE, invalidate.getResumeToken()))
+                    ChangeStreamUtils.NAMESPACE, invalidate.getResumeToken())),
+            List.of(0, 1, 2)
           });
     }
 
@@ -1982,6 +2008,8 @@ public class ChangeStreamIndexManagerTest {
                 scheduled.add(completion);
                 return completion;
               });
+      when(scheduler.cancel(any(), any(), any()))
+          .thenReturn(CompletableFuture.completedFuture(null));
       var seed = ChangeStreamUtils.resumeToken(new BsonTimestamp(0, 0));
       var tracker =
           new PartitionedChangeStreamProgressTracker(
@@ -2018,8 +2046,9 @@ public class ChangeStreamIndexManagerTest {
         assertThat(lifecycle.getType()).isEqualTo(this.expectedType);
         this.expectedResumeInfo.ifPresent(
             expected -> assertThat(lifecycle.getResumeInfo()).isEqualTo(expected));
-        assertThat(indexed.stream().map(DocumentEvent::getDocumentId).toList())
-            .containsExactly(new BsonInt32(0), new BsonInt32(1), new BsonInt32(2))
+        assertThat(
+                indexed.stream().map(event -> event.getDocumentId().asInt32().getValue()).toList())
+            .containsExactlyElementsIn(this.expectedDocumentIds)
             .inOrder();
         var failure =
             Assert.assertThrows(
@@ -2071,18 +2100,140 @@ public class ChangeStreamIndexManagerTest {
         BlockingQueue<CompletableFuture<Void>> scheduled,
         CompletableFuture<Void> lifecycleFuture)
         throws Exception {
-      // Follow the dispatcher's contract: stop fetching as soon as indexBatch reports lifecycle.
+      // Stop fetching on a reported lifecycle event or a decoding failure, as the dispatcher does.
       while (true) {
         var info = manager.indexBatch(client.getNext(), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER);
+        info.indexingFuture.whenComplete(
+            (unused, failure) -> {
+              if (failure != null) {
+                // Decoding can fail before indexing is scheduled; wake the helper in that case.
+                scheduled.add(info.indexingFuture);
+              }
+            });
         var completion = scheduled.poll(5, TimeUnit.SECONDS);
         assertThat(completion).isNotNull();
         assertThat(lifecycleFuture.isDone()).isFalse();
         completion.complete(null);
-        info.indexingFuture.get(5, TimeUnit.SECONDS);
+        try {
+          info.indexingFuture.get(5, TimeUnit.SECONDS);
+        } catch (ExecutionException failure) {
+          assertThat(failure.getCause()).isInstanceOf(SteadyStateException.class);
+          var lifecycle = (SteadyStateException) failure.getCause();
+          manager.failLifecycle(lifecycle);
+          return lifecycle;
+        }
         if (info.lifecycleEvent.isPresent()) {
           return info.lifecycleEvent.get();
         }
         assertThat(lifecycleFuture.isDone()).isFalse();
+      }
+    }
+  }
+
+  @RunWith(Parameterized.class)
+  public static class PartitionedOtherEventTests {
+    @Parameter public String scenario;
+
+    @Parameter(1)
+    public List<ChangeStreamDocument<RawBsonDocument>> events;
+
+    @Parameters(name = "{0}")
+    public static List<Object[]> cases() {
+      return List.of(
+          new Object[] {"onlyEvent", List.of(ChangeStreamUtils.otherEvent(10))},
+          new Object[] {
+            "trailingEvent",
+            List.of(
+                ChangeStreamUtils.insertEvent(0, MOCK_INDEX_DEFINITION),
+                ChangeStreamUtils.otherEvent(10))
+          });
+    }
+
+    @Test(timeout = 30000)
+    @SuppressWarnings("unchecked")
+    public void indexBatch_partitionedOtherEvent_requiresResyncWithoutWaitingForOtherReader()
+        throws Exception {
+      ChangeStreamMongoClient<SteadyStateException> readyReader =
+          mock(ChangeStreamMongoClient.class);
+      ChangeStreamMongoClient<SteadyStateException> stalledReader =
+          mock(ChangeStreamMongoClient.class);
+      when(readyReader.getNext())
+          .thenReturn(
+              new ChangeStreamBatch(
+                  toRawBsonDocuments(this.events),
+                  this.events.getLast().getResumeToken(),
+                  Optional.of(new BsonTimestamp(1, 20))));
+      var readers = List.of(readyReader, stalledReader);
+      var fetches = new LinkedBlockingQueue<Runnable>();
+      var lifecycleFuture = new CompletableFuture<Void>();
+      var scheduler = mock(IndexingWorkScheduler.class);
+      when(scheduler.schedule(any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(CompletableFuture.completedFuture(null));
+      when(scheduler.cancel(any(), any(), any()))
+          .thenReturn(CompletableFuture.completedFuture(null));
+      var seed = ChangeStreamUtils.resumeToken(new BsonTimestamp(0, 0));
+      var tracker =
+          new PartitionedChangeStreamProgressTracker(
+              Map.of(new ChangeStreamPartition(0, 2), seed, new ChangeStreamPartition(1, 2), seed));
+      var generationId = GenerationIdBuilder.create();
+      var decodingScheduler = DecodingWorkScheduler.create(1, new SimpleMeterRegistry());
+      try (var caller = Executors.newSingleThreadExecutor();
+          var client =
+              PartitionedChangeStreamClient.resume(
+                  2,
+                  seed,
+                  mock(BatchMongoClient.class),
+                  (mongoClient, partition, start) -> readers.get(partition.partitionId()),
+                  fetches::add,
+                  SteadyStateException::wrapIfThrows)) {
+        var manager =
+            ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(decodingScheduler)
+                .create(
+                    MOCK_INDEX_DEFINITION,
+                    scheduler,
+                    indexer(),
+                    ChangeStreamUtils.NAMESPACE,
+                    ignored -> {},
+                    IGNORE_METRICS,
+                    lifecycleFuture,
+                    generationId,
+                    Optional.of(tracker));
+        var next = caller.submit(client::getNext);
+        var readyFetch = fetches.poll(5, TimeUnit.SECONDS);
+        assertThat(readyFetch).isNotNull();
+
+        // Leave the other partition's fetch queued while delivering the unknown event.
+        readyFetch.run();
+        var info =
+            manager.indexBatch(
+                next.get(5, TimeUnit.SECONDS), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER);
+
+        assertThat(info.lifecycleEvent).isEmpty();
+        var indexingFailure =
+            Assert.assertThrows(
+                ExecutionException.class, () -> info.indexingFuture.get(5, TimeUnit.SECONDS));
+        assertThat(indexingFailure.getCause()).isInstanceOf(SteadyStateException.class);
+        var lifecycle = (SteadyStateException) indexingFailure.getCause();
+        assertThat(lifecycle.getType()).isEqualTo(Type.REQUIRES_RESYNC);
+        assertThat(lifecycleFuture.isDone()).isFalse();
+        // The dispatcher propagates decoding failures to the lifecycle future.
+        manager.failLifecycle(lifecycle);
+        var failure =
+            Assert.assertThrows(
+                ExecutionException.class, () -> lifecycleFuture.get(5, TimeUnit.SECONDS));
+        assertThat(failure.getCause()).isSameInstanceAs(lifecycle);
+        assertThat(tracker.getLowWaterMark()).isEqualTo(seed);
+        verify(scheduler, never()).schedule(any(), any(), any(), any(), any(), any(), any());
+        verify(stalledReader, never()).getNext();
+      } finally {
+        try {
+          // Indexing can finish before decoding removes its batch from the scheduler.
+          decodingScheduler
+              .cancel(generationId, Optional.empty(), SteadyStateException.createShutDown())
+              .get(5, TimeUnit.SECONDS);
+        } finally {
+          decodingScheduler.shutdown().get(5, TimeUnit.SECONDS);
+        }
       }
     }
   }
