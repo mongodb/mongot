@@ -102,9 +102,7 @@ public class SynonymMappingManager {
     this.state = State.INITIALIZING;
     this.initFuture = FutureUtils.COMPLETED_FUTURE;
     this.synonymMappingHighWaterMark = SynonymMappingHighWaterMark.createEmpty();
-    MongoNamespace namespace =
-        new MongoNamespace(
-            indexGeneration.getDefinition().getDatabase(), definition.source().collection());
+    MongoNamespace namespace = SynonymSourceNamespace.of(indexGeneration, definition);
     this.cachedChangedStreamClient =
         new ResettableChangeStreamClient(
             namespace, this.synonymManager.getClient(), this.definition);

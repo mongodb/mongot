@@ -16,21 +16,29 @@ import java.util.function.Supplier;
  */
 public class DerivedLocalIndexGeneration extends IndexGeneration {
   private final IndexTypeTag metricsIndexTypeTag;
+  private final String rawIndexSourceDatabase;
   private final Supplier<AutoEmbeddingCommitMetadata> commitMetadataSupplier;
 
   public DerivedLocalIndexGeneration(
       Index derivedIndex,
       IndexDefinitionGeneration derivedDefinitionGeneration,
       IndexTypeTag metricsIndexTypeTag,
+      String rawIndexSourceDatabase,
       Supplier<AutoEmbeddingCommitMetadata> commitMetadataSupplier) {
     super(derivedIndex, derivedDefinitionGeneration);
     this.metricsIndexTypeTag = metricsIndexTypeTag;
+    this.rawIndexSourceDatabase = rawIndexSourceDatabase;
     this.commitMetadataSupplier = commitMetadataSupplier;
   }
 
   @Override
   public IndexTypeTag getMetricsIndexTypeTag() {
     return this.metricsIndexTypeTag;
+  }
+
+  /** Returns the database of the original user definition this index is derived from. */
+  public String getRawIndexSourceDatabase() {
+    return this.rawIndexSourceDatabase;
   }
 
   public Supplier<AutoEmbeddingCommitMetadata> getCommitMetadataSupplier() {

@@ -14,6 +14,7 @@ java_library(
         "SynonymMappingHighWaterMark.java",
         "SynonymMappingManager.java",
         "SynonymMappingManagerFactory.java",
+        "SynonymSourceNamespace.java",
         "SynonymSyncMetrics.java",
         "SynonymSyncMongoClient.java",
         "SynonymSyncRequest.java",
@@ -30,6 +31,7 @@ java_library(
     ],
     deps = [
         "//src/main/java/com/xgen/mongot/index",
+        "//src/main/java/com/xgen/mongot/index/autoembedding",
         "//src/main/java/com/xgen/mongot/index/definition",
         "//src/main/java/com/xgen/mongot/index/synonym",
         "//src/main/java/com/xgen/mongot/index/version",

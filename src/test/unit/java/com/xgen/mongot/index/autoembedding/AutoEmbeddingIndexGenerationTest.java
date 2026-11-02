@@ -192,4 +192,56 @@ public class AutoEmbeddingIndexGenerationTest {
         IndexTypeData.IndexTypeTag.TAG_VECTOR_SEARCH,
         IndexTypeData.getIndexTypeTag(derivedGen.getIndexDefinition()));
   }
+
+  @Test
+  public void derivedGeneration_rawIndexSourceDatabase_usesRawUserDefinition() {
+    InitializedMaterializedViewIndex matViewIndex = mock(InitializedMaterializedViewIndex.class);
+    when(matViewIndex.getMaterializedViewDatabaseName()).thenReturn("__mdb_internal_search");
+    when(matViewIndex.getMaterializedViewCollectionMetadata())
+        .thenReturn(
+            new MaterializedViewCollectionMetadata(
+                new MaterializedViewSchemaMetadata(0, Map.of()), UUID.randomUUID(), "123"));
+    when(matViewIndex.isCompatibleWith(any())).thenReturn(true);
+    Index derivedIndex = mock(Index.class);
+    when(derivedIndex.isCompatibleWith(any())).thenReturn(true);
+    AutoEmbeddingCompositeIndex composite =
+        new AutoEmbeddingCompositeIndex(matViewIndex, derivedIndex);
+
+    ObjectId indexId = new ObjectId();
+    VectorIndexDefinitionGeneration rawGen =
+        new VectorIndexDefinitionGeneration(
+            VectorIndexDefinitionBuilder.builder()
+                .indexId(indexId)
+                .name("mock")
+                .database("userDb")
+                .lastObservedCollectionName("mock")
+                .collectionUuid(UUID.randomUUID())
+                .withAutoEmbedField("title")
+                .build(),
+            Generation.CURRENT);
+    IndexDefinitionGeneration derivedGen =
+        new VectorIndexDefinitionGeneration(
+            VectorIndexDefinitionBuilder.builder()
+                .indexId(indexId)
+                .name("derived")
+                .database("__mdb_internal_search")
+                .lastObservedCollectionName("123")
+                .collectionUuid(UUID.randomUUID())
+                .withCosineVectorField("embeddings", 4)
+                .build(),
+            Generation.CURRENT);
+
+    AutoEmbeddingIndexGeneration generation =
+        new AutoEmbeddingIndexGeneration(composite, rawGen, derivedGen);
+
+    // Synonym source collections live with the user's data, never in the internal database that
+    // holds the materialized view.
+    assertEquals(
+        "userDb",
+        ((DerivedLocalIndexGeneration) generation.getDerivedIndexGeneration())
+            .getRawIndexSourceDatabase());
+    assertEquals(
+        "__mdb_internal_search",
+        generation.getDerivedIndexGeneration().getDefinition().getDatabase());
+  }
 }

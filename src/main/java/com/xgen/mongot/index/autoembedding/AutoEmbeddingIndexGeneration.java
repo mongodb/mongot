@@ -46,6 +46,7 @@ public class AutoEmbeddingIndexGeneration extends IndexGeneration {
             compositeIndex.derivedIndex,
             derivedIndexDefinitionGeneration,
             IndexTypeData.getIndexTypeTag(rawDefinitionGeneration.getIndexDefinition()),
+            rawDefinitionGeneration.getIndexDefinition().getDatabase(),
             () ->
                 new AutoEmbeddingCommitMetadata(
                     compositeIndex.matViewIndex.isCurrentVersionQueryablePerLease(),

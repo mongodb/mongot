@@ -59,8 +59,7 @@ class SynonymCollectionScanRequest extends SynonymSyncRequest {
         documentIndexer,
         SynonymMappingId.from(indexGeneration.getGenerationId(), synonymDefinition.name()),
         synonymDefinition,
-        new MongoNamespace(
-            indexGeneration.getDefinition().getDatabase(), synonymDefinition.source().collection()),
+        SynonymSourceNamespace.of(indexGeneration, synonymDefinition),
         synonymSyncStartingHandler,
         collectionScannerFactory,
         new CompletableFuture<>(),
