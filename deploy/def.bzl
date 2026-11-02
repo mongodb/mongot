@@ -94,6 +94,18 @@ def package_deploy_tar(name, bin, lib, toplevel = [], with_tags = True, license 
         testonly = testonly,
     )
 
+    # The release bundle's contents unpacked at
+    # /mongot-on-prem for both community & enterprise.
+    # Specifically avoided the path /mongot/ to avoid conflicting with existing MCK configs.
+    pkg_tar(
+        name = "{}-image-layer".format(name),
+        package_dir = "mongot-on-prem",
+        srcs = toplevel,
+        deps = release_deps,
+        visibility = ["//visibility:public"],
+        testonly = testonly,
+    )
+
 """
 Rule which allows to use config flag values in the pkg_tar package_variables
 """

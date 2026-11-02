@@ -41,9 +41,9 @@ services:
           - mongot.search-community
     volumes:
       - mongot_data:/data/mongot
-      - ./mongot.conf:/mongot-community/config.default.yml
-      - ./pwfile:/mongot-community/pwfile:ro
-      - ./tls:/mongot-community/tls:ro
+      - ./mongot.conf:/mongot-on-prem/config.default.yml
+      - ./pwfile:/mongot-on-prem/pwfile:ro
+      - ./tls:/mongot-on-prem/tls:ro
     depends_on:
       - mongod
     ports:
@@ -63,9 +63,9 @@ services:
           - mongot.search-community
     volumes:
       - mongot_data:/data/mongot
-      - ./mongot.conf:/mongot-community/config.default.yml
-      - ./pwfile:/mongot-community/pwfile:ro
-      - ./tls:/mongot-community/tls:ro
+      - ./mongot.conf:/mongot-on-prem/config.default.yml
+      - ./pwfile:/mongot-on-prem/pwfile:ro
+      - ./tls:/mongot-on-prem/tls:ro
     depends_on:
       - mongod
     ports:
