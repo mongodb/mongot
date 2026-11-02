@@ -122,7 +122,7 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
         parser.getField(VectorAutoEmbedFieldSpecification.Fields.AUTO_EMBED_QUANTIZATION).unwrap();
 
     VectorAutoEmbedFieldSpecification.ResolvedAutoEmbedVectorParams resolved =
-        VectorAutoEmbedFieldSpecification.resolveAutoEmbedVectorParams(
+        VectorAutoEmbedFieldSpecification.resolveSearchAutoEmbedVectorParams(
             modelName, numDimensions, similarity, quantization);
     VectorAutoEmbedFieldSpecification specification =
         new VectorAutoEmbedFieldSpecification(
@@ -161,7 +161,7 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
     String canonicalModality = modality.toLowerCase(Locale.ROOT);
     try {
       VectorAutoEmbedFieldSpecification.ResolvedAutoEmbedVectorParams resolved =
-          VectorAutoEmbedFieldSpecification.resolveAutoEmbedVectorParams(
+          VectorAutoEmbedFieldSpecification.resolveSearchAutoEmbedVectorParams(
               canonicalModelName, Optional.empty(), Optional.empty(), Optional.empty());
       return new VectorAutoEmbedFieldSpecification(
           resolved.numDimensions(),

@@ -232,9 +232,45 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
       Optional<VectorSimilarity> userSimilarity,
       Optional<VectorAutoEmbedQuantization> userQuantization)
       throws BsonParseException {
+    return resolveWithSimilarityDefaults(
+        modelName,
+        userNumDimensions,
+        userSimilarity,
+        userQuantization,
+        SimilarityDefaults.VECTOR_SEARCH);
+  }
+
+  /**
+   * Search-index variant of {@link #resolveAutoEmbedVectorParams}: dimensions and quantization
+   * resolve the same way, but an omitted {@code similarity} uses {@link
+   * #getSearchDefaultSimilarity} and ignores the model config's per-quantization default, so Atlas
+   * and community resolve the same value.
+   */
+  static ResolvedAutoEmbedVectorParams resolveSearchAutoEmbedVectorParams(
+      String modelName,
+      Optional<Integer> userNumDimensions,
+      Optional<VectorSimilarity> userSimilarity,
+      Optional<VectorAutoEmbedQuantization> userQuantization)
+      throws BsonParseException {
+    return resolveWithSimilarityDefaults(
+        modelName, userNumDimensions, userSimilarity, userQuantization, SimilarityDefaults.SEARCH);
+  }
+
+  /** Which defaults apply when an auto-embed field omits {@code similarity}. */
+  private enum SimilarityDefaults {
+    VECTOR_SEARCH,
+    SEARCH
+  }
+
+  private static ResolvedAutoEmbedVectorParams resolveWithSimilarityDefaults(
+      String modelName,
+      Optional<Integer> userNumDimensions,
+      Optional<VectorSimilarity> userSimilarity,
+      Optional<VectorAutoEmbedQuantization> userQuantization,
+      SimilarityDefaults similarityDefaults)
+      throws BsonParseException {
     // Fast‑path: if the user provided all optional values, avoid touching the model catalog. When
-    // similarity is omitted we fall through so the per-quantization default from the model config
-    // can apply.
+    // similarity is omitted we fall through so the per-quantization default can apply.
     if (userNumDimensions.isPresent()
         && userQuantization.isPresent()
         && userSimilarity.isPresent()) {
@@ -270,10 +306,18 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
         userQuantization.orElse(modelConfig.quantization.get());
 
     // resolve VectorSimilarity: explicit BSON value, then model-config per-quantization default,
-    // then the static quantization-based fallback.
+    // then the static quantization-based fallback. Search fields skip the model config.
     VectorSimilarity similarity =
-        resolveSimilarity(
-            modelName, userSimilarity, resolvedQuantization, modelConfig.similarityByQuantization);
+        switch (similarityDefaults) {
+          case VECTOR_SEARCH ->
+              resolveSimilarity(
+                  modelName,
+                  userSimilarity,
+                  resolvedQuantization,
+                  modelConfig.similarityByQuantization);
+          case SEARCH ->
+              userSimilarity.orElseGet(() -> getSearchDefaultSimilarity(resolvedQuantization));
+        };
 
     return buildResolvedParams(resolvedNumDimensions, similarity, resolvedQuantization);
   }
@@ -302,6 +346,15 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
     return switch (quantization) {
       case BINARY, BINARY_NO_RESCORE -> VectorSimilarity.EUCLIDEAN;
       default -> VectorSimilarity.DOT_PRODUCT;
+    };
+  }
+
+  private static VectorSimilarity getSearchDefaultSimilarity(
+      VectorAutoEmbedQuantization quantization) {
+    return switch (quantization) {
+      case SCALAR -> VectorSimilarity.COSINE;
+      case FLOAT, BINARY -> VectorSimilarity.DOT_PRODUCT;
+      case BINARY_NO_RESCORE -> VectorSimilarity.EUCLIDEAN;
     };
   }
 
