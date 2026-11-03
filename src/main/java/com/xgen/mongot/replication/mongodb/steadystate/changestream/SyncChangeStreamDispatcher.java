@@ -255,7 +255,11 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
     ChangeStreamMongoClient<SteadyStateException> mongoClient =
         this.syncMongoClientFactory.resumeTimedModeAwareChangeStream(
-            generationId, resumeInfo, indexDefinition, removeMatchCollectionUuid);
+            generationId,
+            resumeInfo,
+            indexDefinition,
+            removeMatchCollectionUuid,
+            indexManager.partitionTracker.isPresent());
 
     this.taskExecutor.addIndex(indexDefinition.getIndexId());
 

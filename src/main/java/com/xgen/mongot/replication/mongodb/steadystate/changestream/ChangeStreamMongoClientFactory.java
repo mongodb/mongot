@@ -44,7 +44,6 @@ class ChangeStreamMongoClientFactory {
   private final MeterRegistry ftdcRegistry;
   private final MetricsFactory meterMetricsFactory;
   private final boolean enableSplitLargeChangeStreamEvents;
-  private final boolean enableParallelChangeStreamReaders;
   private final int numParallelChangeStreamReaders;
   private final Optional<Executor> partitionReaderExecutor;
 
@@ -70,8 +69,6 @@ class ChangeStreamMongoClientFactory {
         new MetricsFactory("changestream", meterAndFtdcRegistry.meterRegistry());
     this.enableSplitLargeChangeStreamEvents =
         replicationConfig.getEnableSplitLargeChangeStreamEvents();
-    this.enableParallelChangeStreamReaders =
-        replicationConfig.getEnableParallelChangeStreamReaders();
     this.numParallelChangeStreamReaders = replicationConfig.getNumParallelChangeStreamReaders();
     this.partitionReaderExecutor = partitionReaderExecutor;
   }
@@ -186,16 +183,17 @@ class ChangeStreamMongoClientFactory {
 
   /**
    * Starts a change stream which might be restarted when {@link ChangeStreamMode} needs to be
-   * switched or passed TTL. When {@link Feature#PARALLEL_CHANGE_STREAM_READERS} is enabled, one
-   * reader per partition is started instead; otherwise behavior is unchanged.
+   * switched or passed TTL. The caller selects parallel readers using the same per-generation
+   * decision as partition checkpoint tracking.
    */
   ChangeStreamMongoClient<SteadyStateException> resumeTimedModeAwareChangeStream(
       GenerationId generationId,
       ChangeStreamResumeInfo resumeInfo,
       IndexDefinition indexDefinition,
-      boolean removeMatchCollectionUuid)
+      boolean removeMatchCollectionUuid,
+      boolean useParallelChangeStreamReaders)
       throws SteadyStateException {
-    if (this.enableParallelChangeStreamReaders) {
+    if (useParallelChangeStreamReaders) {
       return resumePartitionedChangeStream(
           generationId, resumeInfo, indexDefinition, removeMatchCollectionUuid);
     }

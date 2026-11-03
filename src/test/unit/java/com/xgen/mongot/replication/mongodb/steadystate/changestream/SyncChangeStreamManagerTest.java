@@ -73,6 +73,103 @@ public class SyncChangeStreamManagerTest {
           new BsonDocument("_data", new BsonBinary("initial resume token".getBytes())));
 
   @Test
+  public void add_excludedIndex_disablesPartitionClientAndTracker() throws Exception {
+    assertReaderSelection(true, false, false);
+  }
+
+  @Test
+  public void add_eligibleIndex_enablesPartitionClientAndTracker() throws Exception {
+    assertReaderSelection(true, true, true);
+  }
+
+  @Test
+  public void add_globalPcsDisabled_keepsEligibleIndexOnSingleReader() throws Exception {
+    assertReaderSelection(false, true, false);
+  }
+
+  private static void assertReaderSelection(
+      boolean globallyEnabled, boolean indexEligible, boolean expectedPartitioned)
+      throws Exception {
+    var registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    var client = mock(ChangeStreamMongoClient.class);
+    when(client.getNext()).thenThrow(SteadyStateException.createShutDown());
+    var mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(
+            any(), any(), any(), anyBoolean(), anyBoolean()))
+        .thenReturn(client);
+    var decodingScheduler = DecodingWorkScheduler.create(1, registry.meterRegistry());
+    var indexManagerFactory =
+        ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(decodingScheduler);
+    var capturedManager = new AtomicReference<ChangeStreamIndexManager>();
+    ChangeStreamIndexManagerFactory capturingFactory =
+        (definition,
+            scheduler,
+            indexer,
+            namespace,
+            updater,
+            metrics,
+            future,
+            generation,
+            tracker) -> {
+          var indexManager =
+              indexManagerFactory.create(
+                  definition,
+                  scheduler,
+                  indexer,
+                  namespace,
+                  updater,
+                  metrics,
+                  future,
+                  generation,
+                  tracker);
+          capturedManager.set(indexManager);
+          return indexManager;
+        };
+    var workSchedulerFactory =
+        IndexingWorkSchedulerFactory.create(
+            1, mock(com.google.common.base.Supplier.class), registry.meterRegistry(), true);
+    var manager =
+        ChangeStreamManager.createSync(
+            registry,
+            mongoClientFactory,
+            mock(ChangeStreamModeSelector.class),
+            workSchedulerFactory,
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setEnableParallelChangeStreamReaders(globallyEnabled)
+                .setNumParallelChangeStreamReaders(3)
+                .build(),
+            capturingFactory);
+
+    try {
+      manager.add(
+          MOCK_INDEX_GENERATION_ID,
+          mockDocumentIndexer(),
+          MOCK_INDEX_DEFINITION,
+          ChangeStreamUtils.PRE_BATCH_RESUME_INFO,
+          ignored -> {},
+          IGNORE_METRICS,
+          false,
+          indexEligible);
+
+      assertThat(capturedManager.get().partitionTracker.isPresent()).isEqualTo(expectedPartitioned);
+      verify(mongoClientFactory)
+          .resumeTimedModeAwareChangeStream(
+              MOCK_INDEX_GENERATION_ID,
+              ChangeStreamUtils.PRE_BATCH_RESUME_INFO,
+              MOCK_INDEX_DEFINITION,
+              false,
+              expectedPartitioned);
+    } finally {
+      manager.shutdown().get(5, TimeUnit.SECONDS);
+      decodingScheduler.shutdown().get(5, TimeUnit.SECONDS);
+    }
+  }
+
+  @Test
   public void testAssertionErrorOnUnexpectedChangeStreamEvent() throws Exception {
     var indexingWorkSchedulerFactory = mock(IndexingWorkSchedulerFactory.class);
     var indexingWorkScheduler = mock(IndexingWorkScheduler.class);
@@ -88,7 +185,8 @@ public class SyncChangeStreamManagerTest {
                 ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
                 Optional.of(new BsonTimestamp())));
 
-    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(
+            any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);
 
     when(indexingWorkSchedulerFactory.getIndexingWorkScheduler(eq(MOCK_INDEX_DEFINITION)))
@@ -144,7 +242,8 @@ public class SyncChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             (ignoreResumeInfo) -> {},
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(
@@ -198,7 +297,8 @@ public class SyncChangeStreamManagerTest {
                 ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
                 Optional.of(new BsonTimestamp())));
 
-    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(
+            any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);
 
     when(indexingWorkSchedulerFactory.getIndexingWorkScheduler(eq(MOCK_INDEX_DEFINITION)))
@@ -256,7 +356,8 @@ public class SyncChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             (ignoreResumeInfo) -> {},
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(
@@ -319,10 +420,11 @@ public class SyncChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         (ignoreResumeInfo) -> {},
         IGNORE_METRICS,
+        true,
         true);
 
     verify(mongoClientFactory, timeout(500))
-        .resumeTimedModeAwareChangeStream(any(), any(), any(), eq(true));
+        .resumeTimedModeAwareChangeStream(any(), any(), any(), eq(true), anyBoolean());
   }
 
   @Test
@@ -370,7 +472,8 @@ public class SyncChangeStreamManagerTest {
               return batch;
             });
 
-    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(
+            any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);
 
     DecodingWorkScheduler decodingScheduler =
@@ -419,7 +522,8 @@ public class SyncChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         (ignoreResumeInfo) -> {},
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     getMoreStarted.await();
     assertNumberOfEmbeddingPermits(changeStreamManager, 0);
@@ -483,7 +587,8 @@ public class SyncChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         (ignoreResumeInfo) -> {},
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // The observer for the index's database is created once and the index registers with it.
     assertThat(observerFactory.createdDatabases).containsExactly(MOCK_INDEX_DATABASE_NAME);
@@ -507,7 +612,8 @@ public class SyncChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         (ignoreResumeInfo) -> {},
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     ChangeStreamActivityObserver observer = observerFactory.observerFor(MOCK_INDEX_DATABASE_NAME);
     // deregister returns true => that was the database's last managed index.
     when(observer.deregister(MOCK_INDEX_GENERATION_ID)).thenReturn(true);
@@ -534,7 +640,8 @@ public class SyncChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         (ignoreResumeInfo) -> {},
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     ChangeStreamActivityObserver observer = observerFactory.observerFor(MOCK_INDEX_DATABASE_NAME);
     // deregister returns false => the database still has other managed indexes.
     when(observer.deregister(MOCK_INDEX_GENERATION_ID)).thenReturn(false);
@@ -561,7 +668,8 @@ public class SyncChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         (ignoreResumeInfo) -> {},
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     ChangeStreamActivityObserver observer = observerFactory.observerFor(MOCK_INDEX_DATABASE_NAME);
 
     getMoreDone.countDown();
@@ -591,7 +699,8 @@ public class SyncChangeStreamManagerTest {
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
                   Optional.of(new BsonTimestamp()));
             });
-    when(mongoClientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+    when(mongoClientFactory.resumeTimedModeAwareChangeStream(
+            any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(changeStreamMongoClient);
 
     DecodingWorkScheduler decodingScheduler =

@@ -118,7 +118,8 @@ public class SteadyStateManager {
       IndexDefinition indexDefinition,
       IndexMetricsUpdater indexMetricsUpdater,
       ChangeStreamResumeInfo resumeInfo,
-      boolean removeMatchCollectionUuid)
+      boolean removeMatchCollectionUuid,
+      boolean eligibleForParallelChangeStreamReaders)
       throws SteadyStateException {
     synchronized (this) { // https://github.com/mockito/mockito/issues/2970
       checkState(
@@ -152,7 +153,8 @@ public class SteadyStateManager {
               resumeInfo,
               resumeInfoUpdater,
               indexMetricsUpdater,
-              removeMatchCollectionUuid);
+              removeMatchCollectionUuid,
+              eligibleForParallelChangeStreamReaders);
 
       SteadyStateIndexManager indexManager =
           SteadyStateIndexManager.create(resumeInfoSupplier, changeStreamLifecycleFuture);

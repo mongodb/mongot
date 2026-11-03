@@ -61,7 +61,8 @@ public class SteadyStateManagerTest {
   @Test
   public void testAdd() throws Exception {
     ChangeStreamManager changeStreamManager = mock(ChangeStreamManager.class);
-    when(changeStreamManager.add(any(), any(), any(), any(), any(), any(), anyBoolean()))
+    when(changeStreamManager.add(
+            any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(new CompletableFuture<>());
 
     SteadyStateManager manager = new SteadyStateManager(changeStreamManager, new HashMap<>());
@@ -75,7 +76,8 @@ public class SteadyStateManagerTest {
         MOCK_INDEX_DEFINITION,
         IGNORE_METRICS,
         RESUME_INFO,
-        false);
+        false,
+        true);
 
     ArgumentCaptor<DocumentIndexer> indexerCaptor = ArgumentCaptor.forClass(DocumentIndexer.class);
     verify(changeStreamManager)
@@ -86,7 +88,8 @@ public class SteadyStateManagerTest {
             eq(RESUME_INFO),
             any(),
             any(),
-            eq(false));
+            eq(false),
+            eq(true));
     assertThat(indexerCaptor.getValue()).isInstanceOf(IdTypeObservingDocumentIndexer.class);
     assertThat(((IdTypeObservingDocumentIndexer) indexerCaptor.getValue()).getDelegate())
         .isEqualTo(documentIndexer);
@@ -101,7 +104,8 @@ public class SteadyStateManagerTest {
         MOCK_INDEX_DEFINITION,
         IGNORE_METRICS,
         RESUME_INFO,
-        false);
+        false,
+        true);
 
     ArgumentCaptor<DocumentIndexer> indexerCaptor2 = ArgumentCaptor.forClass(DocumentIndexer.class);
     verify(changeStreamManager)
@@ -112,10 +116,43 @@ public class SteadyStateManagerTest {
             eq(RESUME_INFO),
             any(),
             any(),
-            eq(false));
+            eq(false),
+            eq(true));
     assertThat(indexerCaptor2.getValue()).isInstanceOf(IdTypeObservingDocumentIndexer.class);
     assertThat(((IdTypeObservingDocumentIndexer) indexerCaptor2.getValue()).getDelegate())
         .isEqualTo(documentIndexer);
+  }
+
+  @Test
+  public void add_parallelReadersDisallowed_passesOptOutToChangeStreamManager() throws Exception {
+    ChangeStreamManager changeStreamManager = mock(ChangeStreamManager.class);
+    when(changeStreamManager.add(
+            any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
+        .thenReturn(new CompletableFuture<>());
+    SteadyStateManager manager = new SteadyStateManager(changeStreamManager, new HashMap<>());
+    DocumentIndexer documentIndexer =
+        com.xgen.testing.mongot.mock.replication.mongodb.common.DocumentIndexer
+            .mockDocumentIndexer();
+
+    manager.add(
+        MOCK_INDEX_GENERATION_ID,
+        documentIndexer,
+        MOCK_INDEX_DEFINITION,
+        IGNORE_METRICS,
+        RESUME_INFO,
+        false,
+        false);
+
+    verify(changeStreamManager)
+        .add(
+            eq(MOCK_INDEX_GENERATION_ID),
+            any(),
+            eq(MOCK_INDEX_DEFINITION),
+            eq(RESUME_INFO),
+            any(),
+            any(),
+            eq(false),
+            eq(false));
   }
 
   @Test
@@ -123,7 +160,8 @@ public class SteadyStateManagerTest {
       throws Exception {
     ChangeStreamManager changeStreamManager = mock(ChangeStreamManager.class);
     CompletableFuture<Void> changeStreamFuture = new CompletableFuture<>();
-    when(changeStreamManager.add(any(), any(), any(), any(), any(), any(), anyBoolean()))
+    when(changeStreamManager.add(
+            any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(changeStreamFuture);
 
     SteadyStateManager manager = new SteadyStateManager(changeStreamManager, new HashMap<>());
@@ -136,7 +174,8 @@ public class SteadyStateManagerTest {
             MOCK_INDEX_DEFINITION,
             IGNORE_METRICS,
             RESUME_INFO,
-            false);
+            false,
+            true);
     Assert.assertFalse(future.isDone());
 
     changeStreamFuture.completeExceptionally(SteadyStateException.createDropped());
@@ -147,7 +186,8 @@ public class SteadyStateManagerTest {
   @Test
   public void testAddAlreadyExisting() throws Exception {
     ChangeStreamManager changeStreamManager = mock(ChangeStreamManager.class);
-    when(changeStreamManager.add(any(), any(), any(), any(), any(), any(), anyBoolean()))
+    when(changeStreamManager.add(
+            any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(new CompletableFuture<>());
 
     SteadyStateManager manager = new SteadyStateManager(changeStreamManager, new HashMap<>());
@@ -159,7 +199,8 @@ public class SteadyStateManagerTest {
         MOCK_INDEX_DEFINITION,
         IGNORE_METRICS,
         RESUME_INFO,
-        false);
+        false,
+        true);
 
     Assert.assertThrows(
         IllegalStateException.class,
@@ -171,7 +212,8 @@ public class SteadyStateManagerTest {
                 MOCK_INDEX_DEFINITION,
                 IGNORE_METRICS,
                 RESUME_INFO,
-                false));
+                false,
+                true));
   }
 
   @Test
@@ -193,14 +235,16 @@ public class SteadyStateManagerTest {
                     MOCK_INDEX_DEFINITION,
                     IGNORE_METRICS,
                     RESUME_INFO,
-                    false));
+                    false,
+                    true));
     Assert.assertTrue(e.isShutdown());
   }
 
   @Test
   public void testStop() throws Exception {
     ChangeStreamManager changeStreamManager = mock(ChangeStreamManager.class);
-    when(changeStreamManager.add(any(), any(), any(), any(), any(), any(), anyBoolean()))
+    when(changeStreamManager.add(
+            any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(new CompletableFuture<>());
     when(changeStreamManager.stop(any())).thenReturn(FutureUtils.COMPLETED_FUTURE);
 
@@ -213,7 +257,8 @@ public class SteadyStateManagerTest {
         MOCK_INDEX_DEFINITION,
         IGNORE_METRICS,
         RESUME_INFO,
-        false);
+        false,
+        true);
 
     CompletableFuture<ChangeStreamResumeInfo> future = manager.stop(MOCK_INDEX_GENERATION_ID);
     ChangeStreamResumeInfo resumeInfo = future.get(5, TimeUnit.SECONDS);

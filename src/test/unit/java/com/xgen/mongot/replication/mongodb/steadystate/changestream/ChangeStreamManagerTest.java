@@ -286,7 +286,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     if (!indexedDocuments.await(5, TimeUnit.SECONDS)) {
       Assert.fail();
@@ -316,7 +317,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     verify(modeSelector)
         .register(
@@ -348,7 +350,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     Assert.assertEquals(
         INITIAL_RESUME_INFO.getNamespace().getCollectionName(),
         indexDefinition.getLastObservedCollectionName());
@@ -398,7 +401,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     CompletableFuture<Void> stopFuture = manager.stop(MOCK_INDEX_GENERATION_ID);
     assertFalse(shutdownFuture.isDone());
@@ -453,7 +457,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     manager.stop(MOCK_INDEX_GENERATION_ID);
     verify(modeSelector).remove(MOCK_INDEX_GENERATION_ID);
@@ -480,7 +485,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     Assert.assertThrows(
         IllegalStateException.class,
@@ -492,7 +498,8 @@ public class ChangeStreamManagerTest {
                 INITIAL_RESUME_INFO,
                 ignoreResumeInfo(),
                 IGNORE_METRICS,
-                false));
+                false,
+                true));
   }
 
   @Test
@@ -516,7 +523,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     manager.stop(MOCK_INDEX_GENERATION_ID);
 
@@ -527,7 +535,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
   }
 
   @Test
@@ -552,7 +561,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     GenerationId otherSwapId = GenerationIdBuilder.incrementUser(MOCK_INDEX_GENERATION_ID);
     CompletableFuture<Void> second =
@@ -563,7 +573,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     // Make sure the manager keeps track of both by canceling one and not the other
     assertFalse(first.isDone());
@@ -595,7 +606,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
@@ -631,7 +643,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
@@ -669,7 +682,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
@@ -709,7 +723,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
@@ -748,7 +763,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
@@ -785,7 +801,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     ExecutionException executionException =
         Assert.assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
@@ -853,7 +870,8 @@ public class ChangeStreamManagerTest {
             INITIAL_RESUME_INFO,
             ignoreResumeInfo(),
             IGNORE_METRICS,
-            false);
+            false,
+            true);
 
     // when we get here, the first batch should be waiting on us to complete the failedFuture
     firstBatchScheduled.await();
@@ -967,7 +985,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         secondDefinition.getGenerationId(),
         secondIndexer,
@@ -975,7 +994,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         thirdDefinition.getGenerationId(),
         thirdIndexer,
@@ -983,7 +1003,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         fourthDefinition.getGenerationId(),
         fourthIndexer,
@@ -991,7 +1012,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // The first and second indexes should have getMores dispatched on their behalf, but the
     // third and fourth should not.
@@ -1198,7 +1220,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         secondDefinition.getGenerationId(),
         secondIndexer,
@@ -1206,7 +1229,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         thirdDefinition.getGenerationId(),
         thirdIndexer,
@@ -1214,7 +1238,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // GetMores should happen for the first 2 indexes.
     // Desired state:
@@ -1354,7 +1379,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         secondDefinition.getGenerationId(),
         indexer(),
@@ -1362,7 +1388,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         thirdDefinition.getGenerationId(),
         thirdIndexer,
@@ -1370,7 +1397,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // we expect both first and third getMore to be in-flight, while
     // the second one should never be executed
@@ -1462,7 +1490,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // getMore should happen for the first index.
     firstGetMoreStarted.await(5, TimeUnit.SECONDS);
@@ -1488,7 +1517,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // When the second getMore finishes, the next one should not begin, as
     // there are two batches waiting to be indexed.
@@ -1607,7 +1637,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // getMore should happen for the index.
     getMoreStarted.await(5, TimeUnit.SECONDS);
@@ -1720,7 +1751,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // getMore should happen for the first index.
     firstGetMoreStarted.await(5, TimeUnit.SECONDS);
@@ -1819,7 +1851,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // getMore should happen for the first index.
     firstGetMoreStarted.await(5, TimeUnit.SECONDS);
@@ -1908,7 +1941,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // Wait for the first index's getMore to actually start before adding the second index. This
     // guarantees the first index has acquired the single in-flight embedding getMore permit, making
@@ -1925,7 +1959,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // The first index should have getMores dispatched and begin indexing, but the second index
     // should be blocked until the first index batch is done.
@@ -2000,7 +2035,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         secondGeneration.getGenerationId(),
         indexer(),
@@ -2008,7 +2044,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // Verify that both getMores may start and run concurrently.
     firstGetMoreStarted.await(5, TimeUnit.SECONDS);
@@ -2062,7 +2099,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
     manager.add(
         secondGeneration.getGenerationId(),
         indexer(),
@@ -2070,7 +2108,8 @@ public class ChangeStreamManagerTest {
         INITIAL_RESUME_INFO,
         ignoreResumeInfo(),
         IGNORE_METRICS,
-        false);
+        false,
+        true);
 
     // Verify that both getMores may start and run concurrently.
     firstGetMoreStarted.await(5, TimeUnit.SECONDS);
@@ -2430,6 +2469,7 @@ public class ChangeStreamManagerTest {
         generationId,
         mock(ChangeStreamResumeInfo.class),
         SearchIndexDefinitionBuilder.VALID_INDEX,
+        false,
         false);
   }
 
@@ -2449,7 +2489,8 @@ public class ChangeStreamManagerTest {
         GenerationId generationId,
         ChangeStreamResumeInfo resumeInfo,
         IndexDefinition indexDefinition,
-        boolean removeMatchCollectionUuid)
+        boolean removeMatchCollectionUuid,
+        boolean useParallelChangeStreamReaders)
         throws SteadyStateException;
   }
 
@@ -2571,7 +2612,8 @@ public class ChangeStreamManagerTest {
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
                   Optional.of(new BsonTimestamp())));
 
-      when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+      when(clientFactory.resumeTimedModeAwareChangeStream(
+              any(), any(), any(), anyBoolean(), anyBoolean()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2588,7 +2630,8 @@ public class ChangeStreamManagerTest {
                   ChangeStreamUtils.POST_BATCH_RESUME_TOKEN,
                   Optional.of(new BsonTimestamp())));
 
-      when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+      when(clientFactory.resumeTimedModeAwareChangeStream(
+              any(), any(), any(), anyBoolean(), anyBoolean()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2599,7 +2642,8 @@ public class ChangeStreamManagerTest {
           .thenThrow(SteadyStateException.createTransient(new MongoException("exception")));
 
       var clientFactory = mock(ChangeStreamMongoClientFactory.class);
-      when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+      when(clientFactory.resumeTimedModeAwareChangeStream(
+              any(), any(), any(), anyBoolean(), anyBoolean()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2629,7 +2673,8 @@ public class ChangeStreamManagerTest {
                     Optional.of(new BsonTimestamp()));
               });
 
-      when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+      when(clientFactory.resumeTimedModeAwareChangeStream(
+              any(), any(), any(), anyBoolean(), anyBoolean()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2639,7 +2684,8 @@ public class ChangeStreamManagerTest {
       var clientFactory = mock(ChangeStreamMongoClientFactory.class);
 
       AtomicInteger count = new AtomicInteger(0);
-      when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+      when(clientFactory.resumeTimedModeAwareChangeStream(
+              any(), any(), any(), anyBoolean(), anyBoolean()))
           .then(
               invocation -> {
                 GenerationId generationId = invocation.getArgument(0);
@@ -2717,7 +2763,8 @@ public class ChangeStreamManagerTest {
             errorClients.put(generationId, errorClient);
           });
 
-      when(clientFactory.resumeTimedModeAwareChangeStream(any(), any(), any(), anyBoolean()))
+      when(clientFactory.resumeTimedModeAwareChangeStream(
+              any(), any(), any(), anyBoolean(), anyBoolean()))
           .then(
               invocation -> {
                 GenerationId generationId = invocation.getArgument(0);

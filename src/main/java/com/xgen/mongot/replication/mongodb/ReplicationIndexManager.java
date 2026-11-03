@@ -18,6 +18,7 @@ import com.xgen.mongot.index.Index;
 import com.xgen.mongot.index.IndexGeneration;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.ReplicationOpTimeInfo;
+import com.xgen.mongot.index.autoembedding.DerivedLocalIndexGeneration;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.status.IndexStatus;
@@ -927,7 +928,10 @@ public class ReplicationIndexManager implements IndexManager {
                       this.indexGeneration.getDefinition(),
                       this.index.getMetricsUpdater(),
                       resumeInfo,
-                      this.removeMatchCollectionUuid)
+                      this.removeMatchCollectionUuid,
+                      // AE indexes retain the single-reader replication path.
+                      !this.indexGeneration.getDefinition().isAutoEmbeddingIndex()
+                          && !(this.indexGeneration instanceof DerivedLocalIndexGeneration))
                   .handleAsync(
                       (ignored, throwable) -> {
                         checkState(
