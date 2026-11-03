@@ -48,7 +48,6 @@ import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.VectorSearchQuery;
-import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.IndexNamespaceFilter;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
@@ -262,11 +261,6 @@ public class VectorSearchCommand implements Command {
       validateQueryAndCursorOptions(query, queryCursorOptions);
 
       VectorSearchCriteria criteria = query.criteria();
-      if (criteria instanceof ApproximateVectorSearchCriteria approx
-          && approx.isAutoNumCandidates()
-          && !this.metadata.featureFlags().isEnabled(Feature.AUTO_NUM_CANDIDATES)) {
-        throw new InvalidQueryException("numCandidates is required for approximate vector search");
-      }
       if (criteria.queryVector().isPresent()) {
         // AutoEmbedding query should already pass counter updating method since they are all
         // native floats.

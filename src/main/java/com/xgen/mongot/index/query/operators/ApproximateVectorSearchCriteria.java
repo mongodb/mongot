@@ -14,11 +14,10 @@ import org.bson.BsonDocument;
 /**
  * Criteria for approximate (ANN) vector search.
  *
- * <p>{@code numCandidates} may be empty when the {@code enableAutoNumCandidates} feature flag is
- * enabled and the user omits numCandidates from the query (auto mode). Use {@link
- * #getNumCandidates()} for the raw user-supplied value (empty in auto mode), {@link
- * #isAutoNumCandidates()} to check the mode, and {@link #resolveNumCandidates()} for the effective
- * value ({@code clamp(8 * limit, 100, 10000)} in auto mode, the user value otherwise).
+ * <p>{@code numCandidates} may be empty when the user omits numCandidates from the query (auto
+ * mode). Use {@link #getNumCandidates()} for the raw user-supplied value (empty in auto mode),
+ * {@link #isAutoNumCandidates()} to check the mode, and {@link #resolveNumCandidates()} for the
+ * effective value ({@code clamp(8 * limit, 100, 10000)} in auto mode, the user value otherwise).
  */
 public record ApproximateVectorSearchCriteria(
     FieldPath path,
@@ -87,8 +86,7 @@ public record ApproximateVectorSearchCriteria(
       throw new BsonParseException(
           "exact must be false or omitted for ApproximateVectorSearchCriteria", Optional.empty());
     }
-    // Empty in auto mode: numCandidates will be computed at query time. When
-    // enableAutoNumCandidates is disabled, the command layer rejects the omission.
+    // Empty in auto mode: numCandidates will be computed at query time.
     Optional<Integer> numCandidates = parser.getField(Fields.NUM_CANDIDATES).unwrap();
     int limit = parser.getField(Fields.LIMIT).unwrap();
 

@@ -359,7 +359,7 @@ public class VectorSearchCommandTest {
   }
 
   @Test
-  public void omittedNumCandidatesWithoutAutoFeatureFlag_returnsUserError() throws Exception {
+  public void omittedNumCandidates_queriesIndex() throws Exception {
     var mocks = new Mocks();
     var query =
         VectorQueryBuilder.builder()
@@ -382,51 +382,7 @@ public class VectorSearchCommandTest {
             mocks.catalog,
             mocks.initializedIndexCatalog,
             (database, collectionUuid, indexName) -> {},
-            bootstrapperMetadata(
-                FeatureFlags.withDefaults().disable(Feature.AUTO_NUM_CANDIDATES).build()),
-            MOCK_EMBEDDING_SERVICE,
-            new VectorSearchCommand.Metrics(mockMetricsFactory()),
-            mocks.cursorManager,
-            CursorConfig.DEFAULT_BSON_SIZE_SOFT_LIMIT);
-
-    var result = command.run();
-
-    Assert.assertEquals(
-        new BsonDocument()
-            .append("ok", new BsonInt32(0))
-            .append(
-                "errmsg",
-                new BsonString("numCandidates is required for approximate vector search")),
-        result);
-    verify(mocks.reader, times(0)).query(any(), any());
-  }
-
-  @Test
-  public void omittedNumCandidatesWithAutoFeatureFlag_queriesIndex() throws Exception {
-    var mocks = new Mocks();
-    var query =
-        VectorQueryBuilder.builder()
-            .index(INDEX_NAME)
-            .criteria(
-                ApproximateVectorQueryCriteriaBuilder.builder()
-                    .limit(LIMIT)
-                    .queryVector(QUERY_VECTOR)
-                    .path(PATH)
-                    .build())
-            .build();
-    var command =
-        new VectorSearchCommand(
-            VectorSearchCommandDefinitionBuilder.builder()
-                .db(DATABASE_NAME)
-                .collectionName(COLLECTION_NAME)
-                .collectionUuid(COLLECTION_UUID)
-                .vectorSearchQuery(query)
-                .build(),
-            mocks.catalog,
-            mocks.initializedIndexCatalog,
-            (database, collectionUuid, indexName) -> {},
-            bootstrapperMetadata(
-                FeatureFlags.withDefaults().enable(Feature.AUTO_NUM_CANDIDATES).build()),
+            bootstrapperMetadata(FeatureFlags.withDefaults().build()),
             MOCK_EMBEDDING_SERVICE,
             new VectorSearchCommand.Metrics(mockMetricsFactory()),
             mocks.cursorManager,

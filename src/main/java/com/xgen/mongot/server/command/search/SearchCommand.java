@@ -42,7 +42,6 @@ import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.SearchQuery;
 import com.xgen.mongot.index.query.SearchQueryParseOptions;
-import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchOperator;
 import com.xgen.mongot.index.query.operators.VectorSearchQueryInput;
@@ -181,10 +180,9 @@ public class SearchCommand implements Command {
               .orElse(QueryCursorOptions.empty());
 
       // Validate before touching the catalog or the embedding service. These checks depend only on
-      // the parsed query and cursor options, so running them first ensures a malformed request
-      // (e.g. an omitted numCandidates with the AUTO_NUM_CANDIDATES flag disabled) is rejected with
-      // the expected user error rather than an index-unavailable or embedding error, and without
-      // invoking embedding, matching the previous parser-level rejection order.
+      // the parsed query and cursor options, so running them first ensures a malformed request is
+      // rejected with the expected user error rather than an index-unavailable or embedding error,
+      // and without invoking embedding.
       validateQueryAndCursorOptions(queryDefinition, queryCursorOptions);
 
       Optional<InitializedIndex> index = getIndexFromCatalog(queryDefinition);
@@ -374,16 +372,6 @@ public class SearchCommand implements Command {
       throw new InvalidQueryException(
           "Pagination is not supported with the 'vectorSearch' operator. "
               + "Use $skip and $limit stages instead.");
-    }
-
-    // Mirror the $vectorSearch command: an omitted numCandidates (auto mode) is only allowed when
-    // the AUTO_NUM_CANDIDATES flag is enabled. Otherwise reject it as before, since nothing
-    // resolves the auto value on the flag-off path.
-    if (operatorQuery.operator() instanceof VectorSearchOperator vectorSearchOperator
-        && vectorSearchOperator.criteria() instanceof ApproximateVectorSearchCriteria approx
-        && approx.isAutoNumCandidates()
-        && !this.metadata.featureFlags().isEnabled(Feature.AUTO_NUM_CANDIDATES)) {
-      throw new InvalidQueryException("numCandidates is required for approximate vector search");
     }
   }
 
