@@ -241,6 +241,7 @@ public class OnPremMongotBootstrapper {
 
     // The server-id is stored to disk so we need the datapath to exist before fetching it.
     var serverInfo = new CommunityServerInfo(config);
+    Logging.setServerContext(serverInfo.id().toHexString(), serverInfo.name());
     LOG.atInfo().addKeyValue("serverInfo", serverInfo).log("Starting server with server info");
 
     var meterAndFtdcRegistry = MeterAndFtdcRegistry.createWithCompositeMeterRegistry();
@@ -286,6 +287,7 @@ public class OnPremMongotBootstrapper {
             config,
             mongotConfigs,
             mongotVersion,
+            serverInfo,
             meterAndFtdcRegistry.threadPoolResourceBindings());
 
     // Initialize global metrics for community
@@ -655,6 +657,7 @@ public class OnPremMongotBootstrapper {
       CommunityConfig communityConfig,
       MongotConfigs mongotConfigs,
       String mongotVersion,
+      CommunityServerInfo serverInfo,
       ThreadPoolResourceMetrics.Bindings threadPoolResourceBindings) {
 
     FtdcCommunityConfig ftdcCommunityConfig = communityConfig.ftdcConfig();
@@ -674,15 +677,23 @@ public class OnPremMongotBootstrapper {
             Optional.empty(),
             Optional.empty());
 
-    var metadata =
+    var metadataBuilder =
         new FtdcMetadata.Builder()
+            .addStaticInfo(
+                CommunityServerInfo.SERVER_ID_KEY, new BsonString(serverInfo.id().toHexString()))
             .addStaticInfo("configuration", communityConfig.toBson())
             .addStaticInfo("internalConfiguration", mongotConfigs.toBson())
             .addStaticInfo("hostInfo", serializeHostInfo())
             .addStaticInfo(
                 "buildInfo",
-                serializeBuildInfo(communityConfig.storageConfig().dataPath(), mongotVersion))
-            .build();
+                serializeBuildInfo(communityConfig.storageConfig().dataPath(), mongotVersion));
+    serverInfo
+        .name()
+        .ifPresent(
+            name ->
+                metadataBuilder.addStaticInfo(
+                    CommunityServerInfo.SERVER_NAME_KEY, new BsonString(name)));
+    var metadata = metadataBuilder.build();
 
     var ftdc =
         Crash.because("failed to initialize ftdc")

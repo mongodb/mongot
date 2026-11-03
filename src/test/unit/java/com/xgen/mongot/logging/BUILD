@@ -6,9 +6,12 @@ java_test_suite(
         "DefaultKeyValueLoggerTest.java",
         "FloggerTest.java",
         "LoggingConfigTest.java",
+        "LoggingServerContextTest.java",
         "OmitEmptyFieldJsonDecoratorTest.java",
+        "ProductionLogbackConfigTest.java",
         "SafeKeyValuePairsJsonProviderTest.java",
     ],
+    data = ["//conf/mongot/production:conf"],
     tags = ["unit"],
     runtime_deps = [
         "@maven//:com_google_flogger_flogger_slf4j_backend",  #keep

@@ -19,6 +19,9 @@ import org.bson.types.ObjectId;
  */
 public record CommunityServerInfo(ObjectId id, Optional<String> name) {
 
+  public static final String SERVER_ID_KEY = "serverId";
+  public static final String SERVER_NAME_KEY = "serverName";
+
   public CommunityServerInfo(CommunityConfig config) {
     this(
         CommunityServerIdProvider.getServerId(config.storageConfig().dataPath()),

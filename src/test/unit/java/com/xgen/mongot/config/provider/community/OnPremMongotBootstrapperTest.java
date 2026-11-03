@@ -38,6 +38,7 @@ import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -47,6 +48,11 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+import org.bson.BsonBinaryReader;
+import org.bson.BsonDocument;
+import org.bson.codecs.BsonDocumentCodec;
+import org.bson.codecs.DecoderContext;
+import org.bson.types.ObjectId;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -291,6 +297,7 @@ public class OnPremMongotBootstrapperTest {
                 Optional.of(new FtdcCommunityConfig(false, 100, 10, 1000))),
             MongotConfigs.getDefault(TestUtils.getTempFolderPath()),
             "1.0.0",
+            new CommunityServerInfo(new ObjectId(), Optional.of("test-server")),
             new ThreadPoolResourceMetrics.Bindings());
     assertTrue(metricsLifecycles.isEmpty());
   }
@@ -317,6 +324,7 @@ public class OnPremMongotBootstrapperTest {
                       file.getPath(), Optional.of(new FtdcCommunityConfig(true, 100, 10, 1000))),
                   MongotConfigs.getDefault(Path.of(file.getPath())),
                   "1.0.0",
+                  new CommunityServerInfo(new ObjectId(), Optional.of("test-server")),
                   new ThreadPoolResourceMetrics.Bindings()));
     } finally {
       folder.delete();
@@ -338,6 +346,7 @@ public class OnPremMongotBootstrapperTest {
                   folderPath.toString(), Optional.of(new FtdcCommunityConfig(true, 100, 10, 100))),
               MongotConfigs.getDefault(folderPath),
               "1.0.0",
+              new CommunityServerInfo(new ObjectId(), Optional.of("test-server")),
               new ThreadPoolResourceMetrics.Bindings());
       assertFalse(metricsLifecycles.isEmpty());
 
@@ -351,6 +360,68 @@ public class OnPremMongotBootstrapperTest {
         assertFalse(results.isEmpty());
       }
       metricsLifecycles.get().stop().run();
+    } finally {
+      folder.delete();
+    }
+  }
+
+  @Test
+  public void maybeCreateFtdcReporter_namedServer_writesServerIdAndNameToMetadata()
+      throws Exception {
+    ObjectId serverId = new ObjectId();
+    var serverInfo = new CommunityServerInfo(serverId, Optional.of("rs0.mongot1"));
+
+    BsonDocument metadata = createFtdcReporterAndReadMetadata(serverInfo);
+
+    assertEquals(serverId.toHexString(), metadata.getString("serverId").getValue());
+    assertEquals("rs0.mongot1", metadata.getString("serverName").getValue());
+  }
+
+  @Test
+  public void maybeCreateFtdcReporter_unnamedServer_writesServerIdAndNoName() throws Exception {
+    ObjectId serverId = new ObjectId();
+    var serverInfo = new CommunityServerInfo(serverId, Optional.empty());
+
+    BsonDocument metadata = createFtdcReporterAndReadMetadata(serverInfo);
+
+    assertEquals(serverId.toHexString(), metadata.getString("serverId").getValue());
+    assertFalse(metadata.containsKey("serverName"));
+  }
+
+  /**
+   * Creates an FTDC reporter for the given server and returns the metadata document stored at the
+   * start of the archive file that creation writes.
+   */
+  private BsonDocument createFtdcReporterAndReadMetadata(CommunityServerInfo serverInfo)
+      throws Exception {
+    TemporaryFolder folder = TestUtils.getTempFolder();
+    Path folderPath = folder.newFolder().toPath();
+    try {
+      var metricsLifecycles =
+          OnPremMongotBootstrapper.maybeCreateFtdcReporter(
+              new CompositeMeterRegistry(),
+              new SimpleMeterRegistry(),
+              this.createMinimalConfigWithFtdc(
+                  folderPath.toString(), Optional.of(new FtdcCommunityConfig(true, 100, 10, 100))),
+              MongotConfigs.getDefault(folderPath),
+              "1.0.0",
+              serverInfo,
+              new ThreadPoolResourceMetrics.Bindings());
+      assertFalse(metricsLifecycles.isEmpty());
+      metricsLifecycles.get().stop().run();
+
+      try (Stream<Path> files = Files.list(folderPath.resolve("diagnostic.data"))) {
+        Path archive =
+            files
+                .filter(file -> file.getFileName().toString().startsWith("metrics."))
+                .filter(file -> !file.getFileName().toString().endsWith(".interim"))
+                .findFirst()
+                .orElseThrow();
+        var reader = new BsonBinaryReader(ByteBuffer.wrap(Files.readAllBytes(archive)));
+        return new BsonDocumentCodec()
+            .decode(reader, DecoderContext.builder().build())
+            .getDocument("doc");
+      }
     } finally {
       folder.delete();
     }

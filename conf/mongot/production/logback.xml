@@ -14,7 +14,7 @@
                 <pattern>
                     <omitEmptyFields>true</omitEmptyFields>
                     <pattern>
-                        { "svc": "MONGOT" }
+                        { "svc": "MONGOT", "serverId": "%property{mongot.serverId}", "serverName": "%property{mongot.serverName}" }
                     </pattern>
                 </pattern>
                 <threadName>

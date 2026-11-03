@@ -8,10 +8,14 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.ConsoleAppender;
 import ch.qos.logback.core.FileAppender;
+import java.util.Optional;
 import org.slf4j.LoggerFactory;
 import org.slf4j.bridge.SLF4JBridgeHandler;
 
 public class Logging {
+
+  public static final String SERVER_ID_PROPERTY = "mongot.serverId";
+  public static final String SERVER_NAME_PROPERTY = "mongot.serverName";
 
   /** Attempts to stop logging, flushing any buffered log lines. */
   public static void shutdown() {
@@ -20,6 +24,24 @@ public class Logging {
     } catch (Exception ignored) {
       // Swallow any exceptions, since we're just trying to shut down.
     }
+  }
+
+  /**
+   * Sets the server id and optional server name on the logger context so logback.xml can add them
+   * to every subsequent log line. Lines logged before this call do not carry them.
+   *
+   * <p>Meant to be called once at startup: logback cannot remove a context property, so a name set
+   * by an earlier call is not cleared by a later call with no name.
+   */
+  public static void setServerContext(String serverId, Optional<String> serverName) {
+    setServerContext((LoggerContext) LoggerFactory.getILoggerFactory(), serverId, serverName);
+  }
+
+  /** Same as {@link #setServerContext(String, Optional)} on the given context, for tests. */
+  static void setServerContext(
+      LoggerContext context, String serverId, Optional<String> serverName) {
+    context.putProperty(SERVER_ID_PROPERTY, serverId);
+    serverName.ifPresent(name -> context.putProperty(SERVER_NAME_PROPERTY, name));
   }
 
   /**
