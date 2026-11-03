@@ -2,6 +2,7 @@ package com.xgen.mongot.cursor;
 
 import static com.xgen.mongot.util.Check.checkState;
 
+import com.google.common.flogger.FluentLogger;
 import com.xgen.mongot.catalog.IndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
 import com.xgen.mongot.cursor.batch.BatchCursorOptions;
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 public class MongotCursorManagerImpl implements MongotCursorManager {
 
   private static final Logger LOG = LoggerFactory.getLogger(MongotCursorManagerImpl.class);
+  private static final FluentLogger FLOGGER = FluentLogger.forEnclosingClass();
 
   private final ReentrantReadWriteLock reentrantReadWriteLock = new ReentrantReadWriteLock(true);
   private final Lock sharedLock = this.reentrantReadWriteLock.readLock();
@@ -408,10 +410,8 @@ public class MongotCursorManagerImpl implements MongotCursorManager {
     if (optionalInitializedIndex.isEmpty()) {
       // the index does not exist, use empty cursors then. The result is not cached, so when this
       // index does get created, we will answer queries correctly.
-      LOG.atWarn()
-          .addKeyValue("databaseName", databaseName)
-          .addKeyValue("collectionName", collectionName)
-          .log("No index in catalog");
+      FLOGGER.atWarning().atMostEvery(1, TimeUnit.MINUTES).log(
+          "No index in catalog: database=%s, collection=%s", databaseName, collectionName);
       return this.nullIndexManager;
     }
 

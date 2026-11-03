@@ -15,6 +15,9 @@ import static com.xgen.testing.mongot.mock.index.query.Query.mockQuery;
 import static com.xgen.testing.mongot.mock.index.query.Query.simpleQueryBuilder;
 import static org.mockito.Mockito.mock;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.google.errorprone.annotations.Var;
 import com.xgen.mongot.catalog.DefaultIndexCatalog;
 import com.xgen.mongot.catalog.InitializedIndexCatalog;
@@ -70,6 +73,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.slf4j.LoggerFactory;
 
 @RunWith(MockitoJUnitRunner.class)
 public class MongotCursorManagerImplTest {
@@ -1237,6 +1241,37 @@ public class MongotCursorManagerImplTest {
   public void testKillIndexCursorsNonExistentIndex() {
     MongotCursorManagerImpl cursorManager = getCursorManager();
     cursorManager.killIndexCursors(GenerationIdBuilder.create());
+  }
+
+  @Test
+  public void testNoIndexInCatalogWarningIsRateLimited() throws Exception {
+    Logger logger = (Logger) LoggerFactory.getLogger(MongotCursorManagerImpl.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      var cursorManager = getCursorManager();
+      for (int i = 0; i < 5; i++) {
+        cursorManager.newCursor(
+            "invalid",
+            "invalid",
+            MOCK_INDEX_COLLECTION_UUID,
+            Optional.empty(),
+            mockQuery(),
+            QueryCursorOptions.empty(),
+            QueryOptimizationFlags.DEFAULT_OPTIONS,
+            Optional.empty());
+      }
+    } finally {
+      logger.detachAppender(appender);
+    }
+
+    // Rate limiting is per log site, so an earlier test may already have used the permit.
+    assertThat(
+            appender.list.stream()
+                .filter(event -> event.getFormattedMessage().startsWith("No index in catalog"))
+                .count())
+        .isAtMost(1);
   }
 
   @Test
