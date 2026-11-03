@@ -6,6 +6,7 @@ cryptography==50.0.0 #from pyjwt
 idna==3.15 #from requests
 PyJWT[crypto]==2.15.0 #from PyGithub
 PyNaCl==1.6.2 #from PyGithub
+dnspython>=2.9.0 #from pymongo
 fire
 PyGithub
 # Used by scripts/release/verify_mms_offline_packages_ack.py to read the
