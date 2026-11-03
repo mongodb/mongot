@@ -6,7 +6,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +38,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
-import org.bson.BsonDocument;
+import org.bson.BsonBinary;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
 import org.bson.types.ObjectId;
@@ -129,7 +128,7 @@ public class ChangeStreamMongoClientFactoryTest {
   }
 
   @Test
-  public void partitionClientFactory_firstOpen_opensByOperationTime() {
+  public void newPartitionReader_initialOpen_opensByOperationTime() {
     var factory = factoryWithParallelReadersEnabled(3);
     var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
     var cursorFactory = mock(ChangeStreamClientFactory.class);
@@ -144,24 +143,24 @@ public class ChangeStreamMongoClientFactoryTest {
             eq(namespace), eq(start), eq(ChangeStreamMode.getDefault()), eq(partition)))
         .thenReturn(operationTemplate);
 
-    TimedChangeStreamClientFactory restartFactory =
-        factory.partitionClientFactory(
-            operationFactory, cursorFactory, namespace, start, partition);
-    restartFactory.resumeChangeStream(GENERATION_ID, placeholderResumeInfo(namespace));
-
-    verify(cursorFactory).resumeChangeStream(GENERATION_ID, operationTemplate);
+    try (var client =
+        factory.newPartitionReader(
+            GENERATION_ID, namespace, operationFactory, cursorFactory, partition, start)) {
+      verify(cursorFactory).resumeChangeStream(GENERATION_ID, operationTemplate);
+    }
     verify(operationFactory, never()).fromResumeInfo(any(), any(), any());
   }
 
   @Test
-  public void partitionClientFactory_restart_resumesFromPartitionTokenNotOperationTime() {
+  public void partitionClientFactory_restart_preservesNamespacePartitionAndFullToken() {
     var factory = factoryWithParallelReadersEnabled(3);
     var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
     var cursorFactory = mock(ChangeStreamClientFactory.class);
-    var namespace = new MongoNamespace("test", "test");
+    var namespace = new MongoNamespace("inventory", "orders");
     var partition = new ChangeStreamPartition(1, 3);
-    var start = new BsonTimestamp(100, 0);
-    var restartToken = ChangeStreamUtils.resumeToken(new BsonTimestamp(200, 0));
+    var restartToken =
+        ChangeStreamUtils.resumeToken(new BsonTimestamp(200, 0))
+            .append("_typeBits", new BsonBinary(new byte[] {0}));
     var operationTemplate = mock(AggregateOperationTemplate.class);
 
     when(cursorFactory.resumeChangeStream(any(), any()))
@@ -173,18 +172,17 @@ public class ChangeStreamMongoClientFactoryTest {
         .thenReturn(operationTemplate);
 
     TimedChangeStreamClientFactory restartFactory =
-        factory.partitionClientFactory(
-            operationFactory, cursorFactory, namespace, start, partition);
+        factory.partitionClientFactory(operationFactory, cursorFactory, namespace, partition);
 
-    // first call: the initial open, which opens by operation time (asserted separately above)
-    restartFactory.resumeChangeStream(GENERATION_ID, placeholderResumeInfo(namespace));
-    // second call: simulates a TimedChangeStreamClient TTL (or mode-switch) restart
-    restartFactory.resumeChangeStream(
-        GENERATION_ID, ChangeStreamResumeInfo.create(namespace, restartToken));
-
-    verify(cursorFactory).resumeChangeStream(GENERATION_ID, operationTemplate);
-    // the restart must resume from the partition's own token, not re-open by operation time again
-    verify(operationFactory, times(1)).fromOperationTime(any(), any(), any(), eq(partition));
+    try (var client = restartFactory.resumeChangeStream(GENERATION_ID, restartToken)) {
+      verify(cursorFactory).resumeChangeStream(GENERATION_ID, operationTemplate);
+      verify(operationFactory)
+          .fromResumeInfo(
+              ChangeStreamResumeInfo.create(namespace, restartToken),
+              ChangeStreamMode.getDefault(),
+              partition);
+      verify(operationFactory, never()).fromOperationTime(any(), any(), any(), any());
+    }
   }
 
   @Test
@@ -315,10 +313,6 @@ public class ChangeStreamMongoClientFactoryTest {
             .setNumParallelChangeStreamReaders(partitions)
             .build(),
         Optional.of(Runnable::run));
-  }
-
-  private static ChangeStreamResumeInfo placeholderResumeInfo(MongoNamespace namespace) {
-    return ChangeStreamResumeInfo.create(namespace, new BsonDocument());
   }
 
   private static ChangeStreamResumeInfo resumeInfo() {

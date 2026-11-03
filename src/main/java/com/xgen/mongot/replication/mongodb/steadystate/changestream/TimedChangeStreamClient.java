@@ -1,10 +1,8 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
-import com.mongodb.MongoNamespace;
 import com.xgen.mongot.index.version.GenerationId;
 import com.xgen.mongot.logging.DefaultKeyValueLogger;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamBatch;
-import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.TimeableChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamMongoClientFactory.TimedChangeStreamClientFactory;
@@ -13,8 +11,8 @@ import java.util.HashMap;
 import org.bson.BsonDocument;
 
 /**
- * A ChangeStreamMongoClient which restarts its wrapped client, and underlying change-stream cursor,
- * once the wrapped client uptime exceeds a given TTL.
+ * Replaces its wrapped client after a batch read if the client's uptime exceeds its TTL. Passes
+ * that batch's post-batch resume token to the factory when creating the replacement.
  */
 public class TimedChangeStreamClient
     implements TimeableChangeStreamMongoClient<SteadyStateException> {
@@ -22,14 +20,14 @@ public class TimedChangeStreamClient
   private final DefaultKeyValueLogger logger;
   private final TimedChangeStreamClientFactory clientFactory;
   private final GenerationId generationId;
-  private final MongoNamespace namespace;
   private final Duration timeToLive;
   private volatile TimeableChangeStreamMongoClient<SteadyStateException> wrapped;
   private boolean closed = false;
 
+  /** Takes ownership of the initial client and uses the factory only for TTL restarts. */
   public TimedChangeStreamClient(
+      TimeableChangeStreamMongoClient<SteadyStateException> initialClient,
       TimedChangeStreamClientFactory clientFactory,
-      ChangeStreamResumeInfo resumeInfo,
       GenerationId generationId,
       Duration timeToLive) {
     HashMap<String, Object> defaultKeyValues = new HashMap<>();
@@ -42,8 +40,7 @@ public class TimedChangeStreamClient
     this.clientFactory = clientFactory;
     this.generationId = generationId;
     this.timeToLive = timeToLive;
-    this.namespace = resumeInfo.getNamespace();
-    this.wrapped = createChangeStreamClient(resumeInfo.getResumeToken());
+    this.wrapped = initialClient;
   }
 
   @Override
@@ -80,7 +77,7 @@ public class TimedChangeStreamClient
     this.logger.info("Restarting change-stream client!");
     this.wrapped.close();
     TimeableChangeStreamMongoClient<SteadyStateException> restarted =
-        createChangeStreamClient(resumeToken);
+        this.clientFactory.resumeChangeStream(this.generationId, resumeToken);
     synchronized (this) {
       if (!this.closed) {
         this.wrapped = restarted;
@@ -89,11 +86,5 @@ public class TimedChangeStreamClient
     }
     // close() ran while the new client was being created and closed only the old one.
     restarted.close();
-  }
-
-  private TimeableChangeStreamMongoClient<SteadyStateException> createChangeStreamClient(
-      BsonDocument resumeToken) {
-    var resumeInfo = ChangeStreamResumeInfo.create(this.namespace, resumeToken);
-    return this.clientFactory.resumeChangeStream(this.generationId, resumeInfo);
   }
 }

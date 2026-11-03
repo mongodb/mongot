@@ -54,9 +54,8 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
   }
 
   /**
-   * Creates a mode-aware client for one partition of a parallel change stream. The first cursor
-   * starts at {@code startAtOperationTime} with a partition {@code $match}; later restarts (TTL or
-   * mode switch) resume the same partition after its own post-batch resume token.
+   * Opens one partition with startAtOperationTime at the supplied timestamp. If the mode changes,
+   * reopens the cursor with startAfter using that partition's latest post-batch resume token.
    */
   public ModeAwareChangeStreamClient(
       ChangeStreamModeSelector modeSelector,
@@ -86,10 +85,8 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
   }
 
   /**
-   * Creates a mode-aware client for one partition of a parallel change stream, resuming from a
-   * saved per-partition resume token (for example, after a {@link TimedChangeStreamClient} TTL
-   * restart). Later restarts (TTL or mode switch) continue to resume the same partition after its
-   * own post-batch resume token.
+   * Resumes one partition with startAfter using its own post-batch resume token. The timed wrapper
+   * uses this constructor when replacing a client after its TTL expires.
    */
   public ModeAwareChangeStreamClient(
       ChangeStreamModeSelector modeSelector,
@@ -112,9 +109,8 @@ class ModeAwareChangeStreamClient implements TimeableChangeStreamMongoClient<Ste
   }
 
   /**
-   * Proxies {@link ChangeStreamMongoClient#getNext} call to the wrapped client and restarts it with
-   * a different command when the change stream mode needs to be switched based on {@link
-   * ChangeStreamModeSelector} decision.
+   * Reads the next batch. If the selected mode has changed, reopens the cursor in the new mode
+   * after that batch's post-batch resume token before returning the batch.
    */
   @Override
   public ChangeStreamBatch getNext() throws SteadyStateException {

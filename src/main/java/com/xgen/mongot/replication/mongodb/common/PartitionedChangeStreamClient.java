@@ -51,13 +51,15 @@ public class PartitionedChangeStreamClient<E extends Exception>
 
   private static final Logger LOG = LoggerFactory.getLogger(PartitionedChangeStreamClient.class);
 
-  /** Creates partition readers with timestamp-based restart and split-event reassembly. */
+  /**
+   * Opens partition readers at a shared timestamp, with split events reassembled before delivery.
+   */
   @FunctionalInterface
   public interface ReaderFactory<E extends Exception> {
     /**
      * Creates a reader using the supplied Mongo client. Its pipeline must apply the partition
-     * filter and start at {@code start}, inclusively. The reader must emit complete, reassembled
-     * events.
+     * filter and start at the supplied timestamp, including events at that timestamp. The reader
+     * must emit complete, reassembled events.
      */
     ChangeStreamMongoClient<E> create(
         BatchMongoClient mongoClient, ChangeStreamPartition partition, BsonTimestamp start)

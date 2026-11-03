@@ -9,7 +9,6 @@ import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamAggregateOperationBuilder.AggregateOperationTemplate;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamAggregateOperationFactory;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector;
-import com.xgen.mongot.replication.mongodb.common.ChangeStreamModeSelector.ChangeStreamMode;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoCursorClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
@@ -28,7 +27,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 
@@ -182,9 +180,9 @@ class ChangeStreamMongoClientFactory {
   }
 
   /**
-   * Starts a change stream which might be restarted when {@link ChangeStreamMode} needs to be
-   * switched or passed TTL. The caller selects parallel readers using the same per-generation
-   * decision as partition checkpoint tracking.
+   * Starts a change stream that restarts when its mode changes or its TTL expires. The caller
+   * selects parallel readers using the same per-generation decision as partition checkpoint
+   * tracking.
    */
   ChangeStreamMongoClient<SteadyStateException> resumeTimedModeAwareChangeStream(
       GenerationId generationId,
@@ -198,18 +196,27 @@ class ChangeStreamMongoClientFactory {
           generationId, resumeInfo, indexDefinition, removeMatchCollectionUuid);
     }
 
+    MongoNamespace namespace = resumeInfo.getNamespace();
     TimedChangeStreamClientFactory clientFactory =
-        (GenerationId id, ChangeStreamResumeInfo info) ->
-            this.resumeModeAwareChangeStream(id, info, indexDefinition, removeMatchCollectionUuid);
+        (id, resumeToken) ->
+            this.resumeModeAwareChangeStream(
+                id,
+                ChangeStreamResumeInfo.create(namespace, resumeToken),
+                indexDefinition,
+                removeMatchCollectionUuid);
 
     // randomly distribute given ttl by 10% to avoid restarting all cursors in a short period
     Duration timeToLive =
         DurationUtils.getRandomlyDistributionDuration(this.changeStreamCursorMaxTime, 0.1);
 
-    return new TimedChangeStreamClient(clientFactory, resumeInfo, generationId, timeToLive);
+    return new TimedChangeStreamClient(
+        clientFactory.resumeChangeStream(generationId, resumeInfo.getResumeToken()),
+        clientFactory,
+        generationId,
+        timeToLive);
   }
 
-  /** Starts a {@link PartitionedChangeStreamClient} with one reader per partition. */
+  /** Starts one change stream reader per partition. */
   private ChangeStreamMongoClient<SteadyStateException> resumePartitionedChangeStream(
       GenerationId generationId,
       ChangeStreamResumeInfo resumeInfo,
@@ -243,54 +250,54 @@ class ChangeStreamMongoClientFactory {
   }
 
   /**
-   * Builds one partition's reader. The first open uses {@code start} because a shared resume token
-   * is not valid with {@code startAfter} on a filtered per-partition stream; restarts use the
-   * partition's own post-batch resume token (see {@link #partitionClientFactory}).
+   * Opens a partition with startAtOperationTime at the shared checkpoint's timestamp. Using
+   * startAfter with the shared token can fail if this partition filters out that token's event. TTL
+   * restarts use startAfter with this partition's own latest post-batch resume token.
    */
-  private TimeableChangeStreamMongoClient<SteadyStateException> newPartitionReader(
+  @VisibleForTesting
+  TimeableChangeStreamMongoClient<SteadyStateException> newPartitionReader(
       GenerationId generationId,
       MongoNamespace namespace,
       ChangeStreamAggregateOperationFactory operationFactory,
       ChangeStreamClientFactory cursorFactory,
       ChangeStreamPartition partition,
-      BsonTimestamp start)
-      throws SteadyStateException {
+      BsonTimestamp start) {
 
     // Jitter the TTL so N partitions of one index don't all restart at once.
     Duration timeToLive =
         DurationUtils.getRandomlyDistributionDuration(this.changeStreamCursorMaxTime, 0.1);
-    TimedChangeStreamClientFactory clientFactory =
-        partitionClientFactory(operationFactory, cursorFactory, namespace, start, partition);
-
-    // TimedChangeStreamClient requires a token, but the first open ignores it (opens by operation
-    // time) and later restarts replace it with the partition's own.
-    ChangeStreamResumeInfo placeholderResumeInfo =
-        ChangeStreamResumeInfo.create(namespace, new BsonDocument());
+    var initialClient =
+        new ModeAwareChangeStreamClient(
+            this.modeSelector,
+            operationFactory,
+            cursorFactory,
+            namespace,
+            start,
+            partition,
+            generationId);
 
     return new TimedChangeStreamClient(
-        clientFactory, placeholderResumeInfo, generationId, timeToLive);
+        initialClient,
+        partitionClientFactory(operationFactory, cursorFactory, namespace, partition),
+        generationId,
+        timeToLive);
   }
 
-  /**
-   * Restart factory for one partition: the first invocation opens by operation time with the
-   * partition filter; later ones resume from the partition's own resume token in {@code info}.
-   */
+  /** Creates TTL replacements using startAfter with this partition's post-batch resume token. */
   @VisibleForTesting
   TimedChangeStreamClientFactory partitionClientFactory(
       ChangeStreamAggregateOperationFactory operationFactory,
       ChangeStreamClientFactory cursorFactory,
       MongoNamespace namespace,
-      BsonTimestamp start,
       ChangeStreamPartition partition) {
-    AtomicBoolean isFirstOpen = new AtomicBoolean(true);
-    return (id, info) -> {
-      if (isFirstOpen.getAndSet(false)) {
-        return new ModeAwareChangeStreamClient(
-            this.modeSelector, operationFactory, cursorFactory, namespace, start, partition, id);
-      }
-      return new ModeAwareChangeStreamClient(
-          this.modeSelector, operationFactory, cursorFactory, info, partition, id);
-    };
+    return (id, resumeToken) ->
+        new ModeAwareChangeStreamClient(
+            this.modeSelector,
+            operationFactory,
+            cursorFactory,
+            ChangeStreamResumeInfo.create(namespace, resumeToken),
+            partition,
+            id);
   }
 
   @FunctionalInterface
@@ -300,10 +307,11 @@ class ChangeStreamMongoClientFactory {
         GenerationId generationId, AggregateOperationTemplate aggregateTemplate);
   }
 
+  /** Creates a client in its captured namespace using the supplied resume token. */
   @FunctionalInterface
   interface TimedChangeStreamClientFactory {
 
     TimeableChangeStreamMongoClient<SteadyStateException> resumeChangeStream(
-        GenerationId generationId, ChangeStreamResumeInfo resumeInfo);
+        GenerationId generationId, BsonDocument resumeToken);
   }
 }
