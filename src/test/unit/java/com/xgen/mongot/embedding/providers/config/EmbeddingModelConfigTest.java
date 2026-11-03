@@ -12,6 +12,7 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.Worklo
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.bson.BsonDocument;
@@ -160,6 +161,47 @@ public class EmbeddingModelConfigTest {
 
     VoyageModelConfig actual = (VoyageModelConfig) result.collectionScan().modelConfig();
     assertEquals(Optional.of(Map.of("scalar", "cosine")), actual.similarityByQuantization);
+  }
+
+  @Test
+  public void testConsolidateWorkloadParams_modelOverride_preservesSupportedDimensions() {
+    VoyageModelConfig baseWithSupportedDimensions =
+        new VoyageModelConfig(
+            Optional.of(1024),
+            Optional.of(EmbeddingServiceConfig.TruncationOption.NONE),
+            Optional.of(1000),
+            Optional.of(100_000),
+            Optional.of("text"),
+            Optional.of(VectorAutoEmbedQuantization.FLOAT),
+            Optional.empty(),
+            Optional.of(List.of(256, 1024)));
+    VoyageModelConfig override =
+        new VoyageModelConfig(
+            Optional.empty(), Optional.empty(), Optional.of(2000), Optional.empty());
+    WorkloadParams overrideParams =
+        new WorkloadParams(
+            Optional.of(override), Optional.empty(), Optional.empty(), Optional.empty());
+
+    EmbeddingModelConfig result =
+        EmbeddingModelConfig.create(
+            "voyage-4",
+            EmbeddingServiceConfig.EmbeddingProvider.VOYAGE,
+            new EmbeddingServiceConfig.EmbeddingConfig(
+                Optional.empty(),
+                baseWithSupportedDimensions,
+                BASE_ERROR_CONFIG,
+                BASE_CREDENTIALS,
+                Optional.empty(),
+                Optional.of(overrideParams),
+                Optional.empty(),
+                Optional.empty(),
+                true,
+                Optional.empty(),
+                false,
+                Optional.empty()));
+
+    VoyageModelConfig actual = (VoyageModelConfig) result.collectionScan().modelConfig();
+    assertEquals(Optional.of(List.of(256, 1024)), actual.supportedDimensions);
   }
 
   @Test

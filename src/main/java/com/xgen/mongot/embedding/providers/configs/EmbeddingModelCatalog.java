@@ -4,7 +4,9 @@ import com.xgen.mongot.embedding.exceptions.EmbeddingProviderNonTransientExcepti
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,6 +37,22 @@ public class EmbeddingModelCatalog {
           "voyage-4-large", Set.of("voyage-4", "voyage-4-lite"),
           "voyage-4", Set.of("voyage-4-large", "voyage-4-lite"),
           "voyage-4-lite", Set.of("voyage-4", "voyage-4-large"));
+
+  /**
+   * Returns the output dimensions {@code modelName} accepts, from the registered model config's
+   * {@code supportedDimensions}. Empty means the model is unregistered or its config does not list
+   * them, and callers should accept any dimension.
+   */
+  public static Optional<List<Integer>> getSupportedDimensions(String modelName) {
+    EmbeddingModelConfig config = REGISTERED_MODEL_CONFIGS.get(modelName.toLowerCase(Locale.ROOT));
+    if (config == null) {
+      return Optional.empty();
+    }
+    return config.collectionScan().modelConfig()
+            instanceof EmbeddingServiceConfig.VoyageModelConfig voyageConfig
+        ? voyageConfig.supportedDimensions
+        : Optional.empty();
+  }
 
   public static Set<String> getAllSupportedModels() {
     return REGISTERED_MODEL_CONFIGS.keySet();

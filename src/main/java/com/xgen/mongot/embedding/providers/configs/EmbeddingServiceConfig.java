@@ -616,6 +616,12 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
      */
     public final Optional<Map<String, String>> similarityByQuantization;
 
+    /**
+     * Output dimensions the model accepts. When absent, index validation accepts any {@code
+     * numDimensions} for the model.
+     */
+    public final Optional<List<Integer>> supportedDimensions;
+
     public VoyageModelConfig(
         Optional<Integer> outputDimensions,
         Optional<TruncationOption> truncation,
@@ -639,6 +645,26 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
         Optional<String> modality,
         Optional<VectorAutoEmbedQuantization> quantization,
         Optional<Map<String, String>> similarityByQuantization) {
+      this(
+          outputDimensions,
+          truncation,
+          batchSize,
+          batchTokenLimit,
+          modality,
+          quantization,
+          similarityByQuantization,
+          Optional.empty());
+    }
+
+    public VoyageModelConfig(
+        Optional<Integer> outputDimensions,
+        Optional<TruncationOption> truncation,
+        Optional<Integer> batchSize,
+        Optional<Integer> batchTokenLimit,
+        Optional<String> modality,
+        Optional<VectorAutoEmbedQuantization> quantization,
+        Optional<Map<String, String>> similarityByQuantization,
+        Optional<List<Integer>> supportedDimensions) {
       this.outputDimensions = outputDimensions;
       this.truncation = truncation;
       this.batchSize = batchSize;
@@ -646,6 +672,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
       this.modality = modality;
       this.quantization = quantization;
       this.similarityByQuantization = similarityByQuantization;
+      this.supportedDimensions = supportedDimensions;
     }
 
     @Override
@@ -678,6 +705,7 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           .field(Fields.MODALITY, this.modality)
           .field(Fields.QUANTIZATION, this.quantization.map(VectorAutoEmbedQuantization::getName))
           .field(Fields.SIMILARITY, this.similarityByQuantization)
+          .field(Fields.SUPPORTED_DIMENSIONS, this.supportedDimensions)
           .build();
     }
 
@@ -689,7 +717,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           parser.getField(Fields.BATCH_TOKEN_LIMIT).unwrap(),
           parser.getField(Fields.MODALITY).unwrap(),
           parseQuantization(parser),
-          parser.getField(Fields.SIMILARITY).unwrap());
+          parser.getField(Fields.SIMILARITY).unwrap(),
+          parser.getField(Fields.SUPPORTED_DIMENSIONS).unwrap());
     }
 
     private static Optional<VectorAutoEmbedQuantization> parseQuantization(DocumentParser parser)
@@ -728,6 +757,11 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
               .mapOf(Value.builder().stringValue().required())
               .optional()
               .noDefault();
+      static final Field.Optional<List<Integer>> SUPPORTED_DIMENSIONS =
+          Field.builder("supportedDimensions")
+              .listOf(Value.builder().intValue().required())
+              .optional()
+              .noDefault();
     }
 
     @Override
@@ -747,7 +781,9 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           && Objects.equals(this.quantization.orElse(null), that.quantization.orElse(null))
           && Objects.equals(
               this.similarityByQuantization.orElse(null),
-              that.similarityByQuantization.orElse(null));
+              that.similarityByQuantization.orElse(null))
+          && Objects.equals(
+              this.supportedDimensions.orElse(null), that.supportedDimensions.orElse(null));
     }
 
     @Override
@@ -759,7 +795,8 @@ public class EmbeddingServiceConfig implements DocumentEncodable {
           this.truncation.orElse(null),
           this.modality.orElse(null),
           this.quantization.orElse(null),
-          this.similarityByQuantization.orElse(null));
+          this.similarityByQuantization.orElse(null),
+          this.supportedDimensions.orElse(null));
     }
   }
 

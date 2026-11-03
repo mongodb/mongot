@@ -13,6 +13,7 @@ configs:
         batchSize: 1000
         batchTokenLimit: 120000
         outputDimensions: 1024
+        supportedDimensions: [256, 512, 1024, 2048]
         quantization: float
       errorHandlingConfig:
         maxRetries: 50
@@ -30,6 +31,7 @@ configs:
         batchSize: 1000
         batchTokenLimit: 320000
         outputDimensions: 1024
+        supportedDimensions: [256, 512, 1024, 2048]
         quantization: float
       errorHandlingConfig:
         maxRetries: 50
@@ -47,6 +49,7 @@ configs:
         batchSize: 1000
         batchTokenLimit: 1000000
         outputDimensions: 1024
+        supportedDimensions: [256, 512, 1024, 2048]
         quantization: float
       errorHandlingConfig:
         maxRetries: 50
@@ -62,6 +65,7 @@ configs:
         batchSize: 1000
         batchTokenLimit: 120000
         outputDimensions: 1024
+        supportedDimensions: [256, 512, 1024, 2048]
         quantization: float
       errorHandlingConfig:
         maxRetries: 50

@@ -240,7 +240,10 @@ public record EmbeddingModelConfig(
             : baseModelConfig.quantization,
         overrideModelConfig.similarityByQuantization.isPresent()
             ? overrideModelConfig.similarityByQuantization
-            : baseModelConfig.similarityByQuantization);
+            : baseModelConfig.similarityByQuantization,
+        overrideModelConfig.supportedDimensions.isPresent()
+            ? overrideModelConfig.supportedDimensions
+            : baseModelConfig.supportedDimensions);
   }
 
   @Override

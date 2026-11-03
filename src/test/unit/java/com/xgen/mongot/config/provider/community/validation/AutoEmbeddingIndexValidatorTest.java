@@ -54,12 +54,18 @@ public class AutoEmbeddingIndexValidatorTest {
 
   private static final String REGISTERED_MODEL = "test-model";
   private static final String UNREGISTERED_MODEL = "unregistered-model";
+  private static final String DIMENSIONED_MODEL = "dimensioned-model";
 
   @Before
   public void setUp() {
+    registerModel(REGISTERED_MODEL, Optional.empty());
+    registerModel(DIMENSIONED_MODEL, Optional.of(List.of(256, 512, 1024, 2048)));
+  }
+
+  private static void registerModel(String modelName, Optional<List<Integer>> supportedDimensions) {
     EmbeddingModelConfig testConfig =
         EmbeddingModelConfig.create(
-            REGISTERED_MODEL,
+            modelName,
             EmbeddingProvider.VOYAGE,
             new EmbeddingServiceConfig.EmbeddingConfig(
                 Optional.of("us-east-1"),
@@ -70,7 +76,8 @@ public class AutoEmbeddingIndexValidatorTest {
                     Optional.of(100),
                     Optional.of("text"),
                     Optional.of(VectorAutoEmbedQuantization.FLOAT),
-                    Optional.empty()),
+                    Optional.empty(),
+                    supportedDimensions),
                 new EmbeddingServiceConfig.ErrorHandlingConfig(50, 50L, 10L, 0.1),
                 new EmbeddingServiceConfig.VoyageEmbeddingCredentials(
                     "test-key", "2024-10-15T22:32:20.925Z"),
@@ -82,7 +89,92 @@ public class AutoEmbeddingIndexValidatorTest {
                 Optional.empty(),
                 false,
                 Optional.empty()));
-    EmbeddingModelCatalog.registerModelConfig(REGISTERED_MODEL, testConfig);
+    EmbeddingModelCatalog.registerModelConfig(modelName, testConfig);
+  }
+
+  @Test
+  public void validate_vectorUnsupportedDimensions_throwsListingSupported() {
+    VectorIndexDefinition vectorIndex =
+        createVectorIndexWithFields(List.of(autoEmbedVectorField(DIMENSIONED_MODEL, 3072)));
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(vectorIndex));
+
+    assertThat(exception)
+        .hasMessageThat()
+        .isEqualTo(
+            "numDimensions 3072 for autoEmbed path \"autoEmbedField\" is not supported by model"
+                + " dimensioned-model. Supported values: [256, 512, 1024, 2048].");
+  }
+
+  @Test
+  public void validate_vectorSupportedDimensions_succeeds() throws InvalidIndexDefinitionException {
+    VectorIndexDefinition vectorIndex =
+        createVectorIndexWithFields(List.of(autoEmbedVectorField(DIMENSIONED_MODEL, 512)));
+
+    AutoEmbeddingIndexValidator.validate(vectorIndex);
+  }
+
+  @Test
+  public void validate_searchUnsupportedDimensions_throws() {
+    SearchIndexDefinition searchIndex =
+        searchIndexWithMappings(
+            "searchIndex",
+            DocumentFieldDefinitionBuilder.builder()
+                .dynamic(false)
+                .field(
+                    "description",
+                    FieldDefinitionBuilder.builder()
+                        .searchAutoEmbed(
+                            new SearchAutoEmbedFieldDefinition(
+                                autoEmbedSpecification(DIMENSIONED_MODEL, 100)))
+                        .build())
+                .build());
+
+    InvalidIndexDefinitionException exception =
+        assertThrows(
+            InvalidIndexDefinitionException.class,
+            () -> AutoEmbeddingIndexValidator.validate(searchIndex));
+
+    assertThat(exception).hasMessageThat().contains("numDimensions 100");
+    assertThat(exception).hasMessageThat().contains("\"description\"");
+  }
+
+  @Test
+  public void validate_modelWithoutSupportedDimensions_acceptsAnyDimensions()
+      throws InvalidIndexDefinitionException {
+    VectorIndexDefinition vectorIndex =
+        createVectorIndexWithFields(List.of(autoEmbedVectorField(REGISTERED_MODEL, 100)));
+
+    AutoEmbeddingIndexValidator.validate(vectorIndex);
+  }
+
+  @Test
+  public void validateDefinitionShape_unsupportedDimensions_succeeds()
+      throws InvalidIndexDefinitionException {
+    VectorIndexDefinition vectorIndex =
+        createVectorIndexWithFields(List.of(autoEmbedVectorField(DIMENSIONED_MODEL, 3072)));
+
+    AutoEmbeddingIndexValidator.validateDefinitionShape(vectorIndex);
+  }
+
+  private static VectorAutoEmbedFieldSpecification autoEmbedSpecification(
+      String modelName, int numDimensions) {
+    return new VectorAutoEmbedFieldSpecification(
+        numDimensions,
+        VectorSimilarity.DOT_PRODUCT,
+        VectorAutoEmbedQuantization.FLOAT,
+        new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
+        modelName,
+        VectorAutoEmbedFieldSpecification.DEFAULT_MODALITY);
+  }
+
+  private static VectorAutoEmbedFieldDefinition autoEmbedVectorField(
+      String modelName, int numDimensions) {
+    return new VectorAutoEmbedFieldDefinition(
+        FieldPath.parse("autoEmbedField"), autoEmbedSpecification(modelName, numDimensions));
   }
 
   @Test

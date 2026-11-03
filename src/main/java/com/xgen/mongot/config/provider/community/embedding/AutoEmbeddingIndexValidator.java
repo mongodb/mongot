@@ -7,13 +7,18 @@ import com.xgen.mongot.index.definition.FieldDefinition;
 import com.xgen.mongot.index.definition.HierarchicalFieldDefinition;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.InvalidIndexDefinitionException;
+import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
 import com.xgen.mongot.index.definition.VectorIndexFieldDefinition;
 import com.xgen.mongot.util.FieldPath;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -31,7 +36,9 @@ public class AutoEmbeddingIndexValidator {
   private static final String RESERVED_AUTO_EMBED_NAMESPACE = "_autoEmbed";
 
   /**
-   * Runs validations for auto-embedding indexes. Works for both vector and search definitions.
+   * Runs validations for auto-embedding indexes. Works for both vector and search definitions. Only
+   * the community create and update commands call this; on Atlas, MMS validates the model and
+   * {@code numDimensions} before sending the definition.
    *
    * @throws InvalidIndexDefinitionException if the index violates restrictions
    * @throws IllegalArgumentException if called on a non-auto-embedding index
@@ -40,6 +47,10 @@ public class AutoEmbeddingIndexValidator {
       throws InvalidIndexDefinitionException {
     validateEmbeddingModelsAreRegistered(indexDefinition);
     validateDefinitionShape(indexDefinition);
+    switch (indexDefinition) {
+      case VectorIndexDefinition vectorIndex -> validateVectorSupportedDimensions(vectorIndex);
+      case SearchIndexDefinition searchIndex -> validateSearchSupportedDimensions(searchIndex);
+    }
   }
 
   /**
@@ -111,6 +122,46 @@ public class AutoEmbeddingIndexValidator {
               "Vector auto-embedding filter path(s) %s are invalid because \"%s\" is reserved for"
                   + " internal auto-embedding materialized-view fields",
               invalidPaths, RESERVED_AUTO_EMBED_NAMESPACE));
+    }
+  }
+
+  private static void validateVectorSupportedDimensions(VectorIndexDefinition vectorIndex)
+      throws InvalidIndexDefinitionException {
+    for (VectorIndexFieldDefinition field : vectorIndex.getFields()) {
+      if (field instanceof VectorAutoEmbedFieldDefinition autoEmbedField) {
+        validateSupportedDimensions(field.getPath(), autoEmbedField.specification());
+      }
+    }
+  }
+
+  private static void validateSearchSupportedDimensions(SearchIndexDefinition searchIndex)
+      throws InvalidIndexDefinitionException {
+    for (Map.Entry<FieldPath, SearchAutoEmbedFieldDefinition> entry :
+        searchIndex.getAutoEmbedFields().byPath().entrySet()) {
+      validateSupportedDimensions(entry.getKey(), entry.getValue().specification());
+    }
+  }
+
+  /**
+   * Rejects a {@code numDimensions} the embedding model does not support. Otherwise every embedding
+   * request fails with HTTP 400 and the index retries forever instead of failing. Models whose
+   * config lists no {@code supportedDimensions} accept any value.
+   */
+  private static void validateSupportedDimensions(
+      FieldPath path, VectorAutoEmbedFieldSpecification specification)
+      throws InvalidIndexDefinitionException {
+    Optional<List<Integer>> supportedDimensions =
+        EmbeddingModelCatalog.getSupportedDimensions(specification.modelName());
+    if (supportedDimensions.isPresent()
+        && !supportedDimensions.get().contains(specification.numDimensions())) {
+      throw new InvalidIndexDefinitionException(
+          String.format(
+              "numDimensions %d for autoEmbed path \"%s\" is not supported by model %s."
+                  + " Supported values: %s.",
+              specification.numDimensions(),
+              path,
+              specification.modelName(),
+              supportedDimensions.get()));
     }
   }
 

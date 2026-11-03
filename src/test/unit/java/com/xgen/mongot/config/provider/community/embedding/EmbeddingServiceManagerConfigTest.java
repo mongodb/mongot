@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.VoyageEmbeddingCredentials;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.Test;
@@ -51,6 +52,28 @@ public class EmbeddingServiceManagerConfigTest {
           "Expected credentials to be present for model: " + serviceConfig.modelName,
           serviceConfig.embeddingConfig.credentialsBase);
     }
+  }
+
+  @Test
+  public void loadEmbeddingServiceConfig_voyage4_loadsSupportedDimensions() {
+    EmbeddingServiceManagerConfig.VoyageCredentials credentials =
+        new EmbeddingServiceManagerConfig.VoyageCredentials(
+            new VoyageEmbeddingCredentials("test-query-key"),
+            new VoyageEmbeddingCredentials("test-indexing-key"));
+
+    EmbeddingServiceManagerConfig config =
+        EmbeddingServiceManagerConfig.loadEmbeddingServiceConfig(Optional.of(credentials))
+            .orElseThrow();
+
+    EmbeddingServiceConfig voyage4 =
+        config.configs().stream()
+            .filter(serviceConfig -> serviceConfig.modelName.equals("voyage-4"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        Optional.of(List.of(256, 512, 1024, 2048)),
+        ((EmbeddingServiceConfig.VoyageModelConfig) voyage4.embeddingConfig.modelConfigBase)
+            .supportedDimensions);
   }
 
   @Test

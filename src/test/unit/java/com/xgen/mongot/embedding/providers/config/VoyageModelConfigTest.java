@@ -4,9 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig.VoyageModelConfig;
+import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
@@ -50,5 +54,37 @@ public class VoyageModelConfigTest {
     }
 
     assertFalse(config.similarityByQuantization.isPresent());
+  }
+
+  @Test
+  public void toBson_fromBson_roundTripsSupportedDimensions() throws Exception {
+    VoyageModelConfig config =
+        new VoyageModelConfig(
+            Optional.of(1024),
+            Optional.of(EmbeddingServiceConfig.TruncationOption.NONE),
+            Optional.of(1000),
+            Optional.of(120_000),
+            Optional.of("text"),
+            Optional.of(VectorAutoEmbedQuantization.FLOAT),
+            Optional.empty(),
+            Optional.of(List.of(256, 512, 1024, 2048)));
+
+    BsonDocument document = config.toBson();
+
+    VoyageModelConfig parsed;
+    try (var parser = BsonDocumentParser.fromRoot(document).build()) {
+      parsed = VoyageModelConfig.fromBson(parser);
+    }
+
+    assertEquals(config, parsed);
+  }
+
+  @Test
+  public void toBson_withoutSupportedDimensions_omitsField() {
+    VoyageModelConfig config =
+        new VoyageModelConfig(
+            Optional.of(1024), Optional.empty(), Optional.empty(), Optional.empty());
+
+    assertFalse(config.toBson().containsKey("supportedDimensions"));
   }
 }
