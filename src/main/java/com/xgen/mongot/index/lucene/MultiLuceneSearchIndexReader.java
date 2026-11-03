@@ -105,18 +105,23 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
     List<MetaResults> metaResultsList =
         java.util.Collections.synchronizedList(new ArrayList<>(this.readers.size()));
 
-    executeOnAllPartitions(
-        query,
-        i ->
-            executeVectorOrOperatorQueryOnPartition(
-                i,
-                query,
-                queryCursorOptions,
-                batchSizeStrategy,
-                queryOptimizationFlags,
-                searchBatchProducers,
-                extraBatchProducersToClose,
-                metaResultsList));
+    try {
+      executeOnAllPartitions(
+          query,
+          i ->
+              executeVectorOrOperatorQueryOnPartition(
+                  i,
+                  query,
+                  queryCursorOptions,
+                  batchSizeStrategy,
+                  queryOptimizationFlags,
+                  searchBatchProducers,
+                  extraBatchProducersToClose,
+                  metaResultsList));
+    } catch (Exception e) {
+      closeProducersOfSucceededPartitions(e, searchBatchProducers, extraBatchProducersToClose);
+      throw e;
+    }
     var searchMergingBatchProducer =
         searchBatchProducers.isEmpty()
             ? new EmptySearchBatchProducer()
@@ -172,20 +177,25 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
     List<AggregationIntermediateBatchProducer> aggregationBatchProducers =
         java.util.Collections.synchronizedList(new ArrayList<>(this.readers.size()));
 
-    executeOnAllPartitions(
-        query,
-        i ->
-            executeIntermediateQueryOnPartition(
-                i,
-                query,
-                queryCursorOptions,
-                batchSizeStrategy,
-                queryOptimizationFlags,
-                searchBatchProducers,
-                extraBatchProducersToClose,
-                facetBatchProducers,
-                countBatchProducers,
-                aggregationBatchProducers));
+    try {
+      executeOnAllPartitions(
+          query,
+          i ->
+              executeIntermediateQueryOnPartition(
+                  i,
+                  query,
+                  queryCursorOptions,
+                  batchSizeStrategy,
+                  queryOptimizationFlags,
+                  searchBatchProducers,
+                  extraBatchProducersToClose,
+                  facetBatchProducers,
+                  countBatchProducers,
+                  aggregationBatchProducers));
+    } catch (Exception e) {
+      closeProducersOfSucceededPartitions(e, searchBatchProducers, extraBatchProducersToClose);
+      throw e;
+    }
     var searchMergingBatchProducer =
         searchBatchProducers.isEmpty()
             ? new EmptySearchBatchProducer()
@@ -297,8 +307,27 @@ public class MultiLuceneSearchIndexReader implements SearchIndexReader {
     if (unwrapped instanceof LuceneSearchBatchProducer luceneSearchBatchProducer) {
       searchBatchProducers.add(luceneSearchBatchProducer);
     } else {
-      if (this.shouldCollectMultiPartitionEmptyBatchProducer) {
-        extraBatchProducersToClose.add(producer);
+      // Always recorded, so a partition failure can release these producers' searcher references.
+      // A successful query only wraps them in a closer when the flag is on, see the callers.
+      extraBatchProducersToClose.add(producer);
+    }
+  }
+
+  /**
+   * When one partition fails, the producers returned by the partitions that already succeeded each
+   * hold a searcher reference that nothing else will release.
+   */
+  private static void closeProducersOfSucceededPartitions(
+      Exception failure,
+      List<LuceneSearchBatchProducer> searchBatchProducers,
+      List<BatchProducer> extraBatchProducersToClose) {
+    var producers = new ArrayList<BatchProducer>(searchBatchProducers);
+    producers.addAll(extraBatchProducersToClose);
+    for (var producer : producers) {
+      try {
+        producer.close();
+      } catch (IOException | RuntimeException closeFailure) {
+        failure.addSuppressed(closeFailure);
       }
     }
   }

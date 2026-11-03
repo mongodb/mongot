@@ -1019,6 +1019,199 @@ public class MultiLuceneSearchIndexReaderTest {
   }
 
   @Test
+  public void query_laterPartitionFails_releasesSearcherOfSucceededPartition() throws Exception {
+    LuceneSearchIndexReader succeededPartition = firstPartitionReader();
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(succeededPartition, failingPartition()),
+            drillSidewaysEnabledRegistry(),
+            Optional.empty());
+    int refCountBefore = getCurrentSearcherRefCount(succeededPartition);
+
+    Assert.assertThrows(
+        IOException.class,
+        () -> queryMultiReader(multiReader, QueryOptimizationFlags.DEFAULT_OPTIONS));
+
+    assertEquals(refCountBefore, getCurrentSearcherRefCount(succeededPartition));
+  }
+
+  @Test
+  public void query_laterPartitionFailsConcurrently_releasesSearcherOfSucceededPartition()
+      throws Exception {
+    LuceneSearchIndexReader succeededPartition = firstPartitionReader();
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(succeededPartition, failingPartition()),
+            drillSidewaysEnabledRegistry(),
+            Optional.of(this.concurrentSearchExecutor));
+    int refCountBefore = getCurrentSearcherRefCount(succeededPartition);
+
+    Assert.assertThrows(
+        IOException.class,
+        () -> queryMultiReader(multiReader, QueryOptimizationFlags.DEFAULT_OPTIONS));
+
+    assertEquals(refCountBefore, getCurrentSearcherRefCount(succeededPartition));
+  }
+
+  @Test
+  public void intermediateQuery_laterPartitionFails_releasesSearcherOfSucceededPartition()
+      throws Exception {
+    LuceneSearchIndexReader succeededPartition = firstPartitionReader();
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(succeededPartition, failingPartition()),
+            drillSidewaysEnabledRegistry(),
+            Optional.empty());
+    int refCountBefore = getCurrentSearcherRefCount(succeededPartition);
+
+    Assert.assertThrows(
+        IOException.class,
+        () ->
+            multiReader.intermediateQuery(
+                QUERY_DEFINITION,
+                QueryCursorOptions.empty(),
+                BatchSizeStrategySelector.forQuery(QUERY_DEFINITION, QueryCursorOptions.empty()),
+                QueryOptimizationFlags.DEFAULT_OPTIONS));
+
+    assertEquals(refCountBefore, getCurrentSearcherRefCount(succeededPartition));
+  }
+
+  /**
+   * A partition that omits its results returns an empty producer that owns a searcher reference. It
+   * must be released when a later partition fails, even though the flag that collects those
+   * producers when the query succeeds is off.
+   */
+  @Test
+  public void query_laterPartitionFailsWithOmittedResultsAndCollectionFlagOff_releasesSearcher()
+      throws Exception {
+    LuceneSearchIndexReader succeededPartition = firstPartitionReader();
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(succeededPartition, failingPartition()),
+            emptyProducerCollectionDisabledRegistry(),
+            Optional.empty());
+    int refCountBefore = getCurrentSearcherRefCount(succeededPartition);
+
+    Assert.assertThrows(
+        IOException.class, () -> queryMultiReader(multiReader, new QueryOptimizationFlags(true)));
+
+    assertEquals(refCountBefore, getCurrentSearcherRefCount(succeededPartition));
+  }
+
+  @Test
+  public void
+      query_laterPartitionFailsConcurrentlyWithOmittedResultsAndCollectionFlagOff_releasesSearcher()
+          throws Exception {
+    LuceneSearchIndexReader succeededPartition = firstPartitionReader();
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(succeededPartition, failingPartition()),
+            emptyProducerCollectionDisabledRegistry(),
+            Optional.of(this.concurrentSearchExecutor));
+    int refCountBefore = getCurrentSearcherRefCount(succeededPartition);
+
+    Assert.assertThrows(
+        IOException.class, () -> queryMultiReader(multiReader, new QueryOptimizationFlags(true)));
+
+    assertEquals(refCountBefore, getCurrentSearcherRefCount(succeededPartition));
+  }
+
+  @Test
+  public void query_closeOfSucceededPartitionThrowsCheckedException_stillClosesTheRest()
+      throws Exception {
+    assertCleanupSurvivesCloseFailure(new IOException("close failure"));
+  }
+
+  @Test
+  public void query_closeOfSucceededPartitionThrowsRuntimeException_stillClosesTheRest()
+      throws Exception {
+    assertCleanupSurvivesCloseFailure(new IllegalStateException("close failure"));
+  }
+
+  /**
+   * The first of two succeeded partitions fails to close its producer. The remaining producer must
+   * still be closed, and the partition failure must be rethrown with the close failure suppressed.
+   */
+  private void assertCleanupSurvivesCloseFailure(Exception closeFailure) throws Exception {
+    BatchProducer closeFailingProducer = mock(BatchProducer.class);
+    Mockito.doThrow(closeFailure).when(closeFailingProducer).close();
+    BatchProducer laterProducer = mock(BatchProducer.class);
+    var multiReader =
+        new MultiLuceneSearchIndexReader(
+            List.of(
+                succeededPartitionReturning(closeFailingProducer),
+                succeededPartitionReturning(laterProducer),
+                failingPartition()),
+            drillSidewaysEnabledRegistry(),
+            Optional.empty());
+
+    IOException thrown =
+        Assert.assertThrows(
+            IOException.class,
+            () -> queryMultiReader(multiReader, QueryOptimizationFlags.DEFAULT_OPTIONS));
+
+    assertEquals("partition failure", thrown.getMessage());
+    Truth.assertThat(thrown.getSuppressed()).asList().containsExactly(closeFailure);
+    verify(closeFailingProducer).close();
+    verify(laterProducer).close();
+  }
+
+  /** A partition whose query succeeds with the given producer. */
+  private static LuceneSearchIndexReader succeededPartitionReturning(BatchProducer producer)
+      throws Exception {
+    LuceneSearchIndexReader partition = mock(LuceneSearchIndexReader.class);
+    Mockito.when(partition.query(any(), any(), any(), any()))
+        .thenReturn(new SearchProducerAndMetaResults(producer, MetaResults.EMPTY));
+    return partition;
+  }
+
+  /** A real partition of the partitioned test index, which acquires a real searcher. */
+  private LuceneSearchIndexReader firstPartitionReader() throws Exception {
+    SearchIndexReader reader = this.searchIndexWithPartitions.getReader();
+    return getUnderlyingReaders(
+            (MultiLuceneSearchIndexReader)
+                (reader instanceof MeteredSearchIndexReader metered ? metered.unwrap() : reader))
+        .get(0);
+  }
+
+  /** A partition that fails every query, which a real partition cannot be made to do. */
+  private static LuceneSearchIndexReader failingPartition() throws Exception {
+    LuceneSearchIndexReader partition = mock(LuceneSearchIndexReader.class);
+    Mockito.when(partition.query(any(), any(), any(), any()))
+        .thenThrow(new IOException("partition failure"));
+    Mockito.when(partition.intermediateQuery(any(), any(), any(), any()))
+        .thenThrow(new IOException("partition failure"));
+    return partition;
+  }
+
+  private static SearchProducerAndMetaResults queryMultiReader(
+      MultiLuceneSearchIndexReader multiReader, QueryOptimizationFlags flags)
+      throws IOException, InvalidQueryException, InterruptedException {
+    return multiReader.query(
+        QUERY_DEFINITION,
+        QueryCursorOptions.empty(),
+        BatchSizeStrategySelector.forQuery(QUERY_DEFINITION, QueryCursorOptions.empty()),
+        flags);
+  }
+
+  /** Same as {@link #drillSidewaysEnabledRegistry()} but with the empty producer flag off. */
+  private static DynamicFeatureFlagRegistry emptyProducerCollectionDisabledRegistry() {
+    DynamicFeatureFlagRegistry registry = mock(DynamicFeatureFlagRegistry.class);
+    Mockito.when(registry.evaluateClusterInvariant(any(), anyBoolean()))
+        .thenAnswer(invocation -> invocation.getArgument(1));
+    Mockito.when(
+            registry.evaluateClusterInvariant(
+                eq(DynamicFeatureFlags.DRILL_SIDEWAYS_FACETING.getName()), anyBoolean()))
+        .thenReturn(true);
+    Mockito.when(
+            registry.evaluateClusterInvariant(
+                eq(DynamicFeatureFlags.COLLECT_MULTI_PARTITION_EMPTY_SEARCH_PRODUCER.getName()),
+                anyBoolean()))
+        .thenReturn(false);
+    return registry;
+  }
+
+  @Test
   public void testConcurrentQueryUsesExecutor() throws Exception {
     // Add some documents to ensure there are results
     int numDocs = 5;
