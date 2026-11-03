@@ -14,6 +14,6 @@ PyGithub
 # mms-offline-packages-release-gate.md.
 PyYAML
 # PyMongo for the load-shedding driver no-retry e2e probe (driver_retry_probe.py). 4.x gives the
-# retryReads default + command-monitoring API the probe relies on.
-pymongo>=4.6,<5
+# retryReads default + command-monitoring API the probe relies on. >=4.18.3 for a security fix.
+pymongo>=4.18.3,<5
 PyYAML>=6.0.2
