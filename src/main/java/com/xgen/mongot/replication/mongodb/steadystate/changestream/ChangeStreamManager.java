@@ -492,7 +492,11 @@ public class ChangeStreamManager {
                 "steadyStatePriorityOptimeThresholdSeconds",
                 String.valueOf(replicationConfig.getSteadyStatePriorityOptimeThresholdSeconds()),
                 "prioritySchedulingFeatureFlag",
-                prioritySchedulingFeatureFlag ? "enabled" : "disabled"))
+                prioritySchedulingFeatureFlag ? "enabled" : "disabled",
+                "parallelChangeStreamReadersFeatureFlag",
+                replicationConfig.getEnableParallelChangeStreamReaders() ? "enabled" : "disabled",
+                "numParallelChangeStreamReaders",
+                String.valueOf(replicationConfig.getNumParallelChangeStreamReaders())))
         .set(1);
   }
 

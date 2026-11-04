@@ -4,7 +4,10 @@ import static com.xgen.mongot.util.Check.checkArg;
 import static com.xgen.mongot.util.Check.checkState;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -16,6 +19,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -83,6 +87,15 @@ public class PartitionedChangeStreamClient<E extends Exception>
    */
   private final AtomicBoolean closed;
 
+  private final Metrics metrics;
+
+  /**
+   * How long getNext waits for a completion before re-running the pass. Periodic wakes keep the
+   * pacing metrics sampling while every reader is stalled or paused, and would otherwise produce no
+   * completions.
+   */
+  @VisibleForTesting Duration getNextPollInterval = Duration.ofSeconds(1);
+
   /** Next reader whose retained batch will be returned after all readers stop. */
   private int nextFinalReader;
 
@@ -101,6 +114,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
    * worker when the shared pool is busy.
    *
    * <p>If initialization fails, closes any readers already created before propagating the failure.
+   * All {@code resume} overloads delegate here.
    */
   public static <E extends Exception> PartitionedChangeStreamClient<E> resume(
       int partitionCount,
@@ -108,7 +122,8 @@ public class PartitionedChangeStreamClient<E extends Exception>
       BatchMongoClient mongoClient,
       ReaderFactory<E> readerFactory,
       Executor executor,
-      WrapIfThrows<E> exceptionWrapper)
+      WrapIfThrows<E> exceptionWrapper,
+      MetricsFactory metricsFactory)
       throws E {
     return exceptionWrapper.wrapIfThrows(
         () -> {
@@ -122,7 +137,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
                       mongoClient, new ChangeStreamPartition(id, partitionCount), start));
             }
             return new PartitionedChangeStreamClient<>(
-                clients, executor, exceptionWrapper, start, DEFAULT_MAX_OPTIME_GAP);
+                clients, executor, exceptionWrapper, start, DEFAULT_MAX_OPTIME_GAP, metricsFactory);
           } catch (Exception | Error failure) {
             for (var client : clients) {
               try {
@@ -138,6 +153,25 @@ public class PartitionedChangeStreamClient<E extends Exception>
         });
   }
 
+  /** Test-only overload; production callers must pass a MetricsFactory so metrics are scraped. */
+  public static <E extends Exception> PartitionedChangeStreamClient<E> resume(
+      int partitionCount,
+      BsonDocument resumeToken,
+      BatchMongoClient mongoClient,
+      ReaderFactory<E> readerFactory,
+      Executor executor,
+      WrapIfThrows<E> exceptionWrapper)
+      throws E {
+    return resume(
+        partitionCount,
+        resumeToken,
+        mongoClient,
+        readerFactory,
+        executor,
+        exceptionWrapper,
+        new MetricsFactory("changestream", io.micrometer.core.instrument.Metrics.globalRegistry));
+  }
+
   /**
    * Takes ownership of preconfigured readers and borrows their executor. Tests can control fetch
    * scheduling; production callers use {@link #resume}.
@@ -148,7 +182,9 @@ public class PartitionedChangeStreamClient<E extends Exception>
       Executor executor,
       WrapIfThrows<E> exceptionWrapper,
       BsonTimestamp start,
-      Duration maxOptimeGap) {
+      Duration maxOptimeGap,
+      MetricsFactory metricsFactory) {
+    this.metrics = new Metrics(metricsFactory);
     checkArg(
         !maxOptimeGap.isNegative()
             && maxOptimeGap.equals(Duration.ofSeconds(maxOptimeGap.toSeconds())),
@@ -157,7 +193,11 @@ public class PartitionedChangeStreamClient<E extends Exception>
     var readers = new ArrayList<Reader<E>>();
     for (int id = 0; id < clients.size(); id++) {
       readers.add(
-          new Reader<>(clients.get(id), new ChangeStreamPartition(id, clients.size()), start));
+          new Reader<>(
+              clients.get(id),
+              new ChangeStreamPartition(id, clients.size()),
+              start,
+              () -> this.metrics.pauses.increment()));
     }
     this.readers = readers;
     this.maxOptimeGapSeconds = maxOptimeGap.toSeconds();
@@ -168,14 +208,31 @@ public class PartitionedChangeStreamClient<E extends Exception>
     this.nextFinalReader = 0;
   }
 
+  @VisibleForTesting
+  PartitionedChangeStreamClient(
+      List<ChangeStreamMongoClient<E>> clients,
+      Executor executor,
+      WrapIfThrows<E> exceptionWrapper,
+      BsonTimestamp start,
+      Duration maxOptimeGap) {
+    this(
+        clients,
+        executor,
+        exceptionWrapper,
+        start,
+        maxOptimeGap,
+        new MetricsFactory("changestream", io.micrometer.core.instrument.Metrics.globalRegistry));
+  }
+
   /*
    * Each getNext() call follows these steps:
    *
    * 1. Check closure. If all readers finished, drain their retained documents in partition order,
    *    with lifecycle events only in the final batch.
    * 2. Call submitFetchForReaders(). Each reader checks its lifecycle state, pending fetch, and
-   *    progress gap against the slowest unfinished reader.
-   *    A completed, unread result still occupies the pending slot.
+   *    optime gap from the slowest unfinished reader. A completed, unread result still occupies
+   *    the pending slot. Pacing is recalculated on every submission; pacingPaused is
+   *    metrics-only.
    * 3. Take the next completed reader, waiting if necessary. A shutdown marker wakes this wait
    *    and causes the call to throw.
    * 4. Take the fetched batch, freeing its reader's slot, or propagate the fetch failure so the
@@ -218,10 +275,17 @@ public class PartitionedChangeStreamClient<E extends Exception>
             // Submit a fetch for every reader that is not finished.
             submitFetchForReaders();
 
+            var completed =
+                this.completedReaders.poll(
+                    this.getNextPollInterval.toMillis(), TimeUnit.MILLISECONDS);
+            if (completed == null) {
+              // No reader completed. Loop, so the pacing gap keeps being sampled while every
+              // reader is stalled or paused.
+              continue;
+            }
             Reader<E> reader =
-                this.completedReaders
-                    .take()
-                    .orElseThrow(() -> new IllegalStateException("Change stream client is closed"));
+                completed.orElseThrow(
+                    () -> new IllegalStateException("Change stream client is closed"));
             checkState(!this.closed.get(), "Change stream client is closed");
             // Taking the fetched batch frees the pending slot; a lifecycle batch stops this reader.
             ChangeStreamBatch batch = reader.takeFetchedBatch();
@@ -298,6 +362,14 @@ public class PartitionedChangeStreamClient<E extends Exception>
   /** Lets each reader decide whether to fetch and queues it when the fetch completes. */
   private void submitFetchForReaders() {
     var slowestReaderOptime = slowestUnfinishedReaderOptime();
+    this.readers.stream()
+        .filter(reader -> !reader.isFinished())
+        .mapToLong(
+            reader ->
+                Integer.toUnsignedLong(reader.optime.getTime())
+                    - Integer.toUnsignedLong(slowestReaderOptime.getTime()))
+        .max()
+        .ifPresent(this.metrics.readerDifference::record);
     for (Reader<E> reader : this.readers) {
       try {
         reader.submitFetch(
@@ -344,6 +416,17 @@ public class PartitionedChangeStreamClient<E extends Exception>
     }
   }
 
+  /** Metrics shared by all partitioned indexes on this node; none are tagged by index. */
+  private static final class Metrics {
+    final Counter pauses;
+    final DistributionSummary readerDifference;
+
+    Metrics(MetricsFactory factory) {
+      this.pauses = factory.counter("partitionReaderPauses");
+      this.readerDifference = factory.summary("partitionReaderDifferenceSeconds");
+    }
+  }
+
   /** Owns one change stream client's fetch state and buffered result. */
   private static class Reader<E extends Exception> {
     private final ChangeStreamMongoClient<E> client;
@@ -360,6 +443,9 @@ public class PartitionedChangeStreamClient<E extends Exception>
      */
     private Optional<FutureTask<FetchResult>> pendingFetch;
 
+    private boolean pacingPaused;
+    private final Runnable onPauseStart;
+
     /**
      * Retains the boundary batch and its first lifecycle position. Presence marks this reader
      * finished. Split rename and invalidate batches have already been combined by fetch(). Accessed
@@ -369,13 +455,17 @@ public class PartitionedChangeStreamClient<E extends Exception>
 
     /** Creates a reader with no outstanding fetch. */
     Reader(
-        ChangeStreamMongoClient<E> client, ChangeStreamPartition partition, BsonTimestamp start) {
+        ChangeStreamMongoClient<E> client,
+        ChangeStreamPartition partition,
+        BsonTimestamp start,
+        Runnable onPauseStart) {
       this.client = client;
       this.partition = partition;
       this.closeRequested = false;
       this.optime = start;
       this.pendingFetch = Optional.empty();
       this.lifecycleResult = Optional.empty();
+      this.onPauseStart = onPauseStart;
     }
 
     /** The reader has completed its lifecycle batch and will not fetch again. */
@@ -413,9 +503,13 @@ public class PartitionedChangeStreamClient<E extends Exception>
       // 1. The reader is finished because it received a lifecycle event
       // 2. The reader has a pending fetch
       // 3. The reader should pause for pacing
-      if (isFinished()
-          || this.pendingFetch.isPresent()
-          || shouldPauseForPacing(slowestReaderOptime, maxOptimeGapSeconds)) {
+      boolean pauseForPacing =
+          !isFinished() && shouldPauseForPacing(slowestReaderOptime, maxOptimeGapSeconds);
+      if (pauseForPacing && !this.pacingPaused) {
+        this.onPauseStart.run();
+      }
+      this.pacingPaused = pauseForPacing;
+      if (isFinished() || this.pendingFetch.isPresent() || pauseForPacing) {
         return;
       }
       var future =

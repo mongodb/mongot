@@ -2310,6 +2310,40 @@ public class ChangeStreamManagerTest {
     assertThat(gauge.getId().getTag("steadyStatePriorityRatio")).isEqualTo("3");
     assertThat(gauge.getId().getTag("steadyStatePriorityOptimeThresholdSeconds")).isEqualTo("20");
     assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("enabled");
+    // Parallel readers are off unless the config turns them on.
+    assertThat(gauge.getId().getTag("parallelChangeStreamReadersFeatureFlag"))
+        .isEqualTo("disabled");
+    changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testSchedulingConfigGauge_parallelReadersEnabled_reportsFlagAndReaderCount()
+      throws Exception {
+    Assume.assumeTrue(this.context.name.equals("sync-client"));
+
+    MeterAndFtdcRegistry registry = MeterAndFtdcRegistry.createWithSimpleRegistries();
+    ChangeStreamManager changeStreamManager =
+        ChangeStreamManager.createSync(
+            registry,
+            ChangeStreamManagerTestSyncHelpers.syncSingleEventProducingClient(),
+            mock(ChangeStreamModeSelector.class),
+            indexingWorkSchedulerFactory(),
+            SteadyStateReplicationConfig.builder()
+                .setNumConcurrentChangeStreams(1)
+                .setMaxInFlightEmbeddingGetMores(1)
+                .setChangeStreamQueryMaxTimeMs(1000)
+                .setChangeStreamCursorMaxTimeSec(1000)
+                .setEnableParallelChangeStreamReaders(true)
+                .setNumParallelChangeStreamReaders(4)
+                .build(),
+            this.context.getIndexManagerFactory(),
+            false);
+
+    // Reported even when priority scheduling is off: the two flags are independent.
+    Gauge gauge = registry.meterRegistry().get("replication.steadyState.schedulingConfig").gauge();
+    assertThat(gauge.getId().getTag("parallelChangeStreamReadersFeatureFlag")).isEqualTo("enabled");
+    assertThat(gauge.getId().getTag("numParallelChangeStreamReaders")).isEqualTo("4");
+    assertThat(gauge.getId().getTag("prioritySchedulingFeatureFlag")).isEqualTo("disabled");
     changeStreamManager.shutdown().get(5, TimeUnit.SECONDS);
   }
 

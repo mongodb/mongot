@@ -246,7 +246,8 @@ class ChangeStreamMongoClientFactory {
         this.mongoClient,
         readerFactory,
         this.partitionReaderExecutor.orElseThrow(),
-        SteadyStateException::wrapIfThrows);
+        SteadyStateException::wrapIfThrows,
+        this.meterMetricsFactory);
   }
 
   /**

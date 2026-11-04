@@ -12,14 +12,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.mongodb.MongoException;
+import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
 import com.xgen.mongot.util.mongodb.Errors;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,6 +43,7 @@ public class PartitionedChangeStreamClientTest {
   private static final ChangeStreamPartition FIRST = new ChangeStreamPartition(0, 2);
 
   private final BatchMongoClient mongoClient = mock(BatchMongoClient.class);
+  private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
   private final ExecutorService fetchExecutor = mock(ExecutorService.class);
   private final ExecutorService caller = Executors.newSingleThreadExecutor();
   private final ExecutorService closer = Executors.newSingleThreadExecutor();
@@ -1496,6 +1500,133 @@ public class PartitionedChangeStreamClientTest {
       List<ChangeStreamMongoClient<SteadyStateException>> readers, Executor executor)
       throws Exception {
     return pacingClient(readers, executor, 0, 60);
+  }
+
+  @Test
+  public void metrics_pacingPause_countsEachTransitionOnce() throws Exception {
+    // Fast reader pulls ahead, pauses (1), catches up, pulls ahead again (2). While it stays
+    // paused, repeated passes must not add more counts.
+    var fast = reader(timedBatch(200), timedBatch(210));
+    var slow =
+        reader(timedBatch(105), timedBatch(190), timedBatch(195), timedBatch(200), timedBatch(205));
+    try (var client = metricsPacingClient(List.of(fast, slow), 100, 10)) {
+      client.getNext(); // fast delivered; fast.optime = 200
+      client.getNext(); // slowest 100: fast pauses (counter 1); slow taken, optime 105
+      assertThat(this.meterRegistry.get("changestream.partitionReaderPauses").counter().count())
+          .isEqualTo(1.0);
+
+      client.getNext(); // slowest 105: fast stays paused (no new count)
+      client.getNext(); // slowest 190 (slow's take): fast unpauses and fetches 210
+      client.getNext(); // slowest 190: fast pauses again (counter 2)
+      assertThat(this.meterRegistry.get("changestream.partitionReaderPauses").counter().count())
+          .isEqualTo(2.0);
+    }
+  }
+
+  @Test
+  public void metrics_gap_recordsLargestGapPerPass() throws Exception {
+    var fast = reader(timedBatch(200));
+    var slow = reader(timedBatch(105), timedBatch(115));
+    try (var client = metricsPacingClient(List.of(fast, slow), 100, 60)) {
+      client.getNext(); // pass 1: both at start, gap 0; fast delivered (optime 200)
+      client.getNext(); // pass 2: slowest 105, gap 95; slow delivered
+      client.getNext(); // pass 3: slowest 115, gap 85
+
+      var gap = this.meterRegistry.get("changestream.partitionReaderDifferenceSeconds").summary();
+      assertThat(gap.count()).isEqualTo(3);
+      // Pass 2 measures fast (200) against slow's untaken optime (100), before slow's take.
+      assertThat(gap.max()).isEqualTo(100.0);
+    }
+  }
+
+  @Test
+  public void metrics_gap_excludesFinishedReaders() throws Exception {
+    // The finished reader stops AHEAD of the live one (optime 200 vs 105): including it would
+    // fabricate a ~95s gap, since the live reader would be measured against it as the slowest.
+    var dropAt200 =
+        new ChangeStreamBatch(
+            List.of(event(5, "drop")),
+            new BsonDocument("_data", new BsonString("82%08X00000001".formatted(200))),
+            Optional.of(new BsonTimestamp(1, 1)));
+    var finished = reader(dropAt200);
+    var live = reader(timedBatch(105), timedBatch(110), timedBatch(115));
+    try (var client = metricsPacingClient(List.of(finished, live), 100, 60)) {
+      client.getNext();
+      client.getNext();
+      client.getNext();
+
+      var gap = this.meterRegistry.get("changestream.partitionReaderDifferenceSeconds").summary();
+      assertThat(gap.count()).isEqualTo(4);
+      assertThat(gap.max()).isEqualTo(0.0);
+    }
+  }
+
+  @Test
+  public void metrics_gap_sampledWhileEveryReaderIsStalledOrPaused() throws Exception {
+    // Reader A is stuck mid-fetch at its start optime; reader B delivers one batch, crosses the
+    // pacing gap, and is paused. No reader completes another batch, so the second getNext blocks
+    // in its wait — the poll wake must keep the gap metric sampling anyway.
+    var started = new CountDownLatch(1);
+    var releaseFetch = new CountDownLatch(1);
+    var unblocked = new CountDownLatch(1);
+    var readersClosed = new CountDownLatch(1);
+    var stuck = blockedReader(started, releaseFetch, unblocked, readersClosed);
+    var pausedPeer = reader(timedBatch(161));
+    var client =
+        new PartitionedChangeStreamClient<SteadyStateException>(
+            List.of(stuck, pausedPeer),
+            this.executor,
+            SteadyStateException::wrapIfThrows,
+            new BsonTimestamp(100, 0),
+            Duration.ofSeconds(60),
+            new MetricsFactory("changestream", this.meterRegistry));
+    client.getNextPollInterval = Duration.ofMillis(20);
+
+    var first = this.caller.submit(client::getNext);
+    assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+    assertThat(first.get(10, TimeUnit.SECONDS)).isNotNull(); // B's batch, optime 161
+
+    var second = this.caller.submit(client::getNext);
+    var gap = this.meterRegistry.get("changestream.partitionReaderDifferenceSeconds").summary();
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (gap.count() < 10 && System.nanoTime() < deadline) {
+      Thread.sleep(20);
+    }
+
+    assertThat(gap.count()).isAtLeast(10); // sampled every wake, not only at completions
+    assertThat(gap.max()).isAtLeast(61.0); // B is 61s ahead of the stuck A
+    assertThat(this.meterRegistry.get("changestream.partitionReaderPauses").counter().count())
+        .isEqualTo(1.0); // B paused once and stays paused
+
+    // Close first: the marker wakes the blocked getNext and it throws. Releasing the stuck
+    // fetch before close would race — the blocked call could consume that completion and return
+    // normally instead.
+    client.close();
+    assertThrows(ExecutionException.class, () -> second.get(10, TimeUnit.SECONDS));
+    releaseFetch.countDown();
+    assertThat(unblocked.await(10, TimeUnit.SECONDS)).isTrue();
+    assertThat(readersClosed.await(10, TimeUnit.SECONDS)).isTrue();
+  }
+
+  private PartitionedChangeStreamClient<SteadyStateException> metricsPacingClient(
+      List<ChangeStreamMongoClient<SteadyStateException>> readers,
+      int startSeconds,
+      long gapSeconds)
+      throws Exception {
+    doAnswer(
+            invocation -> {
+              ((Runnable) invocation.getArgument(0)).run();
+              return null;
+            })
+        .when(this.fetchExecutor)
+        .execute(any(Runnable.class));
+    return new PartitionedChangeStreamClient<>(
+        readers,
+        this.fetchExecutor,
+        SteadyStateException::wrapIfThrows,
+        new BsonTimestamp(startSeconds, 0),
+        Duration.ofSeconds(gapSeconds),
+        new MetricsFactory("changestream", this.meterRegistry));
   }
 
   private PartitionedChangeStreamClient<SteadyStateException> pacingClient(
