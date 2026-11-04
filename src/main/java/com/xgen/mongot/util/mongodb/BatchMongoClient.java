@@ -23,6 +23,7 @@ import com.mongodb.internal.connection.InternalConnectionPoolSettings;
 import com.mongodb.internal.connection.OperationContext;
 import com.mongodb.internal.connection.ServerAddressHelper;
 import com.mongodb.internal.connection.StreamFactory;
+import com.mongodb.internal.connection.StreamFactoryFactory;
 import com.mongodb.internal.connection.StreamFactoryHelper;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ReadOperation;
@@ -47,14 +48,38 @@ public class BatchMongoClient implements AutoCloseable {
   private final MongoClientImpl internalMongoClient;
   private final AtomicBoolean closed;
 
+  /**
+   * Creates a client and its cluster from {@code settings}. If creation fails, the resources built
+   * so far are closed.
+   */
   public BatchMongoClient(MongoClientSettings settings) {
     Check.argNotNull(settings, "settings");
     MongoDriverInformation information = createMongoDriverInformation();
-    Cluster dbCluster = createCluster(settings, information);
+    // One factory for both connections and heartbeats, as MongoClients.create builds it. The
+    // internal client closes it, which shuts down the event loop group of the Netty transport.
+    StreamFactoryFactory streamFactoryFactory =
+        StreamFactoryHelper.getSyncStreamFactoryFactory(
+            settings.getTransportSettings(), ServerAddressHelper.getInetAddressResolver(settings));
+    // The factory builds its event loop group eagerly, and the cluster starts its monitors, so
+    // close whatever was built if a later step fails.
+    Cluster dbCluster;
+    try {
+      dbCluster = createCluster(settings, information, streamFactoryFactory);
+    } catch (RuntimeException e) {
+      streamFactoryFactory.close();
+      throw e;
+    }
 
     this.settings = settings;
     this.cluster = dbCluster;
-    this.internalMongoClient = createInternalMongoClient(dbCluster, information, settings);
+    try {
+      this.internalMongoClient =
+          createInternalMongoClient(dbCluster, information, settings, streamFactoryFactory);
+    } catch (RuntimeException e) {
+      dbCluster.close();
+      streamFactoryFactory.close();
+      throw e;
+    }
     this.closed = new AtomicBoolean(false);
   }
 
@@ -144,7 +169,9 @@ public class BatchMongoClient implements AutoCloseable {
   }
 
   private Cluster createCluster(
-      MongoClientSettings settings, MongoDriverInformation driverInformation) {
+      MongoClientSettings settings,
+      MongoDriverInformation driverInformation,
+      StreamFactoryFactory streamFactoryFactory) {
 
     return new DefaultClusterFactory()
         .createCluster(
@@ -153,9 +180,9 @@ public class BatchMongoClient implements AutoCloseable {
             settings.getConnectionPoolSettings(),
             InternalConnectionPoolSettings.builder().build(),
             TimeoutSettings.create(settings),
-            getStreamFactory(settings, false),
+            getStreamFactory(settings, streamFactoryFactory, false),
             TimeoutSettings.createHeartbeatSettings(settings),
-            getStreamFactory(settings, true),
+            getStreamFactory(settings, streamFactoryFactory, true),
             settings.getCredential(),
             settings.getLoggerSettings(),
             getCommandListener(settings.getCommandListeners()),
@@ -166,19 +193,23 @@ public class BatchMongoClient implements AutoCloseable {
             settings.getDnsClient());
   }
 
-  private StreamFactory getStreamFactory(MongoClientSettings settings, boolean isHeartbeat) {
+  private StreamFactory getStreamFactory(
+      MongoClientSettings settings,
+      StreamFactoryFactory streamFactoryFactory,
+      boolean isHeartbeat) {
     SocketSettings socketSettings =
         isHeartbeat ? settings.getHeartbeatSocketSettings() : settings.getSocketSettings();
 
-    return StreamFactoryHelper.getSyncStreamFactoryFactory(
-            settings.getTransportSettings(), ServerAddressHelper.getInetAddressResolver(settings))
-        .create(socketSettings, settings.getSslSettings());
+    return streamFactoryFactory.create(socketSettings, settings.getSslSettings());
   }
 
   private MongoClientImpl createInternalMongoClient(
-      Cluster cluster, MongoDriverInformation driverInformation, MongoClientSettings settings) {
+      Cluster cluster,
+      MongoDriverInformation driverInformation,
+      MongoClientSettings settings,
+      StreamFactoryFactory streamFactoryFactory) {
 
-    return new MongoClientImpl(cluster, settings, driverInformation, null);
+    return new MongoClientImpl(cluster, settings, driverInformation, streamFactoryFactory);
   }
 
   /**
