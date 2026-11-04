@@ -580,6 +580,10 @@ public class IndexMetricsBuilder {
 
     private long warmCacheSizeBytes = 0;
 
+    private long pinnedWarmCacheSizeBytes = 0;
+
+    private long dynamicWarmCacheSizeBytes = 0;
+
     public static IndexingMetricsBuilder builder() {
       return new IndexingMetricsBuilder();
     }
@@ -681,6 +685,16 @@ public class IndexMetricsBuilder {
       return this;
     }
 
+    public IndexingMetricsBuilder pinnedWarmCacheSizeBytes(long pinnedWarmCacheSizeBytes) {
+      this.pinnedWarmCacheSizeBytes = pinnedWarmCacheSizeBytes;
+      return this;
+    }
+
+    public IndexingMetricsBuilder dynamicWarmCacheSizeBytes(long dynamicWarmCacheSizeBytes) {
+      this.dynamicWarmCacheSizeBytes = dynamicWarmCacheSizeBytes;
+      return this;
+    }
+
     public IndexMetrics.IndexingMetrics build() {
       return new IndexMetrics.IndexingMetrics(
           this.documentEventTypeCountMap,
@@ -701,7 +715,9 @@ public class IndexMetricsBuilder {
           this.requiredMemory,
           this.numNestedVectorFields,
           this.coldStorageSizeBytes,
-          this.warmCacheSizeBytes);
+          this.warmCacheSizeBytes,
+          this.pinnedWarmCacheSizeBytes,
+          this.dynamicWarmCacheSizeBytes);
     }
   }
 

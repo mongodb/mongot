@@ -34,6 +34,8 @@
         "numNestedVectorFields": 0,
         "coldStorageSizeBytes": 0,
         "warmCacheSizeBytes": 0,
+        "pinnedWarmCacheSizeBytes": 0,
+        "dynamicWarmCacheSizeBytes": 0,
         "numFields": 20,
         "numFieldsPerDatatype": {
           "autocomplete": 0.0,
@@ -350,6 +352,8 @@
         "numNestedVectorFields": 0,
         "coldStorageSizeBytes": {"$numberLong": "0"},
         "warmCacheSizeBytes": {"$numberLong": "0"},
+        "pinnedWarmCacheSizeBytes": {"$numberLong": "0"},
+        "dynamicWarmCacheSizeBytes": {"$numberLong": "0"},
         "numFields": 20,
         "numFieldsPerDatatype": {
           "autocomplete": 0.0,

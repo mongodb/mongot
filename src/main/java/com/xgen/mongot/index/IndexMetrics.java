@@ -149,7 +149,9 @@ public record IndexMetrics(
       Bytes requiredMemory,
       int numNestedVectorFields,
       long coldStorageSizeBytes,
-      long warmCacheSizeBytes)
+      long warmCacheSizeBytes,
+      long pinnedWarmCacheSizeBytes,
+      long dynamicWarmCacheSizeBytes)
       implements DocumentEncodable {
 
     private static class Fields {
@@ -226,6 +228,20 @@ public record IndexMetrics(
               .longField()
               .optional()
               .withDefault(0L);
+
+      /** See {@link VectorliteIndexMetrics.TieredStorageMetrics#pinnedWarmCacheSizeBytes()}. */
+      private static final Field.WithDefault<Long> PINNED_WARM_CACHE_SIZE_BYTES =
+          Field.builder(VectorliteIndexMetrics.TieredStorageMetrics.PINNED_WARM_CACHE_SIZE_BYTES)
+              .longField()
+              .optional()
+              .withDefault(0L);
+
+      /** See {@link VectorliteIndexMetrics.TieredStorageMetrics#dynamicWarmCacheSizeBytes()}. */
+      private static final Field.WithDefault<Long> DYNAMIC_WARM_CACHE_SIZE_BYTES =
+          Field.builder(VectorliteIndexMetrics.TieredStorageMetrics.DYNAMIC_WARM_CACHE_SIZE_BYTES)
+              .longField()
+              .optional()
+              .withDefault(0L);
     }
 
     static IndexingMetrics create(
@@ -265,7 +281,10 @@ public record IndexMetrics(
           Bytes.ofBytes(requiredMemory),
           numNestedVectorFields,
           tiered.coldStorageSizeBytes(),
-          tiered.warmCacheSizeBytes());
+          // The deprecated total is derived from the split the engine reports.
+          tiered.pinnedWarmCacheSizeBytes() + tiered.dynamicWarmCacheSizeBytes(),
+          tiered.pinnedWarmCacheSizeBytes(),
+          tiered.dynamicWarmCacheSizeBytes());
     }
 
     @Override
@@ -292,6 +311,8 @@ public record IndexMetrics(
           .field(Fields.NUM_NESTED_VECTOR_FIELDS, this.numNestedVectorFields)
           .field(Fields.COLD_STORAGE_SIZE_BYTES, this.coldStorageSizeBytes)
           .field(Fields.WARM_CACHE_SIZE_BYTES, this.warmCacheSizeBytes)
+          .field(Fields.PINNED_WARM_CACHE_SIZE_BYTES, this.pinnedWarmCacheSizeBytes)
+          .field(Fields.DYNAMIC_WARM_CACHE_SIZE_BYTES, this.dynamicWarmCacheSizeBytes)
           .build();
     }
 
@@ -318,7 +339,9 @@ public record IndexMetrics(
           Bytes.ofBytes(parser.getField(Fields.REQUIRED_MEMORY).unwrap()),
           parser.getField(Fields.NUM_NESTED_VECTOR_FIELDS).unwrap(),
           parser.getField(Fields.COLD_STORAGE_SIZE_BYTES).unwrap(),
-          parser.getField(Fields.WARM_CACHE_SIZE_BYTES).unwrap());
+          parser.getField(Fields.WARM_CACHE_SIZE_BYTES).unwrap(),
+          parser.getField(Fields.PINNED_WARM_CACHE_SIZE_BYTES).unwrap(),
+          parser.getField(Fields.DYNAMIC_WARM_CACHE_SIZE_BYTES).unwrap());
     }
   }
 

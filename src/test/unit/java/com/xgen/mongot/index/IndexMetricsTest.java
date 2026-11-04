@@ -436,6 +436,8 @@ public class IndexMetricsTest {
               .vectorFieldSize(0L)
               .coldStorageSizeBytes(1000)
               .warmCacheSizeBytes(200)
+              .pinnedWarmCacheSizeBytes(150)
+              .dynamicWarmCacheSizeBytes(50)
               .requiredMemory(500000000L)
               .numFields(30)
               .batchIndexingTimer(

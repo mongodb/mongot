@@ -219,13 +219,16 @@ public class IndexMetricsUpdaterTest {
       var supplier = IndexMetricsSupplier.mockEmptyIndexMetricsSupplier();
       Mockito.doReturn(
               new VectorliteIndexMetrics(
-                  new VectorliteIndexMetrics.TieredStorageMetrics(1, 2, 3, 4), 5))
+                  new VectorliteIndexMetrics.TieredStorageMetrics(1, 13, 6, 7, 3, 4), 5))
           .when(supplier)
           .getVectorliteIndexMetrics();
       IndexMetrics result = buildUpdater(supplier).getMetrics();
 
       Assert.assertEquals(1, result.indexingMetrics().coldStorageSizeBytes());
-      Assert.assertEquals(2, result.indexingMetrics().warmCacheSizeBytes());
+      // The warm total is derived from the split (6 + 7).
+      Assert.assertEquals(13, result.indexingMetrics().warmCacheSizeBytes());
+      Assert.assertEquals(6, result.indexingMetrics().pinnedWarmCacheSizeBytes());
+      Assert.assertEquals(7, result.indexingMetrics().dynamicWarmCacheSizeBytes());
       Assert.assertEquals(3, result.queryingMetrics().warmQueriesCount());
       Assert.assertEquals(4, result.queryingMetrics().coldQueriesCount());
     }
@@ -238,6 +241,8 @@ public class IndexMetricsUpdaterTest {
 
       Assert.assertEquals(0, result.indexingMetrics().coldStorageSizeBytes());
       Assert.assertEquals(0, result.indexingMetrics().warmCacheSizeBytes());
+      Assert.assertEquals(0, result.indexingMetrics().pinnedWarmCacheSizeBytes());
+      Assert.assertEquals(0, result.indexingMetrics().dynamicWarmCacheSizeBytes());
       Assert.assertEquals(0, result.queryingMetrics().warmQueriesCount());
       Assert.assertEquals(0, result.queryingMetrics().coldQueriesCount());
     }
