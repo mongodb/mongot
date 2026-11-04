@@ -550,7 +550,12 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
     List<EmbedBundle> bundles;
     try {
       bundles =
-          getTextValueBundles(batch.events, autoEmbedMapping, embedBatchKeyPerPath, subBatchSize);
+          getTextValueBundles(
+              batch.events,
+              autoEmbedMapping,
+              embedBatchKeyPerPath,
+              getSourceNestedRoot(indexDefinition),
+              subBatchSize);
     } catch (Exception e) {
       return CompletableFuture.failedFuture(e);
     }
@@ -878,6 +883,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
             allEventsInBatch,
             autoEmbedMapping,
             embedBatchKeyPerPath,
+            getSourceNestedRoot(indexDefinition),
             MAX_AUTO_EMBED_DOCUMENT_BUNDLE_SIZE);
     List<CompletableFuture<List<DocumentEvent>>> resultFutures = new ArrayList<>();
     for (EmbedBundle bundle : embedBundles) {
@@ -937,10 +943,7 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                     e ->
                         ImmutableMap.copyOf(
                             embeddingsPerBatchKey.getOrDefault(e.getValue(), ImmutableMap.of()))));
-    Optional<FieldPath> sourceNestedRoot =
-        indexDefinition instanceof VectorIndexDefinition vectorIndexDefinition
-            ? vectorIndexDefinition.getNestedRoot()
-            : Optional.empty();
+    Optional<FieldPath> sourceNestedRoot = getSourceNestedRoot(indexDefinition);
 
     for (int i = 0; i < events.size(); i++) {
       DocumentEvent event = events.get(i);
@@ -1045,11 +1048,16 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
   /**
    * Splits Documents events by bundle size, deletion and non-autoembedding(no matching text) events
    * are not limited by bundle size.
+   *
+   * <p>Non-nested embed paths contribute only the first non-empty text because the write path
+   * stores one vector per path. Paths under {@code sourceNestedRoot} keep every text so each array
+   * element can receive its own vector.
    */
   static List<EmbedBundle> getTextValueBundles(
       List<DocumentEvent> events,
       AutoEmbedFieldMapping fieldMapping,
       ImmutableMap<FieldPath, EmbedConfigurationForBatch> embedBatchKeyPerPath,
+      Optional<FieldPath> sourceNestedRoot,
       int maxDocumentBundleSize) {
     // Step 1: Gets all (document, Map<EmbedBatchKey, Set<String>>) pairs
     List<DocumentTexts> documentModelTextMapPairs =
@@ -1078,12 +1086,12 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
                     return new DocumentTexts(event, textsPerBatchKey);
                   }
                   try {
-                    var autoEmbeddingTextPathMap =
-                        AutoEmbeddingDocumentUtils.getVectorTextPathMap(
-                            event.getDocument().get(), fieldMapping);
-                    for (var entry : autoEmbeddingTextPathMap.entrySet()) {
+                    var textsToEmbed =
+                        AutoEmbeddingDocumentUtils.getVectorTextsToEmbed(
+                            event.getDocument().get(), fieldMapping, sourceNestedRoot);
+                    for (var entry : textsToEmbed.entrySet()) {
                       FieldPath fieldPath = entry.getKey();
-                      Set<String> textsInField = entry.getValue();
+                      List<String> textsInField = entry.getValue();
                       EmbedConfigurationForBatch batchKey = embedBatchKeyPerPath.get(fieldPath);
                       Check.checkState(
                           batchKey != null,
@@ -1397,6 +1405,13 @@ final class EmbeddingIndexingWorkScheduler extends IndexingWorkScheduler {
       return Integer.MAX_VALUE;
     }
     return (int) Math.max(1, Math.min((long) Integer.MAX_VALUE, perBatchBudgetBytes / bytesPerDoc));
+  }
+
+  @VisibleForTesting
+  static Optional<FieldPath> getSourceNestedRoot(IndexDefinition indexDefinition) {
+    return indexDefinition instanceof VectorIndexDefinition vectorIndexDefinition
+        ? vectorIndexDefinition.getNestedRoot()
+        : Optional.empty();
   }
 
   private static boolean containsValidDocument(DocumentEvent event) {

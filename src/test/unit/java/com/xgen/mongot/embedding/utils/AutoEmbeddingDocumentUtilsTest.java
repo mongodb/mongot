@@ -6,6 +6,7 @@ import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.buildMa
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.compareDocuments;
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.computeTextHash;
 import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.getVectorTextPathMap;
+import static com.xgen.mongot.embedding.utils.AutoEmbeddingDocumentUtils.getVectorTextsToEmbed;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -143,6 +144,131 @@ public class AutoEmbeddingDocumentUtilsTest {
             FieldPath.parse("root.a"),
             Set.of("aString", "aString2")),
         result);
+  }
+
+  @Test
+  public void testGetVectorTextsToEmbed_nonNestedArrayKeepsOnlyFirstText() throws IOException {
+    List<VectorIndexFieldDefinition> fields =
+        List.of(
+            new VectorTextFieldDefinition(FieldPath.parse("root")),
+            new VectorTextFieldDefinition(FieldPath.parse("root.a")));
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
+    RawBsonDocument rawBsonDoc =
+        new RawBsonDocument(createArrayBson(), BsonUtils.BSON_DOCUMENT_CODEC);
+
+    ImmutableMap<FieldPath, List<String>> result =
+        getVectorTextsToEmbed(
+            rawBsonDoc,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            Optional.empty());
+
+    assertEquals(
+        ImmutableMap.of(
+            FieldPath.parse("root"), List.of("arrayString1"),
+            FieldPath.parse("root.a"), List.of("aString")),
+        result);
+  }
+
+  @Test
+  public void testGetVectorTextsToEmbed_nestedRootKeepsAllTexts() throws IOException {
+    List<VectorIndexFieldDefinition> fields =
+        List.of(
+            new VectorTextFieldDefinition(FieldPath.parse("root")),
+            new VectorTextFieldDefinition(FieldPath.parse("root.a")));
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().setFields(fields).build();
+    RawBsonDocument rawBsonDoc =
+        new RawBsonDocument(createArrayBson(), BsonUtils.BSON_DOCUMENT_CODEC);
+
+    ImmutableMap<FieldPath, List<String>> result =
+        getVectorTextsToEmbed(
+            rawBsonDoc,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            Optional.of(FieldPath.parse("root")));
+
+    assertEquals(
+        ImmutableMap.of(
+            FieldPath.parse("root"), List.of("arrayString1"),
+            FieldPath.parse("root.a"), List.of("aString", "aString2")),
+        result);
+  }
+
+  @Test
+  public void testGetVectorTextsToEmbed_skipsLeadingEmptyText() throws IOException {
+    VectorIndexDefinition vectorDef =
+        VectorIndexDefinitionBuilder.builder().withAutoEmbedField("text").build();
+    BsonDocument bsonDoc =
+        new BsonDocument("_id", new BsonString("anId"))
+            .append("text", new BsonArray(List.of(new BsonString(""), new BsonString("second"))));
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(bsonDoc, BsonUtils.BSON_DOCUMENT_CODEC);
+
+    ImmutableMap<FieldPath, List<String>> result =
+        getVectorTextsToEmbed(
+            rawBsonDoc,
+            AutoEmbedFieldMappingCreator.createAutoEmbedMapping(vectorDef),
+            Optional.empty());
+
+    assertEquals(ImmutableMap.of(FieldPath.parse("text"), List.of("second")), result);
+  }
+
+  @Test
+  public void testBuildMaterializedViewDocumentEvent_dualRoleArrayKeepsLexicalValuesAndFirstVector()
+      throws IOException {
+    DocumentFieldDefinition mappings =
+        DocumentFieldDefinitionBuilder.builder()
+            .dynamic(false)
+            .field(
+                "text",
+                FieldDefinitionBuilder.builder()
+                    .string(StringFieldDefinitionBuilder.builder().build())
+                    .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                    .build())
+            .build();
+    SearchIndexDefinition searchDef =
+        SearchIndexDefinitionBuilder.builder().defaultMetadata().mappings(mappings).build();
+    MaterializedViewSchemaMetadata schemaMetadata =
+        new MaterializedViewSchemaMetadata(
+            1, Map.of(FieldPath.parse("text"), FieldPath.parse("_autoEmbed.text")));
+    BsonDocument source =
+        new BsonDocument("_id", new BsonString("anId"))
+            .append(
+                "text",
+                new BsonArray(
+                    List.of(new BsonString(""), new BsonString("z"), new BsonString("a"))));
+    RawBsonDocument rawBsonDoc = new RawBsonDocument(source, BsonUtils.BSON_DOCUMENT_CODEC);
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromOriginalDocument(Optional.of(rawBsonDoc)), rawBsonDoc);
+    AutoEmbedFieldMapping mapping = AutoEmbedFieldMappingCreator.createAutoEmbedMapping(searchDef);
+
+    assertEquals(
+        ImmutableMap.of(FieldPath.parse("text"), List.of("z")),
+        getVectorTextsToEmbed(rawBsonDoc, mapping, Optional.empty()));
+
+    Vector firstVector =
+        Vector.fromFloats(new float[] {1.0f, 2.0f}, FloatVector.OriginalType.NATIVE);
+    DocumentEvent result =
+        buildMaterializedViewDocumentEvent(
+            event,
+            mapping,
+            ImmutableMap.of(FieldPath.parse("text"), ImmutableMap.of("z", firstVector)),
+            schemaMetadata);
+
+    BsonDocument materializedView = result.getDocument().get();
+    assertEquals(
+        new BsonArray(List.of(new BsonString(""), new BsonString("z"), new BsonString("a"))),
+        materializedView.getArray("text"));
+    assertEquals(
+        BsonVectorParser.encode(firstVector),
+        materializedView.getDocument("_autoEmbed").get("text"));
+    assertEquals(
+        computeTextHash("z"),
+        materializedView
+            .getDocument("_autoEmbed")
+            .getDocument("_hash")
+            .getString("text")
+            .getValue());
   }
 
   @Test
@@ -3160,6 +3286,26 @@ public class AutoEmbeddingDocumentUtilsTest {
 
     assertThrows(
         com.google.common.base.VerifyException.class, () -> classify(ud, fullDoc, mapping));
+  }
+
+  @Test
+  public void computePartialEmbedChangedTexts_skipsEmptyAndNonStringValues() {
+    AutoEmbedFieldMapping mapping = autoEmbedMappingWithFields("title");
+    BsonArray values =
+        new BsonArray(
+            List.of(
+                new BsonInt32(42),
+                new BsonString(""),
+                new BsonString("second"),
+                new BsonString("third")));
+    RawBsonDocument fullDoc =
+        new RawBsonDocument(new BsonDocument("title", values), BsonUtils.BSON_DOCUMENT_CODEC);
+    UpdateDescription ud = new UpdateDescription(null, new BsonDocument("title", values));
+
+    Optional<ImmutableMap<FieldPath, String>> result = classify(ud, fullDoc, mapping);
+
+    assertTrue(result.isPresent());
+    assertEquals(ImmutableMap.of(FieldPath.parse("title"), "second"), result.get());
   }
 
   @Test

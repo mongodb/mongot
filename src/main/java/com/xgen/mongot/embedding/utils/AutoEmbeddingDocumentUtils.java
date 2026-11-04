@@ -35,6 +35,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -87,6 +88,55 @@ public class AutoEmbeddingDocumentUtils {
         CollectVectorTextStringsDocumentHandler.create(fieldMapping, Optional.empty());
     BsonDocumentProcessor.process(rawBsonDocument, handler);
     return handler.getVectorTextPathMap();
+  }
+
+  /**
+   * Extracts the texts that need embeddings for each auto-embed path.
+   *
+   * <p>The single-value contract applies to non-nested paths only. When a path is not under {@code
+   * sourceNestedRoot}, the writer stores at most one vector for it, so only the first non-empty
+   * string in document order is returned.
+   *
+   * <p>Paths strictly under {@code sourceNestedRoot} are never truncated to a single text. They
+   * keep every non-empty string, because the per-element writer picks the text for each source
+   * array element.
+   */
+  public static ImmutableMap<FieldPath, List<String>> getVectorTextsToEmbed(
+      RawBsonDocument rawBsonDocument,
+      AutoEmbedFieldMapping fieldMapping,
+      Optional<FieldPath> sourceNestedRoot)
+      throws IOException {
+    CollectFieldValueDocumentHandler handler =
+        CollectFieldValueDocumentHandler.create(
+            fieldMapping, Optional.empty(), fieldMapping::isEmbed, true);
+    BsonDocumentProcessor.process(rawBsonDocument, handler);
+    ImmutableMap.Builder<FieldPath, List<String>> textsPerPath = ImmutableMap.builder();
+    for (var entry : handler.getCollectedValues().entrySet()) {
+      boolean isNested = sourceNestedRoot.map(root -> entry.getKey().isChildOf(root)).orElse(false);
+      if (!isNested) {
+        // TODO(CLOUDP-472641): extractChangedEmbedTexts() and buildEmbeddingsPerMatViewPath()
+        // repeat this first-non-empty filter+findFirst selection. Share one helper so the text sent
+        // to Voyage and the text the writer stores cannot drift.
+        entry.getValue().stream()
+            .filter(value -> value.isString() && !value.asString().getValue().isEmpty())
+            .findFirst()
+            .ifPresent(
+                value ->
+                    textsPerPath.put(
+                        entry.getKey(), ImmutableList.of(value.asString().getValue())));
+        continue;
+      }
+      Set<String> texts = new LinkedHashSet<>();
+      for (BsonValue value : entry.getValue()) {
+        if (value.isString() && !value.asString().getValue().isEmpty()) {
+          texts.add(value.asString().getValue());
+        }
+      }
+      if (!texts.isEmpty()) {
+        textsPerPath.put(entry.getKey(), ImmutableList.copyOf(texts));
+      }
+    }
+    return textsPerPath.build();
   }
 
   /**

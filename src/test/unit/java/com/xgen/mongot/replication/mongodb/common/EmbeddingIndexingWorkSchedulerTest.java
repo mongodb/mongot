@@ -2029,7 +2029,7 @@ public class EmbeddingIndexingWorkSchedulerTest {
     // Call getTextValueBundles
     var bundles =
         EmbeddingIndexingWorkScheduler.getTextValueBundles(
-            List.of(event), autoEmbedMapping, embedBatchKeyPerPath, 100);
+            List.of(event), autoEmbedMapping, embedBatchKeyPerPath, Optional.empty(), 100);
 
     // Should have one bundle with the document
     assertThat(bundles).hasSize(1);
@@ -2478,13 +2478,140 @@ public class EmbeddingIndexingWorkSchedulerTest {
 
     var bundles =
         EmbeddingIndexingWorkScheduler.getTextValueBundles(
-            List.of(event), autoEmbedMapping, embedBatchKeyPerPath, 100);
+            List.of(event), autoEmbedMapping, embedBatchKeyPerPath, Optional.empty(), 100);
 
     assertThat(bundles).hasSize(1);
     var textsPerBatchKey = bundles.get(0).textsPerBatchKey().asMap();
     assertThat(textsPerBatchKey).hasSize(2);
     assertThat(textsPerBatchKey.values())
         .containsExactly(ImmutableSet.of("textA"), ImmutableSet.of("textB"));
+  }
+
+  @Test
+  public void getTextValueBundles_arraySource_sendsOnlyFirstElement() throws IOException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    new EmbeddingServiceManager(
+        List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+        new FakeEmbeddingClientFactory(),
+        Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+        meterRegistry,
+        Optional.empty());
+    ObjectId indexId = new ObjectId();
+    FieldPath path = FieldPath.parse(indexId + ".tags");
+    AutoEmbedFieldMapping mapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            VectorIndexDefinitionBuilder.builder()
+                .withAutoEmbedField(path.toString(), "voyage-3-large")
+                .build());
+    var batchKeys =
+        EmbeddingIndexingWorkScheduler.computeEmbedBatchKeyPerPath(
+            mapping, ImmutableMap.of(path, EmbeddingModelCatalog.getModelConfig("voyage-3-large")));
+    BsonArray tags = new BsonArray(List.of(new BsonString("first"), new BsonString("second")));
+    RawBsonDocument doc =
+        BsonUtils.documentToRaw(
+            new BsonDocument(
+                indexId.toString(),
+                new BsonDocument("_id", new BsonString("anId")).append("tags", tags)));
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(doc), indexId), doc);
+
+    var bundles =
+        EmbeddingIndexingWorkScheduler.getTextValueBundles(
+            List.of(event), mapping, batchKeys, Optional.empty(), 100);
+
+    assertThat(bundles.get(0).textsPerBatchKey().values()).containsExactly("first");
+  }
+
+  @Test
+  public void getTextValueBundles_nestedRootArraySource_keepsEveryElementText() throws IOException {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    new EmbeddingServiceManager(
+        List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+        new FakeEmbeddingClientFactory(),
+        Executors.singleThreadScheduledExecutor("indexing", meterRegistry),
+        meterRegistry,
+        Optional.empty());
+    ObjectId indexId = new ObjectId();
+    FieldPath nestedRoot = FieldPath.parse(indexId + ".sections");
+    FieldPath path = nestedRoot.newChild("text");
+    AutoEmbedFieldMapping mapping =
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(
+            VectorIndexDefinitionBuilder.builder()
+                .withAutoEmbedField(path.toString(), "voyage-3-large")
+                .nestedRoot(nestedRoot.toString())
+                .build());
+    var batchKeys =
+        EmbeddingIndexingWorkScheduler.computeEmbedBatchKeyPerPath(
+            mapping, ImmutableMap.of(path, EmbeddingModelCatalog.getModelConfig("voyage-3-large")));
+    BsonDocument doc =
+        new BsonDocument(
+            indexId.toString(),
+            new BsonDocument("_id", new BsonString("anId"))
+                .append(
+                    "sections",
+                    new BsonArray(
+                        List.of(
+                            new BsonDocument("text", new BsonString("firstSection")),
+                            new BsonDocument("text", new BsonString("secondSection"))))));
+    RawBsonDocument rawBsonDoc = BsonUtils.documentToRaw(doc);
+    DocumentEvent event =
+        DocumentEvent.createInsert(
+            DocumentMetadata.fromMetadataNamespace(Optional.of(rawBsonDoc), indexId), rawBsonDoc);
+
+    var bundles =
+        EmbeddingIndexingWorkScheduler.getTextValueBundles(
+            List.of(event), mapping, batchKeys, Optional.of(nestedRoot), 100);
+
+    assertThat(bundles.get(0).textsPerBatchKey().values())
+        .containsAtLeast("firstSection", "secondSection");
+    assertThat(bundles.get(0).textsPerBatchKey().values()).hasSize(2);
+  }
+
+  @Test
+  public void getSourceNestedRoot_readsNestedRootFromTheDefinition() {
+    MeterRegistry meterRegistry = new SimpleMeterRegistry();
+    var executor = Executors.singleThreadScheduledExecutor("indexing", meterRegistry);
+    try {
+      new EmbeddingServiceManager(
+          List.of(TEST_EMBEDDING_CONFIG_V3_LARGE),
+          new FakeEmbeddingClientFactory(),
+          executor,
+          meterRegistry,
+          Optional.empty());
+      FieldPath nestedRoot = FieldPath.parse("sections");
+      VectorIndexDefinition nestedDefinition =
+          VectorIndexDefinitionBuilder.builder()
+              .withAutoEmbedField("sections.text", "voyage-3-large")
+              .nestedRoot(nestedRoot.toString())
+              .build();
+      VectorIndexDefinition flatDefinition =
+          VectorIndexDefinitionBuilder.builder()
+              .withAutoEmbedField("text", "voyage-3-large")
+              .build();
+      SearchIndexDefinition searchDefinition =
+          SearchIndexDefinitionBuilder.builder()
+              .defaultMetadata()
+              .mappings(
+                  DocumentFieldDefinitionBuilder.builder()
+                      .dynamic(false)
+                      .field(
+                          "text",
+                          FieldDefinitionBuilder.builder()
+                              .searchAutoEmbed(new SearchAutoEmbedFieldDefinition("voyage-3-large"))
+                              .build())
+                      .build())
+              .build();
+
+      assertThat(EmbeddingIndexingWorkScheduler.getSourceNestedRoot(nestedDefinition))
+          .isEqualTo(Optional.of(nestedRoot));
+      assertThat(EmbeddingIndexingWorkScheduler.getSourceNestedRoot(flatDefinition))
+          .isEqualTo(Optional.<FieldPath>empty());
+      assertThat(EmbeddingIndexingWorkScheduler.getSourceNestedRoot(searchDefinition))
+          .isEqualTo(Optional.<FieldPath>empty());
+    } finally {
+      executor.shutdownNow();
+    }
   }
 
   @After
