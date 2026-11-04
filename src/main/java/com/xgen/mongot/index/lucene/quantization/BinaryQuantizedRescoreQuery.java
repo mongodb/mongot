@@ -2,6 +2,7 @@ package com.xgen.mongot.index.lucene.quantization;
 
 import com.xgen.mongot.util.Check;
 import java.io.IOException;
+import java.util.Optional;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.KnnByteVectorQuery;
@@ -70,11 +71,9 @@ public interface BinaryQuantizedRescoreQuery {
    * segment's full-precision stored vectors.
    *
    * @param leafReader the segment reader to load full-precision vectors from
-   * @param similarityFunction the field's similarity function
-   * @return the full fidelity scorer based on the full-precision vectors and similarity function.
+   * @return the full fidelity scorer, or empty if this segment has no full-precision vectors
    */
-  VectorScorer fullFidelityScorer(
-      LeafReader leafReader, VectorSimilarityFunction similarityFunction) throws IOException;
+  Optional<VectorScorer> fullFidelityScorer(LeafReader leafReader) throws IOException;
 
   /**
    * Reports the final rescored results to the wrapped query's explain instrumentation, if it

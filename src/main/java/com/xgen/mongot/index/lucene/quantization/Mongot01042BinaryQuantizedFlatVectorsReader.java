@@ -440,7 +440,9 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
   /**
    * {@link FloatVectorValues} view that serves raw (full-fidelity) vectors for {@code vectorValue}
    * but routes {@code scorer} to the quantized values for HNSW traversal. This lets the reader
-   * return a single object that serves both the approximate (quantized) and exact (raw) paths.
+   * return a single object that serves both the approximate (quantized) and exact (raw) paths:
+   * {@code scorer} serves the quantized values, {@code rescorer} (Lucene's contract for
+   * highest-fidelity scoring) serves the raw ones.
    */
   private static final class QuantizedFloatVectorValues extends FloatVectorValues {
     private final FloatVectorValues rawVectorValues;
@@ -485,6 +487,17 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
       return this.quantizedVectorValues.scorer(query);
     }
 
+    /**
+     * Routes to the raw (full-fidelity) values, unlike {@link #scorer(float[])}. {@code rescorer}
+     * is the entry point for full-fidelity rescoring and exact search; calling {@code scorer} on
+     * this view would score the quantized approximation instead.
+     */
+    @Override
+    @Nullable
+    public VectorScorer rescorer(float[] query) throws IOException {
+      return this.rawVectorValues == null ? null : this.rawVectorValues.rescorer(query);
+    }
+
     @Override
     public DocIndexIterator iterator() {
       return this.rawVectorValues.iterator();
@@ -494,7 +507,11 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
   /**
    * {@link ByteVectorValues} view that serves raw (full-fidelity) vectors for {@code vectorValue}
    * but routes {@code scorer} to the quantized values for HNSW traversal. This lets the reader
-   * return a single object that serves both the approximate (quantized) and exact (raw) paths.
+   * return a single object that serves both the approximate (quantized) and exact (raw) paths:
+   * {@code scorer} serves the quantized values, {@code rescorer} (Lucene's contract for
+   * highest-fidelity scoring) serves the raw ones. Because the two disagree about which values they
+   * serve, this view does not implement {@link org.apache.lucene.codecs.lucene95.HasIndexSlice}: a
+   * slice on it would be ambiguous about which of the two it refers to.
    */
   private static final class QuantizedByteVectorValues extends ByteVectorValues {
     private final ByteVectorValues rawVectorValues;
@@ -537,6 +554,20 @@ public final class Mongot01042BinaryQuantizedFlatVectorsReader extends FlatVecto
     @Override
     public VectorScorer scorer(byte[] query) throws IOException {
       return this.quantizedVectorValues.scorer(query);
+    }
+
+    /**
+     * Routes to the raw (full-fidelity) values, unlike {@link #scorer(byte[])}. {@code rescorer} is
+     * the entry point for full-fidelity rescoring and exact search; calling {@code scorer} on this
+     * view would score the quantized approximation instead. The raw values' scorer dispatches
+     * through the format's {@code flatVectorScorer}, whose non-quantized delegate is {@link
+     * com.xgen.mongot.index.lucene.vector.Lucene99NativeMemorySegmentVectorScorer}, so this picks
+     * up native SIMD scoring when the segment is memory-mapped.
+     */
+    @Override
+    @Nullable
+    public VectorScorer rescorer(byte[] query) throws IOException {
+      return this.rawVectorValues == null ? null : this.rawVectorValues.rescorer(query);
     }
 
     @Override

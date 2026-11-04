@@ -22,7 +22,6 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.ReaderUtil;
-import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
@@ -405,9 +404,12 @@ public class BinaryQuantizedVectorRescorer {
         }
         int end = i;
 
-        VectorSimilarityFunction sim =
-            getFieldInfo(segment.reader(), this.query).getVectorSimilarityFunction();
-        VectorScorer scorer = this.query.fullFidelityScorer(segment.reader(), sim);
+        Optional<VectorScorer> maybeScorer = this.query.fullFidelityScorer(segment.reader());
+        if (maybeScorer.isEmpty()) {
+          // No full-precision vectors in this segment; keep the approximate-stage scores.
+          continue;
+        }
+        VectorScorer scorer = maybeScorer.get();
 
         if (this.parentFilter.isPresent()) {
           BitSetProducer filter = this.parentFilter.get();

@@ -19,6 +19,7 @@
 
 package com.xgen.mongot.index.lucene.quantization;
 
+import com.xgen.mongot.index.lucene.vector.Lucene99NativeMemorySegmentVectorScorer;
 import java.io.IOException;
 import java.util.Optional;
 import org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
@@ -71,8 +72,17 @@ public class Mongot01042BinaryQuantizedFlatVectorsFormat extends FlatVectorsForm
   public Mongot01042BinaryQuantizedFlatVectorsFormat() {
     super(NAME);
     this.confidenceInterval = Optional.of(1f);
+
+    // The non-quantized delegate is only reachable for raw (full-fidelity) byte vector scoring —
+    // see the instanceof QuantizedByteVectorValues checks in BinaryQuantizedFlatVectorsScorer.
+    // HNSW graph construction always scores against the quantized (1-bit) values, so this has no
+    // effect on what gets written to disk; it only accelerates full-fidelity rescoring when the
+    // segment is memory-mapped and native SIMD is available, matching the composition
+    // Lucene99NativeHnswVectorsFormat already uses for the non-quantized KNN_BYTE format.
     this.flatVectorScorer =
-        new BinaryQuantizedFlatVectorsScorer(FlatVectorScorerUtil.getLucene99FlatVectorsScorer());
+        new BinaryQuantizedFlatVectorsScorer(
+            new Lucene99NativeMemorySegmentVectorScorer(
+                FlatVectorScorerUtil.getLucene99FlatVectorsScorer()));
     this.rawVectorFormat = new Lucene99FlatVectorsFormat(this.flatVectorScorer);
   }
 

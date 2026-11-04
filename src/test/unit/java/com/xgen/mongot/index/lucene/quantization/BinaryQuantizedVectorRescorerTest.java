@@ -49,6 +49,7 @@ import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
@@ -58,9 +59,12 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.TotalHits;
+import org.apache.lucene.search.VectorScorer;
 import org.apache.lucene.search.join.QueryBitSetProducer;
 import org.apache.lucene.search.join.ScoreMode;
 import org.apache.lucene.store.ByteBuffersDirectory;
+import org.apache.lucene.util.quantization.QuantizedByteVectorValues;
+import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Test;
@@ -292,6 +296,60 @@ public class BinaryQuantizedVectorRescorerTest {
         .containsExactly(1, 0)
         .inOrder();
     assertScoresValid(subsetResult);
+  }
+
+  @Test
+  public void fullFidelityRescoring_noRawVectors_keepsApproximateScores() throws IOException {
+    Assume.assumeTrue(this.similarity == EUCLIDEAN);
+    // insert documents into Lucene
+    indexDocumentsAndCommit(
+        toVectors(this.type, new float[] {1, 1}, new float[] {2, 2}, new float[] {10, 10}),
+        EUCLIDEAN);
+    createEmptySegment(2, this.type);
+
+    // create search manager
+    LuceneVectorSearchManager manager =
+        createSearchManager(toVector(new float[] {9, 9}, this.type), 10, 100);
+
+    var searcherManager =
+        LuceneSearcherManager.create(
+            this.indexWriter,
+            new LuceneSearcherFactory(
+                VectorIndex.MOCK_VECTOR_DEFINITION,
+                false,
+                new QueryCacheProvider.DefaultQueryCacheProvider(),
+                Optional.empty(),
+                SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH)),
+            VectorIndex.mockMetricsFactory(),
+            () -> false);
+
+    var searcherReference =
+        LuceneIndexSearcherReference.create(
+            searcherManager,
+            SearchIndex.mockQueryMetricsUpdater(IndexDefinition.Type.VECTOR_SEARCH),
+            FeatureFlags.getDefault());
+    var firstPassTopDocs = manager.initialSearch(searcherReference, 10).topDocs;
+
+    // Simulates a segment whose full-precision vectors are unavailable (e.g. getByteVectorValues/
+    // getFloatVectorValues legitimately returning null, or the raw-values delegate inside
+    // Mongot01042BinaryQuantizedFlatVectorsReader's Quantized{Float,Byte}VectorValues being null)
+    // by forcing fullFidelityScorer() to always return null, regardless of the underlying reader.
+    BinaryQuantizedRescoreQuery noRawVectorsQuery =
+        new NullFullFidelityScorerQuery(BinaryQuantizedRescoreQuery.from(manager.getLuceneQuery()));
+    var rescorer =
+        new BinaryQuantizedVectorRescorer.FullFidelityRescorer(noRawVectorsQuery, this.executor);
+
+    TopDocs rescored = rescorer.rescore(searcherReference.getIndexSearcher(), firstPassTopDocs, 10);
+
+    // With no full-precision vectors anywhere, every doc must keep its approximate-stage score
+    // instead of the rescorer throwing an NPE while dereferencing a null scorer.
+    assertThat(rescored.scoreDocs).hasLength(firstPassTopDocs.scoreDocs.length);
+    var approximateScoresByDoc =
+        Arrays.stream(firstPassTopDocs.scoreDocs)
+            .collect(Collectors.toMap(sd -> sd.doc, sd -> sd.score));
+    for (ScoreDoc scoreDoc : rescored.scoreDocs) {
+      assertThat(scoreDoc.score).isEqualTo(approximateScoresByDoc.get(scoreDoc.doc));
+    }
   }
 
   @Test
@@ -962,6 +1020,43 @@ public class BinaryQuantizedVectorRescorerTest {
             RuntimeException.class, () -> rescorer.rescore(searcher, candidateWithoutVector, 10));
     assertThat(exception).hasCauseThat().isInstanceOf(IllegalArgumentException.class);
     assertThat(exception.getCause()).hasMessageThat().contains("Doc " + candidateDoc);
+  }
+
+  /**
+   * Wraps a {@link BinaryQuantizedRescoreQuery}, forcing {@link
+   * BinaryQuantizedRescoreQuery#fullFidelityScorer} to always return empty to simulate a segment
+   * with no full-precision (raw) vectors.
+   */
+  private record NullFullFidelityScorerQuery(BinaryQuantizedRescoreQuery delegate)
+      implements BinaryQuantizedRescoreQuery {
+
+    @Override
+    public String getField() {
+      return this.delegate.getField();
+    }
+
+    @Nullable
+    @Override
+    public Query getFilter() {
+      return this.delegate.getFilter();
+    }
+
+    @Override
+    public VectorScorer approximateScorer(
+        QuantizedByteVectorValues quantized, VectorSimilarityFunction similarityFunction)
+        throws IOException {
+      return this.delegate.approximateScorer(quantized, similarityFunction);
+    }
+
+    @Override
+    public Optional<VectorScorer> fullFidelityScorer(LeafReader leafReader) {
+      return Optional.empty();
+    }
+
+    @Override
+    public void examineResultsAfterRescoring(TopDocs rescoredDocs) {
+      this.delegate.examineResultsAfterRescoring(rescoredDocs);
+    }
   }
 
   private static final String NESTED_PARENT_MARKER_FIELD = "$meta/embeddedRoot";

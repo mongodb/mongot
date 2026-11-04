@@ -11,6 +11,7 @@ java_test_suite(
         "Mongot01042BinaryQuantizedTestCodec.java",
         "Mongot01042HnswBinaryQuantizedVectorsFormatTest.java",
         "MongotHnswScalarQuantizedVectorsFormatTest.java",
+        "NativeByteBinaryQuantizedRescoreTest.java",
         "OffHeapQuantizedByteVectorValuesTest.java",
         "PackingUnpackingTest.java",
     ],
@@ -32,6 +33,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/index/lucene/query/util",
         "//src/main/java/com/xgen/mongot/index/lucene/searcher",
         "//src/main/java/com/xgen/mongot/index/lucene/util",
+        "//src/main/java/com/xgen/mongot/index/lucene/vector",
         "//src/main/java/com/xgen/mongot/index/query",
         "//src/main/java/com/xgen/mongot/index/query/operators",
         "//src/main/java/com/xgen/mongot/util",
@@ -51,6 +53,7 @@ java_test_suite(
         "@maven//:org_apache_lucene_lucene_core",
         "@maven//:org_apache_lucene_lucene_join",
         "@maven//:org_apache_lucene_lucene_test_framework",
+        "@maven//:org_jetbrains_annotations",
         "@maven//:org_mongodb_bson",
     ],
 )
