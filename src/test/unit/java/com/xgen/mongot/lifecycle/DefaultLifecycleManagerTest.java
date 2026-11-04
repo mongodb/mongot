@@ -504,6 +504,96 @@ public class DefaultLifecycleManagerTest {
   }
 
   @Test
+  public void isAutoEmbeddingReplicationPaused_factoryEnabledReplication_returnsFalse()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.isReplicationSupported()).thenReturn(true);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager, ToggleGate.opened());
+
+    assertFalse(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
+  public void isAutoEmbeddingReplicationPaused_factoryLeftReplicationDisabled_returnsTrue()
+      throws Exception {
+    // The factory saw a closed gate; the gate reopening before construction must not lose that.
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.isReplicationSupported()).thenReturn(false);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager, ToggleGate.opened());
+
+    assertTrue(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
+  public void isAutoEmbeddingReplicationPaused_afterShutdown_returnsTrue() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+
+    lifecycleManager.shutdownAutoEmbeddingReplication().get(5, TimeUnit.SECONDS);
+
+    assertTrue(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
+  public void isAutoEmbeddingReplicationPaused_restartWithGateClosed_returnsTrue()
+      throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager, ToggleGate.closed());
+
+    lifecycleManager.restartReplication();
+
+    assertTrue(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
+  public void isAutoEmbeddingReplicationPaused_restartWithLuceneGateClosed_returnsTrue()
+      throws Exception {
+    // The Lucene gate can close after the replication manager was created with it open.
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(
+            matViewManager, ToggleGate.closed(), ToggleGate.opened());
+
+    lifecycleManager.restartReplication();
+
+    verify(matViewManager, never()).restartReplication();
+    assertTrue(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
+  public void isAutoEmbeddingReplicationPaused_resumed_returnsFalse() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    when(matViewManager.updateSyncSource(MOCK_SYNC_SOURCE_CONFIG)).thenReturn(true);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+    lifecycleManager.shutdownAutoEmbeddingReplication().get(5, TimeUnit.SECONDS);
+
+    lifecycleManager.restartAutoEmbeddingReplication(MOCK_SYNC_SOURCE_CONFIG);
+
+    assertFalse(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
+  public void isAutoEmbeddingReplicationPaused_resumeSkipped_staysTrue() throws Exception {
+    MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
+    when(matViewManager.shutdownReplication()).thenReturn(CompletableFuture.completedFuture(null));
+    when(matViewManager.updateSyncSource(MOCK_SYNC_SOURCE_CONFIG)).thenReturn(false);
+    DefaultLifecycleManager lifecycleManager =
+        createLifecycleManagerWithMatViewManager(matViewManager);
+    lifecycleManager.shutdownAutoEmbeddingReplication().get(5, TimeUnit.SECONDS);
+
+    lifecycleManager.restartAutoEmbeddingReplication(MOCK_SYNC_SOURCE_CONFIG);
+
+    assertTrue(lifecycleManager.isAutoEmbeddingReplicationPaused());
+  }
+
+  @Test
   public void testRestartAutoEmbeddingReplication_updatesSyncSourceAndRestarts() throws Exception {
     MaterializedViewManager matViewManager = mock(MaterializedViewManager.class);
     when(matViewManager.updateSyncSource(MOCK_SYNC_SOURCE_CONFIG)).thenReturn(true);

@@ -601,7 +601,7 @@ public class DefaultConfigManager implements ConfigManager {
         Instant.now(),
         this.replicationStatusChangeTimestamp,
         !lifecycleManager.isReplicationSupported(),
-        !lifecycleManager.isAutoEmbeddingReplicationSupported(),
+        lifecycleManager.isAutoEmbeddingReplicationPaused(),
         getInitialSyncStatus());
   }
 
@@ -757,7 +757,7 @@ public class DefaultConfigManager implements ConfigManager {
 
     var lifecycleManager = this.configState.getLifecycleManager();
     var shouldPauseAutoEmbeddingReplication = this.shouldAutoEmbeddingReplicationBePaused();
-    var isAutoEmbeddingReplicationPaused = !lifecycleManager.isAutoEmbeddingReplicationSupported();
+    var isAutoEmbeddingReplicationPaused = lifecycleManager.isAutoEmbeddingReplicationPaused();
     // Only reconcile when this node actually runs auto-embedding replication; otherwise there is
     // nothing to pause or resume and a closed gate would re-trigger this every cycle.
     if (lifecycleManager.hasAutoEmbeddingReplication()

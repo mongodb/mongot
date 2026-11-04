@@ -85,9 +85,13 @@ public interface LifecycleManager {
    */
   boolean isReplicationSupported();
 
-  /** Return whether auto-embedding materialized-view replication is currently supported. */
-  default boolean isAutoEmbeddingReplicationSupported() {
-    return true;
+  /**
+   * Return whether auto-embedding materialized-view replication is held back by a disk gate (the
+   * auto-embedding or Lucene gate). Materialized-view replication that has not started yet for
+   * other reasons, such as missing sync source URIs, is not paused.
+   */
+  default boolean isAutoEmbeddingReplicationPaused() {
+    return false;
   }
 
   /** Return whether this node runs auto-embedding materialized-view replication to manage. */

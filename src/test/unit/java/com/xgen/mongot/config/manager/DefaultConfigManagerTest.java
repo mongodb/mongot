@@ -1207,23 +1207,23 @@ public class DefaultConfigManagerTest {
     var mocks = DefaultConfigManagerMocks.create();
 
     Mockito.doReturn(true).when(mocks.lifecycleManager).isReplicationSupported();
-    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationPaused();
     var replicationStatus = mocks.configManager.getReplicationStatus();
     assertThat(replicationStatus.isReplicationStopped()).isFalse();
     assertThat(replicationStatus.isAutoEmbeddingMaterializedViewStopped()).isFalse();
 
-    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationPaused();
     var autoEmbeddingStoppedStatus = mocks.configManager.getReplicationStatus();
     assertThat(autoEmbeddingStoppedStatus.isReplicationStopped()).isFalse();
     assertThat(autoEmbeddingStoppedStatus.isAutoEmbeddingMaterializedViewStopped()).isTrue();
 
     Mockito.doReturn(false).when(mocks.lifecycleManager).isReplicationSupported();
-    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationPaused();
     var replicationStoppedStatus = mocks.configManager.getReplicationStatus();
     assertThat(replicationStoppedStatus.isReplicationStopped()).isTrue();
     assertThat(replicationStoppedStatus.isAutoEmbeddingMaterializedViewStopped()).isFalse();
 
-    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationPaused();
     var bothStoppedStatus = mocks.configManager.getReplicationStatus();
     assertThat(bothStoppedStatus.isReplicationStopped()).isTrue();
     assertThat(bothStoppedStatus.isAutoEmbeddingMaterializedViewStopped()).isTrue();
@@ -1382,7 +1382,7 @@ public class DefaultConfigManagerTest {
         DefaultConfigManagerMocks.create(
             replicationStateMonitor(replicationGate), autoEmbeddingReplicationGate);
     Mockito.doReturn(true).when(mocks.lifecycleManager).hasAutoEmbeddingReplication();
-    Mockito.doReturn(false).when(mocks.lifecycleManager).isAutoEmbeddingReplicationSupported();
+    Mockito.doReturn(true).when(mocks.lifecycleManager).isAutoEmbeddingReplicationPaused();
     mocks.clearInvocations();
 
     autoEmbeddingReplicationGate.open();

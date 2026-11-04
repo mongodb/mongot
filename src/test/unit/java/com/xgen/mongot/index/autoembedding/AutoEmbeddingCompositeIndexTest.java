@@ -37,7 +37,12 @@ public class AutoEmbeddingCompositeIndexTest {
     AutoEmbeddingGenerationMetrics generationMetrics = mock(AutoEmbeddingGenerationMetrics.class);
     AutoEmbeddingCompositeIndex index =
         new AutoEmbeddingCompositeIndex(
-            materializedViewIndex, derivedIndex, Optional::empty, () -> false, generationMetrics);
+            materializedViewIndex,
+            derivedIndex,
+            Optional::empty,
+            () -> false,
+            () -> false,
+            generationMetrics);
 
     index.close();
 
@@ -56,7 +61,12 @@ public class AutoEmbeddingCompositeIndexTest {
     doThrow(derivedIndexFailure).when(derivedIndex).close();
     AutoEmbeddingCompositeIndex index =
         new AutoEmbeddingCompositeIndex(
-            materializedViewIndex, derivedIndex, Optional::empty, () -> false, generationMetrics);
+            materializedViewIndex,
+            derivedIndex,
+            Optional::empty,
+            () -> false,
+            () -> false,
+            generationMetrics);
 
     IOException thrown = assertThrows(IOException.class, index::close);
 
@@ -82,7 +92,12 @@ public class AutoEmbeddingCompositeIndexTest {
     doThrow(derivedIndexFailure).when(derivedIndex).close();
     AutoEmbeddingCompositeIndex index =
         new AutoEmbeddingCompositeIndex(
-            materializedViewIndex, derivedIndex, Optional::empty, () -> false, generationMetrics);
+            materializedViewIndex,
+            derivedIndex,
+            Optional::empty,
+            () -> false,
+            () -> false,
+            generationMetrics);
 
     RuntimeException thrown = assertThrows(RuntimeException.class, index::close);
 
@@ -430,6 +445,42 @@ public class AutoEmbeddingCompositeIndexTest {
     assertEquals(StatusCode.NOT_STARTED, followerNotStarted.getStatus().getStatusCode());
   }
 
+  @Test
+  public void getStatus_mvReplicationPausedAndVersionWasQueryable_returnsSteady() {
+    // mongot restarted while materialized-view replication was paused on mongod disk pressure: the
+    // MV never initializes, but this definition version was queryable before the restart.
+    AutoEmbeddingCompositeIndex index =
+        createIndexWithPositionsAndSupplier(
+            StatusCode.UNKNOWN,
+            StatusCode.STEADY,
+            Optional.empty(),
+            Optional.empty(),
+            /* includeSupplier= */ true,
+            /* wasQueryablePerLease= */ true,
+            /* isReplicationStopped= */ false,
+            /* isMaterializedViewReplicationPaused= */ true);
+
+    assertEquals(StatusCode.STEADY, index.getStatus().getStatusCode());
+  }
+
+  @Test
+  public void getStatus_mvReplicationPausedAndVersionNeverQueryable_returnsUnknown() {
+    // A new definition version (e.g. a staged rebuild) created during the pause: Lucene can be
+    // STEADY on the incomplete MV, and a synthetic STEADY would let it replace the serving index.
+    AutoEmbeddingCompositeIndex index =
+        createIndexWithPositionsAndSupplier(
+            StatusCode.UNKNOWN,
+            StatusCode.STEADY,
+            Optional.empty(),
+            Optional.empty(),
+            /* includeSupplier= */ true,
+            /* wasQueryablePerLease= */ false,
+            /* isReplicationStopped= */ false,
+            /* isMaterializedViewReplicationPaused= */ true);
+
+    assertEquals(StatusCode.UNKNOWN, index.getStatus().getStatusCode());
+  }
+
   private void assertConsolidatedStatus(
       StatusCode mvStatus, StatusCode luceneStatus, StatusCode expected) {
     AutoEmbeddingCompositeIndex index = createIndexWithStatuses(mvStatus, luceneStatus);
@@ -509,6 +560,26 @@ public class AutoEmbeddingCompositeIndexTest {
       boolean includeSupplier,
       boolean wasQueryablePerLease,
       boolean isReplicationStopped) {
+    return createIndexWithPositionsAndSupplier(
+        mvStatus,
+        luceneStatus,
+        steadyAsOfPosition,
+        lucenePosition,
+        includeSupplier,
+        wasQueryablePerLease,
+        isReplicationStopped,
+        /* isMaterializedViewReplicationPaused= */ false);
+  }
+
+  private AutoEmbeddingCompositeIndex createIndexWithPositionsAndSupplier(
+      StatusCode mvStatus,
+      StatusCode luceneStatus,
+      Optional<BsonTimestamp> steadyAsOfPosition,
+      Optional<BsonTimestamp> lucenePosition,
+      boolean includeSupplier,
+      boolean wasQueryablePerLease,
+      boolean isReplicationStopped,
+      boolean isMaterializedViewReplicationPaused) {
 
     InitializedMaterializedViewIndex mockMvIndex = mock(InitializedMaterializedViewIndex.class);
     when(mockMvIndex.getStatus()).thenReturn(new IndexStatus(mvStatus));
@@ -532,7 +603,11 @@ public class AutoEmbeddingCompositeIndexTest {
     Supplier<Optional<InitializedIndex>> supplier =
         includeSupplier ? () -> Optional.of(mockLuceneIndex) : Optional::empty;
     return new AutoEmbeddingCompositeIndex(
-        mockMvIndex, mockLuceneIndex, supplier, () -> isReplicationStopped);
+        mockMvIndex,
+        mockLuceneIndex,
+        supplier,
+        () -> isReplicationStopped,
+        () -> isMaterializedViewReplicationPaused);
   }
 
   private EncodedUserData createCommitInfoWithPosition(Optional<BsonTimestamp> position) {

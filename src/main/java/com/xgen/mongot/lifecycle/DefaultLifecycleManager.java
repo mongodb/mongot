@@ -58,6 +58,15 @@ public class DefaultLifecycleManager implements LifecycleManager {
   private boolean shutdown;
 
   /**
+   * Whether auto-embedding materialized-view replication is held back by a disk gate. Set when
+   * replication is shut down, or left unstarted because the auto-embedding or Lucene gate was
+   * closed, and cleared when it restarts. The disk-usage reconciler compares it with the live
+   * auto-embedding gate to decide on pause or resume.
+   */
+  @GuardedBy("this")
+  private boolean autoEmbeddingReplicationPaused;
+
+  /**
    * The Executor that is used for initializing the index.
    *
    * <p>The NamedExecutorService is owned by this LifecycleManager.
@@ -287,6 +296,14 @@ public class DefaultLifecycleManager implements LifecycleManager {
     this.snapshotterManager = snapshotterManager;
     // TODO(CLOUDP-361549): Provide a way to disable it
     this.materializedViewManager = this.autoEmbeddingMatViewManagerFactory.create(syncSourceConfig);
+    // With replication URIs available, the factory leaves materialized-view replication disabled
+    // only when the auto-embedding gate is closed. Read the manager's state rather than the gate,
+    // which may have reopened since.
+    this.autoEmbeddingReplicationPaused =
+        syncSourceConfig.map(SyncSourceConfig::hasReplicationUrisAvailable).orElse(false)
+            && this.materializedViewManager
+                .map(matViewManager -> !matViewManager.isReplicationSupported())
+                .orElse(false);
     this.meterRegistry = meterRegistry;
     MetricsFactory metricsFactory = new MetricsFactory("lifecycle", meterRegistry);
     this.indexManagers = new HashMap<>();
@@ -339,7 +356,15 @@ public class DefaultLifecycleManager implements LifecycleManager {
   public synchronized void restartReplication() {
     this.replicationManagerWrapper.setReplicationEnabled(true);
     this.indexManagers.values().forEach(IndexLifecycleManager::startReplication);
-    if (!shouldReplicationBePaused() && !shouldAutoEmbeddingReplicationBePaused()) {
+    // Read the gates once so the pause flag matches whether replication was started. Either gate
+    // may have closed since the replication manager was created; a set flag lets the reconciler
+    // resume materialized-view replication once both reopen.
+    boolean heldBackByDiskGate =
+        shouldReplicationBePaused() || shouldAutoEmbeddingReplicationBePaused();
+    if (this.materializedViewManager.isPresent()) {
+      this.autoEmbeddingReplicationPaused = heldBackByDiskGate;
+    }
+    if (!heldBackByDiskGate) {
       this.materializedViewManager.ifPresent(MaterializedViewManager::restartReplication);
     }
   }
@@ -389,10 +414,8 @@ public class DefaultLifecycleManager implements LifecycleManager {
   }
 
   @Override
-  public synchronized boolean isAutoEmbeddingReplicationSupported() {
-    return this.materializedViewManager
-        .map(MaterializedViewManager::isReplicationSupported)
-        .orElse(true);
+  public synchronized boolean isAutoEmbeddingReplicationPaused() {
+    return this.autoEmbeddingReplicationPaused;
   }
 
   @Override
@@ -448,6 +471,9 @@ public class DefaultLifecycleManager implements LifecycleManager {
 
   @Override
   public synchronized CompletableFuture<Void> shutdownAutoEmbeddingReplication() {
+    if (this.materializedViewManager.isPresent()) {
+      this.autoEmbeddingReplicationPaused = true;
+    }
     return this.materializedViewManager
         .map(MaterializedViewManager::shutdownReplication)
         .orElse(FutureUtils.COMPLETED_FUTURE);
@@ -462,6 +488,7 @@ public class DefaultLifecycleManager implements LifecycleManager {
         matViewManager -> {
           if (matViewManager.updateSyncSource(syncSourceConfig)) {
             matViewManager.restartReplication();
+            this.autoEmbeddingReplicationPaused = false;
           }
         });
   }

@@ -50,6 +50,11 @@ public class AutoEmbeddingCompositeIndex implements Index {
   // followers at startup (whose MV is legitimately UNKNOWN because the leader owns it), which
   // breaks host-failover takeover by reporting STEADY before the follower has any MV state.
   private final BooleanSupplier isReplicationStoppedSupplier;
+  // Live check for whether materialized-view replication is paused on mongod disk pressure while
+  // Lucene replication keeps running. Also opens the fallthrough, but only for a definition version
+  // that was already queryable: Lucene can reach STEADY on a new version's incomplete materialized
+  // view, and a synthetic STEADY would let a staged rebuild replace the serving index.
+  private final BooleanSupplier isMaterializedViewReplicationPausedSupplier;
   private final Optional<AutoEmbeddingGenerationMetrics> generationMetrics;
 
   public AutoEmbeddingCompositeIndex(
@@ -62,6 +67,21 @@ public class AutoEmbeddingCompositeIndex implements Index {
         derivedIndex,
         initializedIndexSupplier,
         isReplicationStoppedSupplier,
+        () -> false);
+  }
+
+  public AutoEmbeddingCompositeIndex(
+      InitializedMaterializedViewIndex matViewIndex,
+      Index derivedIndex,
+      Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
+      BooleanSupplier isReplicationStoppedSupplier,
+      BooleanSupplier isMaterializedViewReplicationPausedSupplier) {
+    this(
+        matViewIndex,
+        derivedIndex,
+        initializedIndexSupplier,
+        isReplicationStoppedSupplier,
+        isMaterializedViewReplicationPausedSupplier,
         Optional.empty());
   }
 
@@ -70,12 +90,14 @@ public class AutoEmbeddingCompositeIndex implements Index {
       Index derivedIndex,
       Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
       BooleanSupplier isReplicationStoppedSupplier,
+      BooleanSupplier isMaterializedViewReplicationPausedSupplier,
       AutoEmbeddingGenerationMetrics generationMetrics) {
     this(
         matViewIndex,
         derivedIndex,
         initializedIndexSupplier,
         isReplicationStoppedSupplier,
+        isMaterializedViewReplicationPausedSupplier,
         Optional.of(generationMetrics));
   }
 
@@ -84,11 +106,13 @@ public class AutoEmbeddingCompositeIndex implements Index {
       Index derivedIndex,
       Supplier<Optional<InitializedIndex>> initializedIndexSupplier,
       BooleanSupplier isReplicationStoppedSupplier,
+      BooleanSupplier isMaterializedViewReplicationPausedSupplier,
       Optional<AutoEmbeddingGenerationMetrics> generationMetrics) {
     this.matViewIndex = matViewIndex;
     this.derivedIndex = derivedIndex;
     this.initializedIndexSupplier = initializedIndexSupplier;
     this.isReplicationStoppedSupplier = isReplicationStoppedSupplier;
+    this.isMaterializedViewReplicationPausedSupplier = isMaterializedViewReplicationPausedSupplier;
     this.generationMetrics = generationMetrics;
     this.compositeWasQueryable =
         new AtomicBoolean(matViewIndex.isCurrentVersionQueryablePerLease());
@@ -316,7 +340,7 @@ public class AutoEmbeddingCompositeIndex implements Index {
     // leader owns it) — without the gate, followers would report a synthetic STEADY before they
     // had any MV state, breaking host-failover takeover (CLOUDP-405298).
     if (mvStatus == StatusCode.UNKNOWN || mvStatus == StatusCode.NOT_STARTED) {
-      if (luceneStatus != StatusCode.STEADY || !this.isReplicationStoppedSupplier.getAsBoolean()) {
+      if (luceneStatus != StatusCode.STEADY || !isReplicationStoppedForFallthrough()) {
         return new IndexStatus(mvStatus);
       }
       LOG.atInfo()
@@ -343,5 +367,11 @@ public class AutoEmbeddingCompositeIndex implements Index {
 
     // Both STEADY
     return IndexStatus.steady();
+  }
+
+  private boolean isReplicationStoppedForFallthrough() {
+    return this.isReplicationStoppedSupplier.getAsBoolean()
+        || (this.isMaterializedViewReplicationPausedSupplier.getAsBoolean()
+            && this.compositeWasQueryable.get());
   }
 }

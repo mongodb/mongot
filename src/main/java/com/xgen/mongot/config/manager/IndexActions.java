@@ -487,7 +487,10 @@ public class IndexActions {
               this.configState.materializedViewIndexFactory, "materializedViewIndexFactory"),
           definitionGeneration,
           this.configState.initializedIndexCatalog,
-          () -> !this.configState.getLifecycleManager().isReplicationSupported());
+          // isReplicationStoppedSupplier and isMaterializedViewReplicationPausedSupplier, evaluated
+          // on each status read.
+          () -> !this.configState.getLifecycleManager().isReplicationSupported(),
+          () -> this.configState.getLifecycleManager().isAutoEmbeddingReplicationPaused());
     } else {
       return IndexGenerationFactory.getIndexGeneration(
           this.configState.indexFactory, definitionGeneration);

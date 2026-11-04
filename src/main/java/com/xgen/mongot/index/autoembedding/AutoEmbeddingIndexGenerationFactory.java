@@ -65,6 +65,28 @@ public class AutoEmbeddingIndexGenerationFactory {
       InitializedIndexCatalog initializedIndexCatalog,
       BooleanSupplier isReplicationStoppedSupplier)
       throws IOException, InvalidAnalyzerDefinitionException {
+    return getAutoEmbeddingIndexGeneration(
+        indexFactory,
+        matViewIndexFactory,
+        rawDefinitionGeneration,
+        initializedIndexCatalog,
+        isReplicationStoppedSupplier,
+        () -> false);
+  }
+
+  /**
+   * Like {@link #getAutoEmbeddingIndexGeneration(IndexFactory, MaterializedViewIndexFactory,
+   * IndexDefinitionGeneration, InitializedIndexCatalog, BooleanSupplier)}, also reporting whether
+   * materialized-view replication is paused on mongod disk pressure.
+   */
+  public static IndexGeneration getAutoEmbeddingIndexGeneration(
+      IndexFactory indexFactory,
+      MaterializedViewIndexFactory matViewIndexFactory,
+      IndexDefinitionGeneration rawDefinitionGeneration,
+      InitializedIndexCatalog initializedIndexCatalog,
+      BooleanSupplier isReplicationStoppedSupplier,
+      BooleanSupplier isMaterializedViewReplicationPausedSupplier)
+      throws IOException, InvalidAnalyzerDefinitionException {
     IndexDefinition indexDef = rawDefinitionGeneration.getIndexDefinition();
     Check.checkArg(
         indexDef.isAutoEmbeddingIndex()
@@ -145,6 +167,7 @@ public class AutoEmbeddingIndexGenerationFactory {
                   derivedIndex,
                   initializedIndexSupplier,
                   isReplicationStoppedSupplier,
+                  isMaterializedViewReplicationPausedSupplier,
                   generationMetrics),
               rawDefinitionGeneration,
               derivedDefGen);

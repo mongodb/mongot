@@ -9,7 +9,8 @@ import java.time.Instant;
  * @param startTime when the initial status was created.
  * @param isReplicationStopped whether replication is currently stopped.
  * @param isAutoEmbeddingMaterializedViewStopped whether auto-embedding materialized-view
- *     replication is currently stopped.
+ *     replication is held back by a disk gate. A full replication stop is also reported by {@code
+ *     isReplicationStopped}.
  * @param initialSyncStatus the status of initial sync disk utilization.
  */
 public record ReplicationStatus(
