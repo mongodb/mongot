@@ -22,6 +22,8 @@ public record CustomOidcConfig(
     Path clientSecretFile,
     Path idpCaFile,
     Optional<String> scope,
+    Optional<String> audience,
+    Optional<String> resource,
     TlsConfig tls)
     implements OidcConfig {
 
@@ -38,6 +40,8 @@ public record CustomOidcConfig(
         parser.getField(Fields.CLIENT_SECRET_FILE).unwrap(),
         parser.getField(Fields.IDP_CA_FILE).unwrap(),
         parser.getField(Fields.SCOPE).unwrap(),
+        parser.getField(Fields.AUDIENCE).unwrap(),
+        parser.getField(Fields.RESOURCE).unwrap(),
         tls);
   }
 
@@ -51,6 +55,8 @@ public record CustomOidcConfig(
         .field(Fields.CLIENT_SECRET_FILE, this.clientSecretFile)
         .field(Fields.IDP_CA_FILE, this.idpCaFile)
         .field(Fields.SCOPE, this.scope)
+        .field(Fields.AUDIENCE, this.audience)
+        .field(Fields.RESOURCE, this.resource)
         .build();
   }
 
@@ -87,6 +93,31 @@ public record CustomOidcConfig(
 
     static final Field.Optional<String> SCOPE =
         Field.builder("scope")
+            .stringField()
+            .mustNotBeEmpty()
+            .edition(DeploymentEnvironment.ENTERPRISE)
+            .optional()
+            .noDefault();
+
+    /**
+     * Sent as the {@code audience} form parameter on the token request. Auth0's client-credentials
+     * flow only mints a JWT access token (carrying the {@code aud} claim {@code mongod} validates)
+     * when the request asks for one.
+     */
+    static final Field.Optional<String> AUDIENCE =
+        Field.builder("audience")
+            .stringField()
+            .mustNotBeEmpty()
+            .edition(DeploymentEnvironment.ENTERPRISE)
+            .optional()
+            .noDefault();
+
+    /**
+     * RFC 8707 resource indicator, sent as the {@code resource} form parameter on the token request
+     * for IdPs that scope the token's {@code aud} claim to the target resource (Entra v1 style).
+     */
+    static final Field.Optional<String> RESOURCE =
+        Field.builder("resource")
             .stringField()
             .mustNotBeEmpty()
             .edition(DeploymentEnvironment.ENTERPRISE)

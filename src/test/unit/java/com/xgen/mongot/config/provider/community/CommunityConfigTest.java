@@ -1122,7 +1122,8 @@ public class CommunityConfigTest {
             "\"syncSource."
                 + connection
                 + ".oidc\" unrecognized field \"bogusKey\". Expected fields are: "
-                + "clientId, clientSecretFile, environment, idpCaFile, scope, tls, tokenEndpoint",
+                + "audience, clientId, clientSecretFile, environment, idpCaFile, resource, scope,"
+                + " tls, tokenEndpoint",
             e.getMessage());
       }
     }

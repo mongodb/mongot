@@ -11,6 +11,7 @@ import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.PermissiveBsonParseContext;
 import com.xgen.mongot.util.mongodb.Databases;
+import com.xgen.testing.mongot.config.provider.community.CustomOidcConfigBuilder;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
@@ -20,8 +21,14 @@ import org.bson.BsonBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonString;
 import org.junit.Test;
+import org.junit.experimental.theories.DataPoints;
+import org.junit.experimental.theories.FromDataPoints;
+import org.junit.experimental.theories.Theories;
+import org.junit.experimental.theories.Theory;
+import org.junit.runner.RunWith;
 
 /** Unit tests for {@link MongoConnectionConfig#validate} validation logic. */
+@RunWith(Theories.class)
 public class MongoConnectionConfigTest {
 
   private static final List<HostAndPort> HOSTS = List.of(HostAndPort.fromParts("localhost", 27017));
@@ -43,13 +50,10 @@ public class MongoConnectionConfigTest {
   }
 
   private static CustomOidcConfig oidc(TlsConfig tls) {
-    return new CustomOidcConfig(
-        TOKEN_ENDPOINT,
-        "mongot",
-        Path.of("/etc/mongot/secrets/oidc-client-secret"),
-        Path.of("/etc/mongot/idp-ca.pem"),
-        Optional.empty(),
-        tls);
+    return CustomOidcConfigBuilder.builder()
+        .idpCaFile(Path.of("/etc/mongot/idp-ca.pem"))
+        .tls(tls)
+        .build();
   }
 
   private static TlsConfig oidcTls() {
@@ -288,43 +292,80 @@ public class MongoConnectionConfigTest {
       assertEquals(Path.of("/etc/mongot/secrets/oidc-client-secret"), oidc.clientSecretFile());
       assertEquals(Path.of("/etc/mongot/idp-ca.pem"), oidc.idpCaFile());
       assertEquals(Optional.empty(), oidc.scope());
+      assertEquals(Optional.empty(), oidc.audience());
+      assertEquals(Optional.empty(), oidc.resource());
       assertEquals(tls, oidc.tls());
     }
   }
 
-  /** A configured {@code scope} survives a serialization round trip. */
-  @Test
-  public void fromBson_oidcWithScope_roundTripsScope() throws BsonParseException {
-    CustomOidcConfig withScope =
-        new CustomOidcConfig(
-            TOKEN_ENDPOINT,
-            "mongot",
-            Path.of("/etc/mongot/secrets/oidc-client-secret"),
-            Path.of("/etc/mongot/idp-ca.pem"),
-            Optional.of("mongot-access"),
-            oidcTls());
-    ReplicaSetConfig cfg = config(Optional.empty(), Optional.empty(), Optional.of(withScope));
+  /** A (scope, audience, resource) triple of optional oidc token-request parameters. */
+  public record OidcOptionalStrings(
+      Optional<String> scope, Optional<String> audience, Optional<String> resource) {}
+
+  @DataPoints("oidcOptionalStrings")
+  public static final OidcOptionalStrings[] OIDC_OPTIONAL_STRINGS = {
+    // A configured scope survives a serialization round trip.
+    new OidcOptionalStrings(Optional.of("mongot-access"), Optional.empty(), Optional.empty()),
+    // A configured audience survives a serialization round trip.
+    new OidcOptionalStrings(
+        Optional.empty(), Optional.of("https://mongodb.example.com"), Optional.empty()),
+    // A configured resource survives a serialization round trip.
+    new OidcOptionalStrings(
+        Optional.empty(), Optional.empty(), Optional.of("mongodb://rs.example.com")),
+    // A config carrying both audience and resource round trips both.
+    new OidcOptionalStrings(
+        Optional.empty(),
+        Optional.of("https://mongodb.example.com"),
+        Optional.of("mongodb://rs.example.com")),
+  };
+
+  /** A configured {@code scope}, {@code audience}, or {@code resource} round trips unchanged. */
+  @Theory
+  public void fromBson_oidcWithScopeAudienceResource_roundTrips(
+      @FromDataPoints("oidcOptionalStrings") OidcOptionalStrings testCase)
+      throws BsonParseException {
+    CustomOidcConfig oidc =
+        CustomOidcConfigBuilder.builder()
+            .idpCaFile(Path.of("/etc/mongot/idp-ca.pem"))
+            .scope(testCase.scope())
+            .audience(testCase.audience())
+            .resource(testCase.resource())
+            .build();
+    ReplicaSetConfig cfg = config(Optional.empty(), Optional.empty(), Optional.of(oidc));
 
     try (var parser = parser(cfg.toBson(), DeploymentEnvironment.ENTERPRISE)) {
       ReplicaSetConfig parsed = ReplicaSetConfig.fromBson(parser);
 
       assertEquals(cfg, parsed);
-      assertEquals(Optional.of("mongot-access"), ((CustomOidcConfig) parsed.oidc().get()).scope());
+      CustomOidcConfig parsedOidc = (CustomOidcConfig) parsed.oidc().get();
+      assertEquals(testCase.scope(), parsedOidc.scope());
+      assertEquals(testCase.audience(), parsedOidc.audience());
+      assertEquals(testCase.resource(), parsedOidc.resource());
     }
   }
 
-  /** An empty {@code scope} is rejected at parse time. */
-  @Test
-  public void fromBson_oidcEmptyScope_throwsError() throws BsonParseException {
-    CustomOidcConfig withScope =
-        new CustomOidcConfig(
-            TOKEN_ENDPOINT,
-            "mongot",
-            Path.of("/etc/mongot/secrets/oidc-client-secret"),
-            Path.of("/etc/mongot/idp-ca.pem"),
-            Optional.of(""),
-            oidcTls());
-    ReplicaSetConfig cfg = config(Optional.empty(), Optional.empty(), Optional.of(withScope));
+  @DataPoints("oidcEmptyStrings")
+  public static final OidcOptionalStrings[] OIDC_EMPTY_STRINGS = {
+    // An empty scope is rejected at parse time (mustNotBeEmpty).
+    new OidcOptionalStrings(Optional.of(""), Optional.empty(), Optional.empty()),
+    // An empty audience is rejected at parse time (mustNotBeEmpty).
+    new OidcOptionalStrings(Optional.empty(), Optional.of(""), Optional.empty()),
+    // An empty resource is rejected at parse time (mustNotBeEmpty).
+    new OidcOptionalStrings(Optional.empty(), Optional.empty(), Optional.of("")),
+  };
+
+  /** An empty {@code scope}, {@code audience}, or {@code resource} is rejected at parse time. */
+  @Theory
+  public void fromBson_oidcEmptyScopeAudienceOrResource_throwsError(
+      @FromDataPoints("oidcEmptyStrings") OidcOptionalStrings testCase) throws BsonParseException {
+    CustomOidcConfig oidc =
+        CustomOidcConfigBuilder.builder()
+            .idpCaFile(Path.of("/etc/mongot/idp-ca.pem"))
+            .scope(testCase.scope())
+            .audience(testCase.audience())
+            .resource(testCase.resource())
+            .build();
+    ReplicaSetConfig cfg = config(Optional.empty(), Optional.empty(), Optional.of(oidc));
 
     try (var parser = parser(cfg.toBson(), DeploymentEnvironment.ENTERPRISE)) {
       assertThrows(BsonParseException.class, () -> ReplicaSetConfig.fromBson(parser));
@@ -341,91 +382,59 @@ public class MongoConnectionConfigTest {
     }
   }
 
-  private static void assertTokenEndpointRejected(String tokenEndpoint) {
-    BsonParseException e = assertThrows(BsonParseException.class, () -> parseOidc(tokenEndpoint));
-    assertEquals(
-        "\"oidc.tokenEndpoint\" must be an absolute https URI with a host, without userinfo or a"
-            + " fragment",
-        e.getMessage());
-  }
-
   private static void assertTokenEndpointAccepted(String tokenEndpoint) throws BsonParseException {
     ReplicaSetConfig parsed = parseOidc(tokenEndpoint);
     assertEquals(
         URI.create(tokenEndpoint), ((CustomOidcConfig) parsed.oidc().get()).tokenEndpoint());
   }
 
-  @Test
-  public void fromBson_oidcRelativeTokenEndpoint_throwsError() {
-    assertTokenEndpointRejected("realms/mongot/token");
-  }
+  /** A rejected token endpoint and a substring its parse error message must carry. */
+  public record TokenEndpointRejectionCase(String endpoint, String expectedMessageSubstring) {}
 
-  @Test
-  public void fromBson_oidcEmptyTokenEndpoint_throwsError() {
-    assertTokenEndpointRejected("");
-  }
+  private static final String GENERIC_TOKEN_ENDPOINT_MESSAGE =
+      "\"oidc.tokenEndpoint\" must be an absolute https URI with a host, without userinfo or a"
+          + " fragment";
 
-  @Test
-  public void fromBson_oidcHttpTokenEndpoint_throwsError() {
-    assertTokenEndpointRejected("http://idp.example.com/token");
-  }
+  private static final String PORT_RANGE_TOKEN_ENDPOINT_MESSAGE =
+      "\"oidc.tokenEndpoint\" must specify a port between 1 and 65535";
 
-  @Test
-  public void fromBson_oidcFileTokenEndpoint_throwsError() {
-    assertTokenEndpointRejected("file:/token");
-  }
+  @DataPoints("tokenEndpointRejections")
+  public static final TokenEndpointRejectionCase[] TOKEN_ENDPOINT_REJECTIONS = {
+    new TokenEndpointRejectionCase("realms/mongot/token", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase("", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase("http://idp.example.com/token", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase("file:/token", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase("https:token", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase("https:///x", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase(
+        "https://user@idp.example.com/token", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase(
+        "https://idp.example.com/token#frag", GENERIC_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase(
+        "https://idp.example.com:99999/token", PORT_RANGE_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase(
+        "https://idp.example.com:0/token", PORT_RANGE_TOKEN_ENDPOINT_MESSAGE),
+    new TokenEndpointRejectionCase(
+        "https://idp example.com/token", "\"oidc.tokenEndpoint\" is not a valid URI: "),
+  };
 
-  @Test
-  public void fromBson_oidcOpaqueTokenEndpoint_throwsError() {
-    assertTokenEndpointRejected("https:token");
-  }
-
-  @Test
-  public void fromBson_oidcHostlessTokenEndpoint_throwsError() {
-    assertTokenEndpointRejected("https:///x");
-  }
-
-  @Test
-  public void fromBson_oidcTokenEndpointWithUserInfo_throwsError() {
-    assertTokenEndpointRejected("https://user@idp.example.com/token");
-  }
-
-  @Test
-  public void fromBson_oidcTokenEndpointWithFragment_throwsError() {
-    assertTokenEndpointRejected("https://idp.example.com/token#frag");
-  }
-
-  @Test
-  public void fromBson_oidcTokenEndpointWithOutOfRangePort_throwsError() {
+  @Theory
+  public void fromBson_oidcInvalidTokenEndpoint_throwsError(
+      @FromDataPoints("tokenEndpointRejections") TokenEndpointRejectionCase testCase) {
     BsonParseException e =
-        assertThrows(
-            BsonParseException.class, () -> parseOidc("https://idp.example.com:99999/token"));
-    assertEquals("\"oidc.tokenEndpoint\" must specify a port between 1 and 65535", e.getMessage());
+        assertThrows(BsonParseException.class, () -> parseOidc(testCase.endpoint()));
+    assertTrue(e.getMessage(), e.getMessage().contains(testCase.expectedMessageSubstring()));
   }
 
-  @Test
-  public void fromBson_oidcTokenEndpointWithPortZero_throwsError() {
-    BsonParseException e =
-        assertThrows(BsonParseException.class, () -> parseOidc("https://idp.example.com:0/token"));
-    assertEquals("\"oidc.tokenEndpoint\" must specify a port between 1 and 65535", e.getMessage());
-  }
+  @DataPoints("acceptedTokenEndpoints")
+  public static final String[] ACCEPTED_TOKEN_ENDPOINTS = {
+    "HTTPS://idp.example.com/token", "https://idp.example.com:8443/realms/x/token",
+  };
 
-  @Test
-  public void fromBson_oidcInvalidSyntaxTokenEndpoint_throwsError() {
-    BsonParseException e =
-        assertThrows(BsonParseException.class, () -> parseOidc("https://idp example.com/token"));
-    assertTrue(
-        e.getMessage(), e.getMessage().startsWith("\"oidc.tokenEndpoint\" is not a valid URI: "));
-  }
-
-  @Test
-  public void fromBson_oidcUppercaseHttpsScheme_passes() throws BsonParseException {
-    assertTokenEndpointAccepted("HTTPS://idp.example.com/token");
-  }
-
-  @Test
-  public void fromBson_oidcHttpsTokenEndpointWithPort_passes() throws BsonParseException {
-    assertTokenEndpointAccepted("https://idp.example.com:8443/realms/x/token");
+  @Theory
+  public void fromBson_oidcValidTokenEndpoint_passes(
+      @FromDataPoints("acceptedTokenEndpoints") String tokenEndpoint) throws BsonParseException {
+    assertTokenEndpointAccepted(tokenEndpoint);
   }
 
   private static BsonDocument defaultTlsDocument() {

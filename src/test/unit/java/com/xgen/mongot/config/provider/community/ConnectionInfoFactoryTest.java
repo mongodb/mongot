@@ -20,10 +20,10 @@ import com.xgen.mongot.util.mongodb.ConnectionInfo;
 import com.xgen.mongot.util.mongodb.Databases;
 import com.xgen.mongot.util.mongodb.MongoClientBuilder;
 import com.xgen.mongot.util.mongodb.SslContextFactory;
+import com.xgen.testing.mongot.config.provider.community.CustomOidcConfigBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -608,13 +608,7 @@ public class ConnectionInfoFactoryTest {
 
   /** A custom {@code oidc} config. */
   private static CustomOidcConfig oidcConfig(TlsConfig tls) {
-    return new CustomOidcConfig(
-        URI.create("https://idp.example.com/token"),
-        "mongot",
-        Path.of("/etc/mongot/secrets/oidc-client-secret"),
-        Path.of("/etc/mongot/tls/idp-ca.pem"),
-        Optional.empty(),
-        tls);
+    return CustomOidcConfigBuilder.builder().tls(tls).build();
   }
 
   private static OidcCallback noopCallback() {

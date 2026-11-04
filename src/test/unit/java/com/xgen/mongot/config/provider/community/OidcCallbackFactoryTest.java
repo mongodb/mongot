@@ -6,26 +6,14 @@ import static org.junit.Assert.assertThrows;
 import com.mongodb.MongoCredential.OidcCallback;
 import com.mongodb.MongoCredential.OidcCallbackContext;
 import com.mongodb.MongoCredential.OidcCallbackResult;
-import java.net.URI;
-import java.nio.file.Path;
-import java.util.Optional;
+import com.xgen.testing.mongot.config.provider.community.CustomOidcConfigBuilder;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 public class OidcCallbackFactoryTest {
 
-  private static final TlsConfig TLS =
-      new TlsConfig(
-          true, Optional.empty(), Optional.empty(), Optional.of(Path.of("/etc/mongot/tls/ca.pem")));
-
   private static CustomOidcConfig config(String clientId) {
-    return new CustomOidcConfig(
-        URI.create("https://idp.example.com/token"),
-        clientId,
-        Path.of("/etc/mongot/secrets/oidc-client-secret"),
-        Path.of("/etc/mongot/tls/idp-ca.pem"),
-        Optional.empty(),
-        TLS);
+    return CustomOidcConfigBuilder.builder().clientId(clientId).build();
   }
 
   /** A new callback instance per call (a lambda could be reused by the JVM). */

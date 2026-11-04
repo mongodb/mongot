@@ -16,10 +16,10 @@ import com.mongodb.connection.ServerConnectionState;
 import com.mongodb.connection.ServerDescription;
 import com.mongodb.connection.ServerType;
 import com.xgen.mongot.util.mongodb.ConnectionInfo;
+import com.xgen.testing.mongot.config.provider.community.CustomOidcConfigBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -260,14 +260,7 @@ public class InitialSyncHostProviderTest {
     this.oidcCaFile = generateCaPemFile();
     TlsConfig oidcTls =
         new TlsConfig(true, Optional.empty(), Optional.empty(), Optional.of(this.oidcCaFile));
-    CustomOidcConfig oidcConfig =
-        new CustomOidcConfig(
-            URI.create("https://idp.example.com/token"),
-            "mongot",
-            Path.of("/etc/mongot/secrets/oidc-client-secret"),
-            Path.of("/etc/mongot/tls/idp-ca.pem"),
-            Optional.empty(),
-            oidcTls);
+    CustomOidcConfig oidcConfig = CustomOidcConfigBuilder.builder().tls(oidcTls).build();
     ReplicaSetConfig oidcReplicaSetConfig =
         new ReplicaSetConfig(
             List.of(

@@ -77,6 +77,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util/mongodb",
         "//src/main/java/com/xgen/mongot/util/mongodb/serialization",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/config/provider/community",
         "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "//src/main/java/com/xgen/testing/util",
