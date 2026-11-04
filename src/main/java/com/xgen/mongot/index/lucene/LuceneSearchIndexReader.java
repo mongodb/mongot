@@ -66,7 +66,6 @@ import com.xgen.mongot.index.query.sort.SortSpec;
 import com.xgen.mongot.index.query.sort.UserFieldSortOptions;
 import com.xgen.mongot.index.synonym.SynonymRegistry;
 import com.xgen.mongot.index.version.IndexFormatVersion;
-import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.CheckedStream;
 import com.xgen.mongot.util.bson.Vector;
 import com.xgen.mongot.util.concurrent.LockGuard;
@@ -318,9 +317,19 @@ public class LuceneSearchIndexReader implements SearchIndexReader {
     LuceneIndexSearcher indexSearcher = searcherReference.getIndexSearcher();
     return switch (query) {
       case VectorSearchQuery vectorSearchQuery -> {
-        // This path is only for $vectorSearch over $search index. No need to support auto-embed
-        // text queries here.
-        Vector vector = Check.isPresent(vectorSearchQuery.criteria().queryVector(), "queryVector");
+        // Auto-embed text queries are materialized to a queryVector before execution. Anything
+        // else reaching this path must supply one.
+        Vector vector =
+            vectorSearchQuery
+                .criteria()
+                .queryVector()
+                .orElseThrow(
+                    () ->
+                        new InvalidQueryException(
+                            String.format(
+                                "Path '%s' is not an auto-embed field; 'query' cannot be used as"
+                                    + " the vector input. Supply 'queryVector' for this field.",
+                                vectorSearchQuery.criteria().path())));
         var materializedQuery = new MaterializedVectorSearchQuery(vectorSearchQuery, vector);
         // Vector search query over search index
         org.apache.lucene.search.Query luceneQuery =

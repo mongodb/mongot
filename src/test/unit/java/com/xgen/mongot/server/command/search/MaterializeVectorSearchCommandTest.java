@@ -420,7 +420,7 @@ public class MaterializeVectorSearchCommandTest {
     verifyEmbedCalls(0);
     assertThat(response.getInt32("ok").getValue()).isEqualTo(0);
     assertThat(response.containsKey("code")).isFalse();
-    assertThat(response.getString("errmsg").getValue()).contains("queryVector must be present");
+    assertThat(response.getString("errmsg").getValue()).contains("not an auto-embed field");
   }
 
   @Test

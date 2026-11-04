@@ -240,7 +240,11 @@ final class VectorQueryEmbedder {
       if (embedRequestInfo
           .filter(info -> info.sourceDefinition().isAutoEmbeddingIndex())
           .isEmpty()) {
-        throw new InvalidQueryException("queryVector must be present");
+        throw new InvalidQueryException(
+            String.format(
+                "Path '%s' is not an auto-embed field; 'query' cannot be used as the vector"
+                    + " input. Supply 'queryVector' for this field.",
+                criteria.path()));
       }
 
       // Text query path: requires a valid text query.

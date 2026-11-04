@@ -28,7 +28,6 @@ import com.xgen.mongot.index.query.operators.ExactVectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorEmbeddedOptions;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.index.version.IndexCapabilities;
-import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.BitVector;
 import com.xgen.mongot.util.bson.ByteVector;
@@ -83,7 +82,15 @@ class VectorSearchQueryFactory {
       throws InvalidQueryException, IOException {
 
     FieldPath path = criteria.path();
-    @Var Vector queryVector = Check.isPresent(criteria.queryVector(), "queryVector");
+    Optional<Vector> queryVectorOptional = criteria.queryVector();
+    if (queryVectorOptional.isEmpty()) {
+      throw new InvalidQueryException(
+          String.format(
+              "Path '%s' is not an auto-embed field; 'query' cannot be used as the vector input."
+                  + " Supply 'queryVector' for this field.",
+              path));
+    }
+    @Var Vector queryVector = queryVectorOptional.get();
 
     // Check if this is an embedded vector field
     Optional<FieldPath> embeddedRoot = determineEmbeddedRoot(path, queryContext);

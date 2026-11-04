@@ -48,6 +48,7 @@ import com.xgen.mongot.index.query.OperatorQuery;
 import com.xgen.mongot.index.query.Query;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.SearchQuery;
+import com.xgen.mongot.index.query.VectorSearchQuery;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo;
 import com.xgen.mongot.index.query.collectors.DrillSidewaysInfoBuilder.DrillSidewaysInfo.QueryOptimizationStatus;
 import com.xgen.mongot.index.query.collectors.FacetCollector;
@@ -410,6 +411,28 @@ public class LuceneSearchIndexReaderTest {
                 QueryCursorOptions.empty(),
                 BatchSizeStrategySelector.forQuery(query, QueryCursorOptions.empty()),
                 QueryOptimizationFlags.DEFAULT_OPTIONS));
+  }
+
+  @Test
+  public void testQuery_textOnNonAutoEmbedVectorField_throwsUserError() throws Exception {
+    VectorSearchQuery query =
+        VectorSearchQuery.fromBson(
+            BsonDocument.parse(
+                String.format(
+                    "{index:'%s',path:'foo',query:{text:'laptop'},numCandidates:10,limit:5}",
+                    MOCK_INDEX_NAME)));
+
+    InvalidQueryException error =
+        assertThrows(
+            InvalidQueryException.class,
+            () ->
+                this.reader.query(
+                    query,
+                    QueryCursorOptions.empty(),
+                    BatchSizeStrategySelector.forQuery(query, QueryCursorOptions.empty()),
+                    QueryOptimizationFlags.DEFAULT_OPTIONS));
+
+    assertThat(error).hasMessageThat().contains("not an auto-embed field");
   }
 
   @Test
