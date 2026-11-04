@@ -4,11 +4,13 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.xgen.mongot.metrics.MetricsFactory;
 import com.xgen.mongot.util.concurrent.PrioritizedTask;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Assert;
 import org.junit.Test;
@@ -399,5 +401,59 @@ public class DualBlockingQueueTest {
     queue.offer(low);
     assertThat(queue.take()).isEqualTo(high4);
     assertThat(queue.take()).isEqualTo(low);
+  }
+
+  @Test
+  public void testRegularQueueOldestTaskAge_tracksHeadOfRegularQueue() throws InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    AtomicLong now = new AtomicLong();
+    DualBlockingQueue queue =
+        new DualBlockingQueue(1, new MetricsFactory(QUEUE_NAME, meterRegistry), now::get);
+    Gauge oldestAge = meterRegistry.get("test-queue.regularQueueOldestTaskAgeSeconds").gauge();
+    assertThat(oldestAge.value()).isEqualTo(0.0);
+
+    queue.offer(taskCreatedAt(false, seconds(0)));
+    queue.offer(taskCreatedAt(false, seconds(10)));
+    queue.offer(taskCreatedAt(true, seconds(0))); // does not affect the regular queue's age
+    now.set(seconds(15));
+    assertThat(oldestAge.value()).isEqualTo(15.0);
+
+    queue.take(); // preferred
+    queue.take(); // oldest regular; the next regular task becomes the head
+    assertThat(oldestAge.value()).isEqualTo(5.0);
+
+    queue.take();
+    assertThat(oldestAge.value()).isEqualTo(0.0);
+  }
+
+  @Test
+  public void testPreferredQueueOldestTaskAge_tracksHeadOfPreferredQueue()
+      throws InterruptedException {
+    SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    AtomicLong now = new AtomicLong();
+    DualBlockingQueue queue =
+        new DualBlockingQueue(4, new MetricsFactory(QUEUE_NAME, meterRegistry), now::get);
+    Gauge oldestAge = meterRegistry.get("test-queue.preferredQueueOldestTaskAgeSeconds").gauge();
+    assertThat(oldestAge.value()).isEqualTo(0.0);
+
+    queue.offer(taskCreatedAt(true, seconds(0)));
+    queue.offer(taskCreatedAt(true, seconds(10)));
+    queue.offer(taskCreatedAt(false, seconds(0))); // does not affect the preferred queue's age
+    now.set(seconds(15));
+    assertThat(oldestAge.value()).isEqualTo(15.0);
+
+    queue.take(); // oldest preferred; the next preferred task becomes the head
+    assertThat(oldestAge.value()).isEqualTo(5.0);
+
+    queue.take();
+    assertThat(oldestAge.value()).isEqualTo(0.0);
+  }
+
+  private static PrioritizedTask taskCreatedAt(boolean isHighPriority, long createdNanos) {
+    return new PrioritizedTask(() -> {}, isHighPriority, createdNanos);
+  }
+
+  private static long seconds(long seconds) {
+    return TimeUnit.SECONDS.toNanos(seconds);
   }
 }

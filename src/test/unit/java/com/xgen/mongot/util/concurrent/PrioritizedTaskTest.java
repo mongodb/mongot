@@ -28,4 +28,14 @@ public class PrioritizedTaskTest {
     assertThat(new PrioritizedTask(() -> {}, true).isHighPriority()).isTrue();
     assertThat(new PrioritizedTask(() -> {}, false).isHighPriority()).isFalse();
   }
+
+  @Test
+  public void testCreatedNanos_defaultsToCurrentNanoTime() {
+    long before = System.nanoTime();
+    PrioritizedTask task = new PrioritizedTask(() -> {}, true);
+    long after = System.nanoTime();
+
+    assertThat(task.createdNanos()).isAtLeast(before);
+    assertThat(task.createdNanos()).isAtMost(after);
+  }
 }

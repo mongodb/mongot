@@ -16,8 +16,10 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.LongSupplier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * A {@link BlockingQueue} that replaces the default FIFO queue in a thread pool, giving callers a
@@ -64,13 +66,23 @@ public final class DualBlockingQueue extends AbstractQueue<Runnable>
   private final Counter tasksRoutedToPreferredQueue;
   private final Counter tasksRoutedToRegularQueue;
 
+  private final LongSupplier nanoTime;
+
   public DualBlockingQueue(int preferredTasksPerRegularTask, MetricsFactory metricsFactory) {
+    this(preferredTasksPerRegularTask, metricsFactory, System::nanoTime);
+  }
+
+  @VisibleForTesting
+  DualBlockingQueue(
+      int preferredTasksPerRegularTask, MetricsFactory metricsFactory, LongSupplier nanoTime) {
     Objects.requireNonNull(metricsFactory, "metricsFactory");
+    Objects.requireNonNull(nanoTime, "nanoTime");
     if (preferredTasksPerRegularTask <= 0) {
       throw new IllegalArgumentException(
           "preferredTasksPerRegularTask must be positive, got: " + preferredTasksPerRegularTask);
     }
     this.preferredTasksPerRegularTask = preferredTasksPerRegularTask;
+    this.nanoTime = nanoTime;
     this.preferredQueueTasksServed = metricsFactory.counter("preferredQueueTasksServed");
     this.regularQueueTasksServed = metricsFactory.counter("regularQueueTasksServed");
     this.tasksRoutedToPreferredQueue = metricsFactory.counter("tasksRoutedToPreferredQueue");
@@ -79,6 +91,14 @@ public final class DualBlockingQueue extends AbstractQueue<Runnable>
         "preferredQueueLength", this, DualBlockingQueue::preferredQueueSize);
     metricsFactory.objectValueGauge(
         "regularQueueLength", this, DualBlockingQueue::regularQueueSize);
+    metricsFactory.objectValueGauge(
+        "preferredQueueOldestTaskAgeSeconds",
+        this,
+        DualBlockingQueue::preferredQueueOldestTaskAgeSeconds);
+    metricsFactory.objectValueGauge(
+        "regularQueueOldestTaskAgeSeconds",
+        this,
+        DualBlockingQueue::regularQueueOldestTaskAgeSeconds);
   }
 
   @Override
@@ -248,6 +268,34 @@ public final class DualBlockingQueue extends AbstractQueue<Runnable>
     } finally {
       this.lock.unlock();
     }
+  }
+
+  private double preferredQueueOldestTaskAgeSeconds() {
+    this.lock.lock();
+    try {
+      return oldestTaskAgeSeconds(this.preferredQueue.peek());
+    } finally {
+      this.lock.unlock();
+    }
+  }
+
+  private double regularQueueOldestTaskAgeSeconds() {
+    this.lock.lock();
+    try {
+      return oldestTaskAgeSeconds(this.regularQueue.peek());
+    } finally {
+      this.lock.unlock();
+    }
+  }
+
+  /** Returns how long {@code head} has been waiting, or 0 if its queue is empty. */
+  private double oldestTaskAgeSeconds(@Nullable Runnable head) {
+    if (head == null) {
+      return 0;
+    }
+    // offer() only accepts PrioritizedTask.
+    long createdNanos = ((PrioritizedTask) head).createdNanos();
+    return (this.nanoTime.getAsLong() - createdNanos) / (double) TimeUnit.SECONDS.toNanos(1);
   }
 
   /**
