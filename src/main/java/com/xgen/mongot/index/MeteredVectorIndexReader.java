@@ -3,12 +3,16 @@ package com.xgen.mongot.index;
 import com.google.common.annotations.VisibleForTesting;
 import com.xgen.mongot.cursor.batch.BatchSizeStrategy;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
+import com.xgen.mongot.index.definition.FieldDefinitionResolver;
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.MaterializedVectorSearchQuery;
 import com.xgen.mongot.index.query.QueryExecutionContext;
 import com.xgen.mongot.index.query.QueryOptimizationFlags;
 import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
+import com.xgen.mongot.util.FieldPath;
 import java.io.IOException;
+import java.util.Optional;
 import org.bson.BsonArray;
 
 // TODO(CLOUDP-210212): vector search: expand this to record more detailed query stats
@@ -17,11 +21,28 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
   private final VectorIndexReader indexReader;
   private final IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater;
   private final QueryMetricsRecorder queryMetricsRecorder;
+  private final Optional<FieldDefinitionResolver> fieldDefinitionResolver;
 
   public MeteredVectorIndexReader(
       VectorIndexReader indexReader, IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater) {
+    this(indexReader, metricsUpdater, Optional.empty());
+  }
+
+  /**
+   * Creates a reader that records the effective auto numCandidates per query.
+   *
+   * @param fieldDefinitionResolver resolves the queried field's quantization so the query-level
+   *     auto-numCandidates histogram records the effective value actually used. Engines that apply
+   *     the binary auto ratio (Lucene) pass a resolver; engines that do not (vectorlite) pass
+   *     {@link Optional#empty()} and record the default-ratio value.
+   */
+  public MeteredVectorIndexReader(
+      VectorIndexReader indexReader,
+      IndexMetricsUpdater.QueryingMetricsUpdater metricsUpdater,
+      Optional<FieldDefinitionResolver> fieldDefinitionResolver) {
     this.indexReader = indexReader;
     this.metricsUpdater = metricsUpdater;
+    this.fieldDefinitionResolver = fieldDefinitionResolver;
     this.queryMetricsRecorder =
         new QueryMetricsRecorder(
             metricsUpdater.getQueryFeaturesMetricsUpdater(),
@@ -83,8 +104,23 @@ public class MeteredVectorIndexReader implements VectorIndexReader {
             instanceof ApproximateVectorSearchCriteria approximate
         && approximate.isAutoNumCandidates()) {
       this.metricsUpdater.getAutoNumCandidatesCounter().increment();
-      this.metricsUpdater.getAutoNumCandidatesValues().record(approximate.resolveNumCandidates());
+      boolean binaryQuantized =
+          ApproximateVectorSearchCriteria.isBinaryQuantizedSearch(
+              resolveQuantization(approximate.path()), materializedQuery.vector());
+      this.metricsUpdater
+          .getAutoNumCandidatesValues()
+          .record(approximate.resolveNumCandidates(binaryQuantized));
     }
+  }
+
+  /**
+   * Resolves the queried field's quantization, or {@link VectorQuantization#NONE} when no resolver
+   * was supplied (engines that do not apply the binary auto ratio).
+   */
+  private VectorQuantization resolveQuantization(FieldPath path) {
+    return this.fieldDefinitionResolver
+        .map(resolver -> resolver.resolveQuantization(path))
+        .orElse(VectorQuantization.NONE);
   }
 
   @Override

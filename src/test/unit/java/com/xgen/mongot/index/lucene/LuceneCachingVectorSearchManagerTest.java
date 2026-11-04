@@ -167,7 +167,7 @@ public class LuceneCachingVectorSearchManagerTest {
   public void autoNumCandidatesCriteriaBuildsManagerWithoutThrowing()
       throws IOException, InvalidQueryException {
     // Regression for the $search path: the search manager is built from the operator's still-auto
-    // criteria. The manager and its metrics call resolveNumCandidates(), which returns the
+    // criteria. The manager and its metrics call resolveNumCandidates(false), which returns the
     // clamped auto value (a pure function of limit) instead of throwing.
     FloatVector queryVector = Vector.fromFloats(new float[] {4f, 4f}, NATIVE);
     int limit = 2;
@@ -200,7 +200,7 @@ public class LuceneCachingVectorSearchManagerTest {
                 metrics,
                 luceneFieldName,
                 queryVector.getFloatVector(),
-                autoCriteria.resolveNumCandidates()),
+                autoCriteria.resolveNumCandidates(false)),
             autoCriteria);
 
     insertDocumentsIntoLucene(luceneFieldName);

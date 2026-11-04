@@ -99,7 +99,8 @@ public class BinaryQuantizedVectorRescorer {
     // Stage 1 - rescore query against the oversampled dequantized binary vectors
     ApproximateRescorer approximateRescorer = new ApproximateRescorer(luceneQuery, parentFilter);
     TopDocs approximatelyRescored =
-        approximateRescorer.rescore(indexSearcher, topDocs, searchCriteria.resolveNumCandidates());
+        approximateRescorer.rescore(
+            indexSearcher, topDocs, searchCriteria.resolveNumCandidates(true));
 
     // Stage 2 - rescore query against full fidelity vectors for the limited subset of docs
     FullFidelityRescorer fullFidelityRescorer =
@@ -109,7 +110,7 @@ public class BinaryQuantizedVectorRescorer {
     // towards the lower one (limit). Using a larger number improves recall, but affects latency
     // as accessing full fidelity vectors could result in page faults
     int fullFidelityLimit =
-        (int) Math.sqrt(searchCriteria.limit() * searchCriteria.resolveNumCandidates());
+        (int) Math.sqrt(searchCriteria.limit() * searchCriteria.resolveNumCandidates(true));
     TopDocs fullFidelityRescoredDocs =
         fullFidelityRescorer.rescore(indexSearcher, approximatelyRescored, fullFidelityLimit);
 

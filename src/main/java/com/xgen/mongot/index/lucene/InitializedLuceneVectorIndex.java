@@ -21,6 +21,7 @@ import com.xgen.mongot.index.InitializedVectorIndex;
 import com.xgen.mongot.index.MeteredIndexWriter;
 import com.xgen.mongot.index.MeteredVectorIndexReader;
 import com.xgen.mongot.index.VectorIndexReader;
+import com.xgen.mongot.index.definition.FieldDefinitionResolver;
 import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.index.definition.IndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.VectorFieldDefinitionResolver;
@@ -290,7 +291,9 @@ class InitializedLuceneVectorIndex implements InitializedVectorIndex {
 
     VectorIndexReader reader =
         new MeteredVectorIndexReader(
-            vectorIndexReader, indexMetricsUpdater.getQueryingMetricsUpdater());
+            vectorIndexReader,
+            indexMetricsUpdater.getQueryingMetricsUpdater(),
+            Optional.<FieldDefinitionResolver>of(definitionResolver));
 
     IndexWriter writer =
         new MeteredIndexWriter(

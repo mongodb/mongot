@@ -7,6 +7,8 @@ import com.xgen.mongot.index.query.InvalidQueryException;
 import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
 import com.xgen.mongot.index.query.operators.VectorSearchCriteria;
 import com.xgen.mongot.metrics.Timed;
+import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.bson.Vector;
 import java.io.IOException;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
@@ -44,7 +46,14 @@ public class MeteredLuceneVectorSearchManager<T> implements LuceneSearchManager<
             case VectorQuantization.SCALAR -> this.metricsUpdater.getNumCandidatesScalarQuantized();
             case VectorQuantization.BINARY -> this.metricsUpdater.getNumCandidatesBinaryQuantized();
           };
-      metric.record(approximateCriteria.resolveNumCandidates());
+      Vector queryVector =
+          Check.isPresent(
+              approximateCriteria.queryVector(),
+              "criteria has to be materialized up to this point");
+      metric.record(
+          approximateCriteria.resolveNumCandidates(
+              ApproximateVectorSearchCriteria.isBinaryQuantizedSearch(
+                  this.fieldQuantization, queryVector)));
     }
     this.metricsUpdater.getLimitPerQuery().record(this.criteria.limit());
 

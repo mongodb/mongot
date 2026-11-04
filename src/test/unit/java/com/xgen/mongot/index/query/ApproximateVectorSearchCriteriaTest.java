@@ -1,9 +1,11 @@
 package com.xgen.mongot.index.query;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria.isBinaryQuantizedSearch;
 import static com.xgen.mongot.util.bson.FloatVector.OriginalType.NATIVE;
 import static org.junit.Assert.assertThrows;
 
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.index.query.operators.ApproximateVectorSearchCriteria;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
@@ -64,25 +66,63 @@ public class ApproximateVectorSearchCriteriaTest {
 
   @Test
   public void resolveNumCandidates_explicitReturnsRawValue() {
-    assertThat(explicitCriteria(10, 200).resolveNumCandidates()).isEqualTo(200);
+    assertThat(explicitCriteria(10, 200).resolveNumCandidates(false)).isEqualTo(200);
   }
 
   @Test
   public void resolveNumCandidates_autoBelowFloorClampsToMin() {
     // 8 * 5 = 40, below the 100 floor.
-    assertThat(autoCriteria(5).resolveNumCandidates()).isEqualTo(100);
+    assertThat(autoCriteria(5).resolveNumCandidates(false)).isEqualTo(100);
   }
 
   @Test
   public void resolveNumCandidates_autoMidRangeUsesRatio() {
     // 8 * 500 = 4000, within [100, 10000].
-    assertThat(autoCriteria(500).resolveNumCandidates()).isEqualTo(4000);
+    assertThat(autoCriteria(500).resolveNumCandidates(false)).isEqualTo(4000);
   }
 
   @Test
   public void resolveNumCandidates_autoAboveCeilingClampsToMax() {
     // 8 * 5000 = 40000, above the 10000 ceiling.
-    assertThat(autoCriteria(5000).resolveNumCandidates()).isEqualTo(10_000);
+    assertThat(autoCriteria(5000).resolveNumCandidates(false)).isEqualTo(10_000);
+  }
+
+  @Test
+  public void resolveNumCandidates_binaryQuantizedAutoUsesBinaryRatio() {
+    // 16 * 100 = 1600 for binary vs 8 * 100 = 800 for the default ratio.
+    assertThat(autoCriteria(100).resolveNumCandidates(true)).isEqualTo(1600);
+  }
+
+  @Test
+  public void resolveNumCandidates_binaryQuantizedAutoBelowFloorClampsToMin() {
+    // 16 * 5 = 80, below the 100 floor.
+    assertThat(autoCriteria(5).resolveNumCandidates(true)).isEqualTo(100);
+  }
+
+  @Test
+  public void resolveNumCandidates_binaryQuantizedAutoAboveCeilingClampsToMax() {
+    // 16 * 1000 = 16000, above the 10000 ceiling.
+    assertThat(autoCriteria(1000).resolveNumCandidates(true)).isEqualTo(10_000);
+  }
+
+  @Test
+  public void resolveNumCandidates_binaryQuantizedExplicitReturnsRawValue() {
+    // Explicit numCandidates is never changed, regardless of quantization.
+    assertThat(explicitCriteria(10, 200).resolveNumCandidates(true)).isEqualTo(200);
+  }
+
+  @Test
+  public void isBinaryQuantizedSearch_trueOnlyForFloatOrByteQueriesOnBinaryFields() {
+    Vector floatVector = Vector.fromFloats(new float[] {1f, 2f, 3f}, NATIVE);
+    Vector byteVector = Vector.fromBytes(new byte[] {1, 2, 3});
+    Vector bitVector = Vector.fromBits(new byte[] {1});
+
+    assertThat(isBinaryQuantizedSearch(VectorQuantization.BINARY, floatVector)).isTrue();
+    assertThat(isBinaryQuantizedSearch(VectorQuantization.BINARY, byteVector)).isTrue();
+    // Bit query vectors target the raw bit field, not the binary-quantized vectors.
+    assertThat(isBinaryQuantizedSearch(VectorQuantization.BINARY, bitVector)).isFalse();
+    assertThat(isBinaryQuantizedSearch(VectorQuantization.SCALAR, floatVector)).isFalse();
+    assertThat(isBinaryQuantizedSearch(VectorQuantization.NONE, floatVector)).isFalse();
   }
 
   @Test

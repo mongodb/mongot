@@ -68,6 +68,7 @@ java_library(
     ],
     deps = [
         "//src/main/java/com/xgen/mongot/index/definition",
+        "//src/main/java/com/xgen/mongot/index/definition/quantization",
         "//src/main/java/com/xgen/mongot/index/path/string",
         "//src/main/java/com/xgen/mongot/index/query/operators/bound",
         "//src/main/java/com/xgen/mongot/index/query/operators/mql",

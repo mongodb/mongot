@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.query.operators;
 
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.Vector;
@@ -16,8 +17,10 @@ import org.bson.BsonDocument;
  *
  * <p>{@code numCandidates} may be empty when the user omits numCandidates from the query (auto
  * mode). Use {@link #getNumCandidates()} for the raw user-supplied value (empty in auto mode),
- * {@link #isAutoNumCandidates()} to check the mode, and {@link #resolveNumCandidates()} for the
- * effective value ({@code clamp(8 * limit, 100, 10000)} in auto mode, the user value otherwise).
+ * {@link #isAutoNumCandidates()} to check the mode, and {@link #resolveNumCandidates(boolean)} for
+ * the effective value ({@code clamp(ratio * limit, 100, 10000)} in auto mode, the user value
+ * otherwise). The ratio is {@link #AUTO_NUM_CANDIDATES_RATIO}, or {@link
+ * #BINARY_AUTO_NUM_CANDIDATES_RATIO} when {@link #isBinaryQuantizedSearch} holds.
  */
 public record ApproximateVectorSearchCriteria(
     FieldPath path,
@@ -41,6 +44,14 @@ public record ApproximateVectorSearchCriteria(
   /** Auto k/limit ratio: auto numCandidates targets 8x the requested limit before clamping. */
   public static final int AUTO_NUM_CANDIDATES_RATIO = 8;
 
+  /**
+   * Auto k/limit ratio for binary-quantized fields. Binary quantization loses fidelity in the HNSW
+   * graph, so at the default ratio recall falls below float/scalar; doubling the candidate pool
+   * restores comparable recall (~0.9 at limit=100). Applied only in auto mode on binary-quantized
+   * fields; an explicit user-supplied numCandidates is never changed.
+   */
+  public static final int BINARY_AUTO_NUM_CANDIDATES_RATIO = 16;
+
   public ApproximateVectorSearchCriteria {
     if (numCandidates.isPresent()) {
       Check.checkArg(
@@ -61,21 +72,39 @@ public record ApproximateVectorSearchCriteria(
   }
 
   /**
+   * Returns true when a search over a field indexed with {@code fieldQuantization} using {@code
+   * queryVector} runs against the field's binary-quantized vectors: the field is binary-quantized
+   * and the query vector is float or byte (bit query vectors target the raw bit field). Such
+   * searches are rescored and use {@link #BINARY_AUTO_NUM_CANDIDATES_RATIO} in auto mode. This is
+   * the single predicate shared by query translation, rescoring selection, and numCandidates
+   * metrics so they cannot disagree on the effective value.
+   */
+  public static boolean isBinaryQuantizedSearch(
+      VectorQuantization fieldQuantization, Vector queryVector) {
+    if (fieldQuantization != VectorQuantization.BINARY) {
+      return false;
+    }
+    return switch (queryVector.getVectorType()) {
+      case FLOAT, BYTE -> true;
+      case FLOAT16, BIT -> false;
+    };
+  }
+
+  /**
    * Returns the effective numCandidates to use for query execution: the user-supplied value, or in
-   * auto mode {@code clamp(AUTO_NUM_CANDIDATES_RATIO * limit, MIN_NUM_CANDIDATES,
-   * MAX_NUM_CANDIDATES)}. Never throws.
+   * auto mode {@code clamp(ratio * limit, MIN_NUM_CANDIDATES, MAX_NUM_CANDIDATES)} where the ratio
+   * is {@link #BINARY_AUTO_NUM_CANDIDATES_RATIO} when {@code binaryQuantized} (see {@link
+   * #isBinaryQuantizedSearch}) and {@link #AUTO_NUM_CANDIDATES_RATIO} otherwise. An explicit
+   * user-supplied numCandidates is always returned unchanged. Never throws.
    *
    * <p>The {@code (long)} multiply avoids int overflow for large limits; {@code Math.clamp(long,
    * int, int)} returns the value clamped into the int bounds. The result is always {@code >=
    * limit}: parsing and the constructor reject {@code limit > MAX_NUM_CANDIDATES} in auto mode.
    */
-  public int resolveNumCandidates() {
+  public int resolveNumCandidates(boolean binaryQuantized) {
+    int ratio = binaryQuantized ? BINARY_AUTO_NUM_CANDIDATES_RATIO : AUTO_NUM_CANDIDATES_RATIO;
     return this.numCandidates.orElseGet(
-        () ->
-            Math.clamp(
-                (long) AUTO_NUM_CANDIDATES_RATIO * this.limit,
-                MIN_NUM_CANDIDATES,
-                MAX_NUM_CANDIDATES));
+        () -> Math.clamp((long) ratio * this.limit, MIN_NUM_CANDIDATES, MAX_NUM_CANDIDATES));
   }
 
   public static ApproximateVectorSearchCriteria fromBson(

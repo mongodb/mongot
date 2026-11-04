@@ -1,5 +1,6 @@
 package com.xgen.mongot.index.definition;
 
+import com.xgen.mongot.index.definition.quantization.VectorQuantization;
 import com.xgen.mongot.util.FieldPath;
 import java.util.Optional;
 
@@ -12,4 +13,14 @@ public interface FieldDefinitionResolver {
   boolean isUsed(FieldPath path);
 
   Optional<VectorFieldSpecification> getVectorFieldSpecification(FieldPath path);
+
+  /**
+   * Resolves the quantization of the vector field at {@code path}, or {@link
+   * VectorQuantization#NONE} when {@code path} is not a vector field.
+   */
+  default VectorQuantization resolveQuantization(FieldPath path) {
+    return getVectorFieldSpecification(path)
+        .map(VectorFieldSpecification::quantization)
+        .orElse(VectorQuantization.NONE);
+  }
 }

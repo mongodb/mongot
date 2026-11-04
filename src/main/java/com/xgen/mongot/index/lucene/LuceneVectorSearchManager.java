@@ -58,8 +58,10 @@ public class LuceneVectorSearchManager implements LuceneSearchManager<QueryInfo>
     boolean requiresAnyRescoring = this.rescorer.isPresent() || this.nestedAvgRescorer.isPresent();
     int hitsToCollect =
         requiresAnyRescoring
-            // rescoring needs to operate on the full set of candidates
-            ? ((ApproximateVectorSearchCriteria) this.criteria).resolveNumCandidates()
+            // rescoring needs to operate on the full set of candidates; binary-quantized indexes
+            // (the only ones using the BQ rescorer) use a larger auto candidate pool.
+            ? ((ApproximateVectorSearchCriteria) this.criteria)
+                .resolveNumCandidates(this.rescorer.isPresent())
             : this.criteria.limit();
 
     LuceneIndexSearcher indexSearcher = searcherReference.getIndexSearcher();

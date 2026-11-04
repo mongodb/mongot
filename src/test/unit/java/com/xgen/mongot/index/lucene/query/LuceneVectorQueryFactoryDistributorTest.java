@@ -199,6 +199,97 @@ public class LuceneVectorQueryFactoryDistributorTest {
   }
 
   @Test
+  public void testAutoNumCandidates_binaryQuantizedField_usesBinaryRatioForK()
+      throws IOException, InvalidQueryException {
+    var path = FieldPath.parse("foo.bar");
+    var mongotQuery =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(path)
+                    .limit(100)
+                    .queryVector(Vector.fromFloats(new float[8], NATIVE))
+                    .build())
+            .build();
+
+    // Binary-quantized field in auto mode: k = clamp(16 * 100, 100, 10000) = 1600.
+    MongotKnnFloatQuery expected =
+        new MongotKnnFloatQuery(metrics, "$type:knnF32Q1/foo.bar", new float[8], 1600);
+
+    new LuceneVectorTranslation(
+            List.of(
+                VectorDataFieldDefinitionBuilder.builder()
+                    .path(path)
+                    .numDimensions(8)
+                    .similarity(VectorSimilarity.EUCLIDEAN)
+                    .quantization(VectorQuantization.BINARY)
+                    .build()))
+        .assertTranslatedTo(mongotQuery, expected);
+  }
+
+  @Test
+  public void testAutoNumCandidates_scalarQuantizedField_usesDefaultRatioForK()
+      throws IOException, InvalidQueryException {
+    var path = FieldPath.parse("foo.bar");
+    var mongotQuery =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(path)
+                    .limit(100)
+                    .queryVector(Vector.fromFloats(new float[] {1f, 2f, 3f}, NATIVE))
+                    .build())
+            .build();
+
+    // Non-binary field in auto mode: k = clamp(8 * 100, 100, 10000) = 800.
+    MongotKnnFloatQuery expected =
+        new MongotKnnFloatQuery(metrics, "$type:knnF32Q7/foo.bar", new float[] {1, 2, 3}, 800);
+
+    new LuceneVectorTranslation(
+            List.of(
+                VectorDataFieldDefinitionBuilder.builder()
+                    .path(path)
+                    .numDimensions(3)
+                    .similarity(VectorSimilarity.EUCLIDEAN)
+                    .quantization(VectorQuantization.SCALAR)
+                    .build()))
+        .assertTranslatedTo(mongotQuery, expected);
+  }
+
+  @Test
+  public void testExplicitNumCandidates_binaryQuantizedField_usesUserValueForK()
+      throws IOException, InvalidQueryException {
+    var path = FieldPath.parse("foo.bar");
+    var mongotQuery =
+        VectorQueryBuilder.builder()
+            .index("test")
+            .criteria(
+                ApproximateVectorQueryCriteriaBuilder.builder()
+                    .path(path)
+                    .limit(10)
+                    .numCandidates(500)
+                    .queryVector(Vector.fromFloats(new float[8], NATIVE))
+                    .build())
+            .build();
+
+    // Explicit numCandidates is never changed, even on a binary-quantized field.
+    MongotKnnFloatQuery expected =
+        new MongotKnnFloatQuery(metrics, "$type:knnF32Q1/foo.bar", new float[8], 500);
+
+    new LuceneVectorTranslation(
+            List.of(
+                VectorDataFieldDefinitionBuilder.builder()
+                    .path(path)
+                    .numDimensions(8)
+                    .similarity(VectorSimilarity.EUCLIDEAN)
+                    .quantization(VectorQuantization.BINARY)
+                    .build()))
+        .assertTranslatedTo(mongotQuery, expected);
+  }
+
+  @Test
   public void testApproximateVectorQueryWithFilter()
       throws IOException, InvalidQueryException, BsonParseException {
 

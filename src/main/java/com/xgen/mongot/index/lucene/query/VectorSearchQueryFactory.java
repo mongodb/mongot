@@ -195,9 +195,15 @@ class VectorSearchQueryFactory {
         // consistent with how embeddedDocuments works in search indexes. Users can increase
         // numCandidates to improve recall when documents have many embedded vectors.
         //
-        // In auto mode (user omitted numCandidates) this resolves to clamp(8 * limit, 100, 10000);
-        // otherwise it is the user-supplied value. See ApproximateVectorSearchCriteria.
-        int numCandidates = approximateCriteria.resolveNumCandidates();
+        // In auto mode (user omitted numCandidates) this resolves to clamp(ratio * limit, 100,
+        // 10000); otherwise it is the user-supplied value. Binary-quantized searches traverse the
+        // HNSW graph over binary codes and lose recall at the default ratio, so auto mode uses a
+        // larger ratio for them. See ApproximateVectorSearchCriteria.
+        int numCandidates =
+            approximateCriteria.resolveNumCandidates(
+                ApproximateVectorSearchCriteria.isBinaryQuantizedSearch(
+                    this.factoryContext.getFieldDefinitionResolver().resolveQuantization(path),
+                    queryVector));
         int limit = approximateCriteria.limit();
         ApproximateVectorQueryCreator queryCreator =
             ApproximateVectorQueryCreator.get(
