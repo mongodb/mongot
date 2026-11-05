@@ -78,6 +78,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.bson.BsonBinary;
 import org.bson.BsonDocument;
@@ -2504,7 +2505,8 @@ public class ChangeStreamManagerTest {
         mock(ChangeStreamResumeInfo.class),
         SearchIndexDefinitionBuilder.VALID_INDEX,
         false,
-        false);
+        false,
+        () -> false);
   }
 
   private enum ClientFactoryType {
@@ -2524,7 +2526,8 @@ public class ChangeStreamManagerTest {
         ChangeStreamResumeInfo resumeInfo,
         IndexDefinition indexDefinition,
         boolean removeMatchCollectionUuid,
-        boolean useParallelChangeStreamReaders)
+        boolean useParallelChangeStreamReaders,
+        BooleanSupplier stopRetrying)
         throws SteadyStateException;
   }
 
@@ -2647,7 +2650,7 @@ public class ChangeStreamManagerTest {
                   Optional.of(new BsonTimestamp())));
 
       when(clientFactory.resumeTimedModeAwareChangeStream(
-              any(), any(), any(), anyBoolean(), anyBoolean()))
+              any(), any(), any(), anyBoolean(), anyBoolean(), any()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2665,7 +2668,7 @@ public class ChangeStreamManagerTest {
                   Optional.of(new BsonTimestamp())));
 
       when(clientFactory.resumeTimedModeAwareChangeStream(
-              any(), any(), any(), anyBoolean(), anyBoolean()))
+              any(), any(), any(), anyBoolean(), anyBoolean(), any()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2677,7 +2680,7 @@ public class ChangeStreamManagerTest {
 
       var clientFactory = mock(ChangeStreamMongoClientFactory.class);
       when(clientFactory.resumeTimedModeAwareChangeStream(
-              any(), any(), any(), anyBoolean(), anyBoolean()))
+              any(), any(), any(), anyBoolean(), anyBoolean(), any()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2708,7 +2711,7 @@ public class ChangeStreamManagerTest {
               });
 
       when(clientFactory.resumeTimedModeAwareChangeStream(
-              any(), any(), any(), anyBoolean(), anyBoolean()))
+              any(), any(), any(), anyBoolean(), anyBoolean(), any()))
           .thenReturn(client);
       return clientFactory;
     }
@@ -2719,7 +2722,7 @@ public class ChangeStreamManagerTest {
 
       AtomicInteger count = new AtomicInteger(0);
       when(clientFactory.resumeTimedModeAwareChangeStream(
-              any(), any(), any(), anyBoolean(), anyBoolean()))
+              any(), any(), any(), anyBoolean(), anyBoolean(), any()))
           .then(
               invocation -> {
                 GenerationId generationId = invocation.getArgument(0);
@@ -2798,7 +2801,7 @@ public class ChangeStreamManagerTest {
           });
 
       when(clientFactory.resumeTimedModeAwareChangeStream(
-              any(), any(), any(), anyBoolean(), anyBoolean()))
+              any(), any(), any(), anyBoolean(), anyBoolean(), any()))
           .then(
               invocation -> {
                 GenerationId generationId = invocation.getArgument(0);

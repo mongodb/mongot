@@ -95,7 +95,7 @@ public class SyncChangeStreamManagerTest {
     when(client.getNext()).thenThrow(SteadyStateException.createShutDown());
     var mongoClientFactory = mock(ChangeStreamMongoClientFactory.class);
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(
-            any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenReturn(client);
     var decodingScheduler = DecodingWorkScheduler.create(1, registry.meterRegistry());
     var indexManagerFactory =
@@ -158,11 +158,12 @@ public class SyncChangeStreamManagerTest {
       assertThat(capturedManager.get().partitionTracker.isPresent()).isEqualTo(expectedPartitioned);
       verify(mongoClientFactory)
           .resumeTimedModeAwareChangeStream(
-              MOCK_INDEX_GENERATION_ID,
-              ChangeStreamUtils.PRE_BATCH_RESUME_INFO,
-              MOCK_INDEX_DEFINITION,
-              false,
-              expectedPartitioned);
+              eq(MOCK_INDEX_GENERATION_ID),
+              eq(ChangeStreamUtils.PRE_BATCH_RESUME_INFO),
+              eq(MOCK_INDEX_DEFINITION),
+              eq(false),
+              eq(expectedPartitioned),
+              any());
     } finally {
       manager.shutdown().get(5, TimeUnit.SECONDS);
       decodingScheduler.shutdown().get(5, TimeUnit.SECONDS);
@@ -186,7 +187,7 @@ public class SyncChangeStreamManagerTest {
                 Optional.of(new BsonTimestamp())));
 
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(
-            any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenReturn(changeStreamMongoClient);
 
     when(indexingWorkSchedulerFactory.getIndexingWorkScheduler(eq(MOCK_INDEX_DEFINITION)))
@@ -298,7 +299,7 @@ public class SyncChangeStreamManagerTest {
                 Optional.of(new BsonTimestamp())));
 
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(
-            any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenReturn(changeStreamMongoClient);
 
     when(indexingWorkSchedulerFactory.getIndexingWorkScheduler(eq(MOCK_INDEX_DEFINITION)))
@@ -424,7 +425,7 @@ public class SyncChangeStreamManagerTest {
         true);
 
     verify(mongoClientFactory, timeout(500))
-        .resumeTimedModeAwareChangeStream(any(), any(), any(), eq(true), anyBoolean());
+        .resumeTimedModeAwareChangeStream(any(), any(), any(), eq(true), anyBoolean(), any());
   }
 
   @Test
@@ -473,7 +474,7 @@ public class SyncChangeStreamManagerTest {
             });
 
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(
-            any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenReturn(changeStreamMongoClient);
 
     DecodingWorkScheduler decodingScheduler =
@@ -700,7 +701,7 @@ public class SyncChangeStreamManagerTest {
                   Optional.of(new BsonTimestamp()));
             });
     when(mongoClientFactory.resumeTimedModeAwareChangeStream(
-            any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenReturn(changeStreamMongoClient);
 
     DecodingWorkScheduler decodingScheduler =

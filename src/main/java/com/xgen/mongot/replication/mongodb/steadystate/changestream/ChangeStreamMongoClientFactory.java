@@ -13,6 +13,8 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoCursorClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
+import com.xgen.mongot.replication.mongodb.common.ChangeStreamThrottlingRetry;
+import com.xgen.mongot.replication.mongodb.common.OverloadRejectionMetrics;
 import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamClient;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SplitEventChangeStreamClient;
@@ -27,6 +29,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.BooleanSupplier;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
 
@@ -44,6 +47,10 @@ class ChangeStreamMongoClientFactory {
   private final boolean enableSplitLargeChangeStreamEvents;
   private final int numParallelChangeStreamReaders;
   private final Optional<Executor> partitionReaderExecutor;
+  /* Counts every overload rejection, independent of the retry flag */
+  private final OverloadRejectionMetrics overloadRejections;
+  /* Present only when RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR is on */
+  private final Optional<ChangeStreamThrottlingRetry> changeStreamThrottlingRetry;
 
   private ChangeStreamMongoClientFactory(
       BatchMongoClient mongoClient,
@@ -69,6 +76,15 @@ class ChangeStreamMongoClientFactory {
         replicationConfig.getEnableSplitLargeChangeStreamEvents();
     this.numParallelChangeStreamReaders = replicationConfig.getNumParallelChangeStreamReaders();
     this.partitionReaderExecutor = partitionReaderExecutor;
+    this.overloadRejections =
+        OverloadRejectionMetrics.create(
+            meterAndFtdcRegistry.meterRegistry(), OverloadRejectionMetrics.Phase.STEADY_STATE);
+    this.changeStreamThrottlingRetry =
+        replicationConfig.getRetryThrottledGetMoreOnSameCursor()
+            ? Optional.of(
+                ChangeStreamThrottlingRetry.create(
+                    meterAndFtdcRegistry.meterRegistry(), replicationConfig.getReplicationType()))
+            : Optional.empty();
   }
 
   static ChangeStreamMongoClientFactory create(
@@ -96,7 +112,9 @@ class ChangeStreamMongoClientFactory {
    * AggregateOperationTemplate}. Uses the default batch size.
    */
   ChangeStreamMongoClient<SteadyStateException> resumeDefaultChangeStream(
-      GenerationId generationId, AggregateOperationTemplate aggregateTemplate) {
+      GenerationId generationId,
+      AggregateOperationTemplate aggregateTemplate,
+      BooleanSupplier stopRetrying) {
 
     ChangeStreamMongoClient<SteadyStateException> client =
         new ChangeStreamMongoCursorClient<>(
@@ -107,7 +125,9 @@ class ChangeStreamMongoClientFactory {
             this.ftdcRegistry,
             SteadyStateException::wrapIfThrows,
             Optional.empty(),
-            Optional.of(this.changeStreamQueryMaxTimeMs));
+            Optional.of(this.changeStreamQueryMaxTimeMs),
+            Optional.of(this.overloadRejections),
+            this.changeStreamThrottlingRetry.map(retry -> retry.withStopCondition(stopRetrying)));
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
@@ -122,7 +142,9 @@ class ChangeStreamMongoClientFactory {
    * AggregateOperationTemplate}. Sets the batch size to the value specified in replication configs.
    */
   ChangeStreamMongoClient<SteadyStateException> resumeBatchSizeConfiguredChangeStream(
-      GenerationId generationId, AggregateOperationTemplate aggregateTemplate) {
+      GenerationId generationId,
+      AggregateOperationTemplate aggregateTemplate,
+      BooleanSupplier stopRetrying) {
     ChangeStreamMongoClient<SteadyStateException> client =
         new ChangeStreamMongoCursorClient<>(
             generationId,
@@ -132,7 +154,9 @@ class ChangeStreamMongoClientFactory {
             this.ftdcRegistry,
             SteadyStateException::wrapIfThrows,
             this.embeddingGetMoreBatchSize,
-            Optional.of(this.changeStreamQueryMaxTimeMs));
+            Optional.of(this.changeStreamQueryMaxTimeMs),
+            Optional.of(this.overloadRejections),
+            this.changeStreamThrottlingRetry.map(retry -> retry.withStopCondition(stopRetrying)));
 
     if (this.enableSplitLargeChangeStreamEvents) {
       return new SplitEventChangeStreamClient<>(
@@ -150,14 +174,15 @@ class ChangeStreamMongoClientFactory {
       GenerationId generationId,
       ChangeStreamResumeInfo resumeInfo,
       IndexDefinition indexDefinition,
-      boolean removeMatchCollectionUuid) {
+      boolean removeMatchCollectionUuid,
+      BooleanSupplier stopRetrying) {
 
     var operationFactory = operationFactoryFor(indexDefinition, removeMatchCollectionUuid);
 
     return new ModeAwareChangeStreamClient(
         this.modeSelector,
         operationFactory,
-        cursorFactoryFor(indexDefinition),
+        cursorFactoryFor(indexDefinition, stopRetrying),
         resumeInfo,
         generationId);
   }
@@ -173,27 +198,32 @@ class ChangeStreamMongoClientFactory {
         this.enableSplitLargeChangeStreamEvents);
   }
 
-  private ChangeStreamClientFactory cursorFactoryFor(IndexDefinition indexDefinition) {
+  private ChangeStreamClientFactory cursorFactoryFor(
+      IndexDefinition indexDefinition, BooleanSupplier stopRetrying) {
     return indexDefinition.isAutoEmbeddingIndex()
-        ? this::resumeBatchSizeConfiguredChangeStream
-        : this::resumeDefaultChangeStream;
+        ? (id, template) -> resumeBatchSizeConfiguredChangeStream(id, template, stopRetrying)
+        : (id, template) -> resumeDefaultChangeStream(id, template, stopRetrying);
   }
 
   /**
    * Starts a change stream that restarts when its mode changes or its TTL expires. The caller
    * selects parallel readers using the same per-generation decision as partition checkpoint
    * tracking.
+   *
+   * <p>Throttled getMores are retried on the same cursor until {@code stopRetrying} is true, so the
+   * caller can stop retries when it shuts down.
    */
   ChangeStreamMongoClient<SteadyStateException> resumeTimedModeAwareChangeStream(
       GenerationId generationId,
       ChangeStreamResumeInfo resumeInfo,
       IndexDefinition indexDefinition,
       boolean removeMatchCollectionUuid,
-      boolean useParallelChangeStreamReaders)
+      boolean useParallelChangeStreamReaders,
+      BooleanSupplier stopRetrying)
       throws SteadyStateException {
     if (useParallelChangeStreamReaders) {
       return resumePartitionedChangeStream(
-          generationId, resumeInfo, indexDefinition, removeMatchCollectionUuid);
+          generationId, resumeInfo, indexDefinition, removeMatchCollectionUuid, stopRetrying);
     }
 
     MongoNamespace namespace = resumeInfo.getNamespace();
@@ -203,7 +233,8 @@ class ChangeStreamMongoClientFactory {
                 id,
                 ChangeStreamResumeInfo.create(namespace, resumeToken),
                 indexDefinition,
-                removeMatchCollectionUuid);
+                removeMatchCollectionUuid,
+                stopRetrying);
 
     // randomly distribute given ttl by 10% to avoid restarting all cursors in a short period
     Duration timeToLive =
@@ -221,11 +252,12 @@ class ChangeStreamMongoClientFactory {
       GenerationId generationId,
       ChangeStreamResumeInfo resumeInfo,
       IndexDefinition indexDefinition,
-      boolean removeMatchCollectionUuid)
+      boolean removeMatchCollectionUuid,
+      BooleanSupplier stopRetrying)
       throws SteadyStateException {
 
     var operationFactory = operationFactoryFor(indexDefinition, removeMatchCollectionUuid);
-    ChangeStreamClientFactory cursorFactory = cursorFactoryFor(indexDefinition);
+    ChangeStreamClientFactory cursorFactory = cursorFactoryFor(indexDefinition, stopRetrying);
 
     // TODO(CLOUDP-443150): Each reader currently opens at the resume token's timestamp with the
     // inclusive `startAtOperationTime`, which can redeliver events already indexed. Replace this

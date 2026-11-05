@@ -7,7 +7,6 @@ import static com.xgen.mongot.index.IndexTypeData.getNumGauge;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.definition.IndexDefinition;
@@ -22,24 +21,20 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils.Docu
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamMongoClient;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
-import com.xgen.mongot.replication.mongodb.common.MongoExceptionUtils;
-import com.xgen.mongot.replication.mongodb.common.OverloadRejectionMetrics;
 import com.xgen.mongot.replication.mongodb.common.PartialEmbedMetricCounters;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.common.ViewFieldDependenciesMetricCounters;
-import com.xgen.mongot.util.concurrent.Sleeper;
-import com.xgen.mongot.util.mongodb.Errors;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import java.lang.ref.WeakReference;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.bson.types.ObjectId;
@@ -71,16 +66,6 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
     0.01, 0.05, 0.1, 0.25, 0.5, 0.7, 0.8, 0.9, 0.95, 1.0, 1.1, 1.5, 2.0, 3.0, 5.0, 10.0
   };
 
-  /**
-   * A getMore rejected because mongod is shedding load (462 ingress rate limiting, or 433
-   * execution-control queue overflow) never starts executing, so the change stream cursor is still
-   * valid and we retry the same cursor on a short backoff instead of failing the index's lifecycle.
-   */
-  @VisibleForTesting static final int MAX_THROTTLING_RETRIES = 5;
-
-  /** Base delay for throttling retries; the actual delay is uniform over [0, base). */
-  @VisibleForTesting static final Duration THROTTLING_RETRY_BACKOFF = Duration.ofMillis(100);
-
   private static final EnumSet<IndexTypeData.IndexTypeTag> AUTO_EMBEDDING_INDEX_TYPE_TAGS =
       EnumSet.of(
           IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
@@ -88,8 +73,6 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
   private final ChangeStreamMongoClientFactory syncMongoClientFactory;
   private final ChangeStreamTaskExecutor taskExecutor;
-  private final boolean retryThrottledGetMoreOnSameCursor;
-  private final Sleeper sleeper;
 
   private final Counter applicableUpdatesCounter;
   private final Counter witnessedUpdatesCounter;
@@ -119,59 +102,18 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       batchDurationsByFullness;
   /* Tracks the total number of change-stream ended exceptionally */
   private final Counter unexpectedBatchFailures;
-  /* Tracks getMores retried on the same cursor after being throttled by mongod */
-  private final Counter throttlingRetries;
-  /* Tracks getMores that exhausted MAX_THROTTLING_RETRIES and failed the batch. Distinct from
-  throttlingRetries, which counts attempts and so cannot distinguish "succeeded on the last retry"
-  from "gave up". */
-  private final Counter throttlingRetriesExhausted;
-  /* Counts every overload rejection, independent of the retry flag and of the retry's outcome */
-  private final OverloadRejectionMetrics overloadRejections;
   /* Tracks duration of preprocessing a batch */
   private final Timer preprocessingBatchTimer;
 
   private volatile boolean shutdown;
 
-  /**
-   * Convenience constructor with {@link Feature#RETRY_THROTTLED_GETMORE_ON_SAME_CURSOR} off, for
-   * tests that do not exercise the flag-gated retry.
-   */
-  @VisibleForTesting
-  SyncChangeStreamDispatcher(
+  public SyncChangeStreamDispatcher(
       MeterRegistry meterRegistry,
       ChangeStreamMongoClientFactory syncMongoClientFactory,
       ChangeStreamTaskExecutor taskExecutor,
       CommonReplicationConfig.Type type) {
-    this(meterRegistry, syncMongoClientFactory, taskExecutor, type, false);
-  }
-
-  /** Convenience constructor that sleeps for real between throttling retries. */
-  public SyncChangeStreamDispatcher(
-      MeterRegistry meterRegistry,
-      ChangeStreamMongoClientFactory syncMongoClientFactory,
-      ChangeStreamTaskExecutor taskExecutor,
-      CommonReplicationConfig.Type type,
-      boolean retryThrottledGetMoreOnSameCursor) {
-    this(
-        meterRegistry,
-        syncMongoClientFactory,
-        taskExecutor,
-        type,
-        retryThrottledGetMoreOnSameCursor,
-        Sleeper.DEFAULT);
-  }
-
-  public SyncChangeStreamDispatcher(
-      MeterRegistry meterRegistry,
-      ChangeStreamMongoClientFactory syncMongoClientFactory,
-      ChangeStreamTaskExecutor taskExecutor,
-      CommonReplicationConfig.Type type,
-      boolean retryThrottledGetMoreOnSameCursor,
-      Sleeper sleeper) {
     this.syncMongoClientFactory = syncMongoClientFactory;
     this.taskExecutor = taskExecutor;
-    this.sleeper = sleeper;
-    this.retryThrottledGetMoreOnSameCursor = retryThrottledGetMoreOnSameCursor;
     this.shutdown = false;
 
     MetricsFactory metricsFactory =
@@ -210,12 +152,6 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
                     replicationTypeTags.and("fullness", fullness.tagValue()),
                     TimeUnit.SECONDS));
     this.unexpectedBatchFailures = metricsFactory.counter("unexpectedBatchFailures");
-    this.throttlingRetries =
-        metricsFactory.counter("getMoreThrottlingRetries", replicationTypeTags);
-    this.throttlingRetriesExhausted =
-        metricsFactory.counter("getMoreThrottlingRetriesExhausted", replicationTypeTags);
-    this.overloadRejections =
-        OverloadRejectionMetrics.create(meterRegistry, OverloadRejectionMetrics.Phase.STEADY_STATE);
     this.preprocessingBatchTimer = metricsFactory.timerSec("preprocessingBatchDurations");
 
     Tags replicationTag = Tags.of(Scope.REPLICATION.getTag());
@@ -253,13 +189,21 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       boolean removeMatchCollectionUuid)
       throws SteadyStateException {
 
+    // Retries happen inside the client; stop them when we or the index shut down. The index manager
+    // is held weakly so a client that outlives the index does not keep it alive; once collected it
+    // counts as shut down.
+    WeakReference<ChangeStreamIndexManager> indexManagerRef = new WeakReference<>(indexManager);
     ChangeStreamMongoClient<SteadyStateException> mongoClient =
         this.syncMongoClientFactory.resumeTimedModeAwareChangeStream(
             generationId,
             resumeInfo,
             indexDefinition,
             removeMatchCollectionUuid,
-            indexManager.partitionTracker.isPresent());
+            indexManager.partitionTracker.isPresent(),
+            () -> {
+              ChangeStreamIndexManager manager = indexManagerRef.get();
+              return this.shutdown || manager == null || manager.isShutdown();
+            });
 
     this.taskExecutor.addIndex(indexDefinition.getIndexId());
 
@@ -335,7 +279,14 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
 
       var getNextTimer = Stopwatch.createStarted();
 
-      var batch = getNextRetryingThrottled(info);
+      var batch =
+          withMeasurement(
+              info.mongoClient,
+              ChangeStreamMongoClient::getNext,
+              info.indexManager
+                  .indexMetricsUpdater
+                  .getReplicationMetricsUpdater()
+                  .getSteadyStateMetrics());
 
       var batchInfo =
           info.indexManager.indexBatch(
@@ -411,77 +362,6 @@ final class SyncChangeStreamDispatcher implements ChangeStreamDispatcher {
       this.batchesInProgressTotal
           .get(getIndexTypeTag(info.indexManager.indexDefinition))
           .decrementAndGet();
-    }
-  }
-
-  /**
-   * Fetches the next batch, retrying the <em>same</em> cursor when mongod rejects the getMore due
-   * to load shedding (see {@link Errors#THROTTLING_ERROR_CODES}).
-   *
-   * <p>Rethrows the last exception once {@link #MAX_THROTTLING_RETRIES} is exhausted, incrementing
-   * {@code getMoreThrottlingRetriesExhausted} so an exhausted budget is distinguishable from a
-   * retry that succeeded.
-   */
-  private ChangeStreamBatch getNextRetryingThrottled(ChangeStreamIndexingInfo info)
-      throws SteadyStateException {
-    var steadyStateMetrics =
-        info.indexManager
-            .indexMetricsUpdater
-            .getReplicationMetricsUpdater()
-            .getSteadyStateMetrics();
-
-    for (int retries = 0; ; retries++) {
-      try {
-        return withMeasurement(
-            info.mongoClient, ChangeStreamMongoClient::getNext, steadyStateMetrics);
-      } catch (SteadyStateException ex) {
-        // Counted before any of the guards below, so the metric reflects how often mongod shed a
-        // replication request regardless of the feature flag or what we do about it.
-        this.overloadRejections.recordIfOverload(ex);
-
-        boolean shuttingDown = this.shutdown || info.indexManager.isShutdown();
-        // TODO(CLOUDP-443150): Move retries to the low-level clients before using this retry path
-        // with partitioned clients; a failed fetch may have consumed an undelivered rename batch.
-        boolean retryable =
-            this.retryThrottledGetMoreOnSameCursor
-                && MongoExceptionUtils.isThrottling(ex)
-                && !shuttingDown;
-
-        if (!retryable || retries >= MAX_THROTTLING_RETRIES) {
-          // Only an exhausted budget counts: the other paths never intended to retry.
-          if (retryable) {
-            this.throttlingRetriesExhausted.increment();
-            LOG.atWarn()
-                .addKeyValue("indexId", info.indexManager.getGenerationId().indexId)
-                .addKeyValue("retries", retries)
-                .setCause(ex)
-                .log("exhausted throttling retries for getMore, failing the batch");
-          }
-          throw ex;
-        }
-
-        GenerationId generationId = info.indexManager.getGenerationId();
-        LOG.atInfo()
-            .addKeyValue("indexId", generationId.indexId)
-            .addKeyValue("generationId", generationId)
-            .addKeyValue("retry", retries + 1)
-            .setCause(ex)
-            .log("getMore was throttled by mongod, retrying on the same cursor");
-
-        this.throttlingRetries.increment();
-        sleepWithFullJitter(THROTTLING_RETRY_BACKOFF);
-      }
-    }
-  }
-
-  /** Sleeps for a duration drawn uniformly from [0, backoff). */
-  private void sleepWithFullJitter(Duration backoff) throws SteadyStateException {
-    try {
-      this.sleeper.sleep(
-          Duration.ofMillis(ThreadLocalRandom.current().nextLong(backoff.toMillis())));
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw SteadyStateException.createShutDown();
     }
   }
 

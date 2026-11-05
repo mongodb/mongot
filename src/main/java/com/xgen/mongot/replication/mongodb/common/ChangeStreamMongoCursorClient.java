@@ -20,6 +20,7 @@ import io.micrometer.core.instrument.Tags;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
@@ -48,6 +49,8 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
   private final Optional<Integer> batchSize;
   private final Optional<Integer> maxTimeMs;
   private final MetricsFactory ftdcMetricsFactory;
+  private final Optional<OverloadRejectionMetrics> overloadRejections;
+  private final Optional<ChangeStreamThrottlingRetry> changeStreamThrottlingRetry;
 
   private State state;
   private @LazyInit RefreshingClientSession<ClientSession> refreshingSession;
@@ -79,6 +82,8 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
         ftdcRegistry,
         exceptionWrapper,
         batchSize,
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -93,6 +98,10 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
    * @param batchSize optional change-stream getMore batch size
    * @param maxTimeMs optional maxTimeMS to apply to the change-stream aggregate command (driver 5.x
    *     applies it via the operation's {@code TimeoutContext}; see {@code BatchMongoClient})
+   * @param overloadRejections counts every request on this client that mongod rejected for
+   *     overload, whether or not it is retried. Empty disables counting.
+   * @param changeStreamThrottlingRetry retries getMores that mongod sheds for overload. Empty
+   *     disables the retry.
    */
   public ChangeStreamMongoCursorClient(
       GenerationId generationId,
@@ -102,7 +111,9 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
       MeterRegistry ftdcRegistry,
       WrapIfThrows<E> exceptionWrapper,
       Optional<Integer> batchSize,
-      Optional<Integer> maxTimeMs) {
+      Optional<Integer> maxTimeMs,
+      Optional<OverloadRejectionMetrics> overloadRejections,
+      Optional<ChangeStreamThrottlingRetry> changeStreamThrottlingRetry) {
     Check.isNotNull(mongoClient, "mongoClient");
     Check.isNotNull(sessionRefresher, "sessionRefresher");
 
@@ -119,6 +130,8 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
     this.state = State.OPEN_CURSOR;
     this.batchSize = batchSize;
     this.maxTimeMs = maxTimeMs;
+    this.overloadRejections = overloadRejections;
+    this.changeStreamThrottlingRetry = changeStreamThrottlingRetry;
     this.ftdcMetricsFactory =
         new MetricsFactory(
             "indexing.changeStreamMongoCursorClient",
@@ -134,7 +147,14 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
   public ChangeStreamBatch getNext() throws E {
     switch (this.state) {
       case OPEN_CURSOR:
-        this.openCursor();
+        try {
+          this.openCursor();
+        } catch (Exception e) {
+          // Counted, but not retried: a shed open fails to the resume path, which needs no cursor.
+          // Retrying here would register a new session on every attempt.
+          recordIfOverload(e);
+          throw e;
+        }
       // fall through
 
       case GET_MORE:
@@ -189,7 +209,19 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
 
     return this.exceptionWrapper.wrapIfThrows(
         () -> {
-          var nextBatch = this.batchCursor.tryNext();
+          Callable<List<RawBsonDocument>> attempt =
+              () -> {
+                try {
+                  return this.batchCursor.tryNext();
+                } catch (RuntimeException e) {
+                  recordIfOverload(e);
+                  throw e;
+                }
+              };
+          var nextBatch =
+              this.changeStreamThrottlingRetry.isPresent()
+                  ? this.changeStreamThrottlingRetry.get().run(attempt)
+                  : attempt.call();
           var postBatchResumeToken =
               throwIfNull(this.batchCursor.getPostBatchResumeToken(), "getPostBatchResumeToken");
           return new ChangeStreamBatch(
@@ -236,6 +268,10 @@ public class ChangeStreamMongoCursorClient<E extends Exception>
                   + clusterTime.toJson()));
     }
     return Optional.of(value.asTimestamp());
+  }
+
+  private void recordIfOverload(Throwable throwable) {
+    this.overloadRejections.ifPresent(metrics -> metrics.recordIfOverload(throwable));
   }
 
   @Override

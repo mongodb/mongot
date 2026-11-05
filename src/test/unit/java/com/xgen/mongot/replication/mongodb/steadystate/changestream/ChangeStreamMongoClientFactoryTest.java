@@ -69,7 +69,12 @@ public class ChangeStreamMongoClientFactoryTest {
 
     ChangeStreamMongoClient<?> client =
         factory.resumeTimedModeAwareChangeStream(
-            GENERATION_ID, resumeInfo(), SearchIndexDefinitionBuilder.VALID_INDEX, false, false);
+            GENERATION_ID,
+            resumeInfo(),
+            SearchIndexDefinitionBuilder.VALID_INDEX,
+            false,
+            false,
+            () -> false);
 
     assertThat(client).isInstanceOf(TimedChangeStreamClient.class);
   }
@@ -95,7 +100,12 @@ public class ChangeStreamMongoClientFactoryTest {
 
     ChangeStreamMongoClient<?> client =
         factory.resumeTimedModeAwareChangeStream(
-            GENERATION_ID, resumeInfo(), SearchIndexDefinitionBuilder.VALID_INDEX, false, true);
+            GENERATION_ID,
+            resumeInfo(),
+            SearchIndexDefinitionBuilder.VALID_INDEX,
+            false,
+            true,
+            () -> false);
 
     assertThat(client).isInstanceOf(PartitionedChangeStreamClient.class);
     client.close();
@@ -113,7 +123,7 @@ public class ChangeStreamMongoClientFactoryTest {
         fixture
             .factory()
             .resumeTimedModeAwareChangeStream(
-                GENERATION_ID, resumeInfo(), definition, false, false)) {
+                GENERATION_ID, resumeInfo(), definition, false, false, () -> false)) {
       assertThat(client).isInstanceOf(TimedChangeStreamClient.class);
       assertThat(client.getNext().getPartition()).isEmpty();
       fixture.mode().set(ChangeStreamMode.INDEXED_FIELDS);
@@ -214,7 +224,7 @@ public class ChangeStreamMongoClientFactoryTest {
         fixture
             .factory()
             .resumeTimedModeAwareChangeStream(
-                GENERATION_ID, resumeInfo(), definition, false, false)) {
+                GENERATION_ID, resumeInfo(), definition, false, false, () -> false)) {
       assertThat(client).isInstanceOf(TimedChangeStreamClient.class);
       assertThat(client.getNext().getPartition()).isEmpty();
       fixture.mode().set(ChangeStreamMode.INDEXED_FIELDS);
@@ -242,7 +252,8 @@ public class ChangeStreamMongoClientFactoryTest {
                 resumeInfo(),
                 SearchIndexDefinitionBuilder.VALID_INDEX,
                 false,
-                true)) {
+                true,
+                () -> false)) {
       client.getNext();
 
       assertThat(fixture.cursors()).hasSize(3);

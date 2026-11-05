@@ -320,8 +320,7 @@ public class ChangeStreamManager {
             meterAndFtdcRegistry.meterRegistry(),
             mongoClientFactory,
             taskExecutor,
-            replicationConfig.getReplicationType(),
-            replicationConfig.getRetryThrottledGetMoreOnSameCursor());
+            replicationConfig.getReplicationType());
 
     PartitionTrackerFactory partitionTrackerFactory =
         resumeInfo -> createPartitionTracker(replicationConfig, resumeInfo);
