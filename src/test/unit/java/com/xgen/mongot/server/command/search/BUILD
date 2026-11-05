@@ -18,6 +18,7 @@ java_test_suite(
         "VectorSearchCommandIndexSizeMetricsTest.java",
         "VectorSearchCommandOfflineServeTest.java",
         "VectorSearchCommandTest.java",
+        "VectorSearchStageAutoEmbedValidatorTest.java",
     ],
     tags = ["unit"],
     deps = [

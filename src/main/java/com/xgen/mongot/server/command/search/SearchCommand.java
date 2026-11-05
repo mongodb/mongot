@@ -389,6 +389,11 @@ public class SearchCommand implements Command {
       return queryDefinition;
     }
 
+    // The source path is the public input. Accepting _autoEmbed.* here would skip the rewrite and
+    // the queryVector dtype reconciliation below, so the query would silently search an empty
+    // vector field when the indexed encoding does not match.
+    VectorSearchStageAutoEmbedValidator.validateNotReservedAutoEmbedPath(criteria.path());
+
     var autoEmbeddingFieldsMapping =
         SearchAutoEmbeddingHelper.resolveAutoEmbeddingFieldsMapping(
             this.indexCatalog,

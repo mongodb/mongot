@@ -119,6 +119,21 @@ public class SearchCommandAutoEmbedQueryVectorTest {
   }
 
   @Test
+  public void queryVectorOnInternalAutoEmbedPath_isRejected() {
+    FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
+    Fixture fixture =
+        fixture(QUERY_PATH, VectorAutoEmbedQuantization.FLOAT, Map.of(QUERY_PATH, matViewPath));
+
+    InvalidQueryException error =
+        Assert.assertThrows(InvalidQueryException.class, () -> translate(fixture, matViewPath));
+
+    assertThat(error)
+        .hasMessageThat()
+        .contains(
+            "Path '_autoEmbed.description' is reserved for internal automated embeddings fields");
+  }
+
+  @Test
   public void queryVectorOnRegularVectorField_isLeftUnchanged() throws Exception {
     FieldPath matViewPath = FieldPath.parse("_autoEmbed.description");
     Fixture fixture =

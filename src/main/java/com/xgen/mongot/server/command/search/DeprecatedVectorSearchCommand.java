@@ -14,6 +14,7 @@ import com.xgen.mongot.cursor.SearchCursorInfo;
 import com.xgen.mongot.cursor.batch.QueryCursorOptions;
 import com.xgen.mongot.cursor.serialization.MongotCursorBatch;
 import com.xgen.mongot.cursor.serialization.MongotCursorResult;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.IndexGeneration;
@@ -21,6 +22,8 @@ import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.QuarantinedIndexException;
 import com.xgen.mongot.index.ReaderClosedException;
+import com.xgen.mongot.index.definition.IndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.lucene.explain.explainers.MetadataFeatureExplainer;
 import com.xgen.mongot.index.lucene.explain.tracing.Explain;
 import com.xgen.mongot.index.lucene.explain.tracing.ExplainQueryState;
@@ -36,12 +39,15 @@ import com.xgen.mongot.server.command.search.definition.request.VectorSearchComm
 import com.xgen.mongot.server.message.MessageUtils;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
@@ -147,6 +153,8 @@ public class DeprecatedVectorSearchCommand implements Command {
       if (initializedIndex.isPresent()) {
         if (initializedIndex.get().getType() == Type.VECTOR) {
           // If query is running against vector index, delegate execution to the new command.
+          // TODO(CLOUDP-471842): Reject reserved _autoEmbed paths in the path, filter, and
+          // parentFilter for auto-embedding vector indexes too.
           Command vectorCommand = this.vectorCommandFactory.create(this.definition);
           // Propagate important info between the two Commands.
           // Envoy metadata must be ready before the run.
@@ -163,6 +171,7 @@ public class DeprecatedVectorSearchCommand implements Command {
           this.createdCursorIds.addAll(vectorCommand.getCreatedCursorIds());
           return response;
         } else {
+          validateAutoEmbedPaths(query, initializedIndex.get());
           var metricsUpdater =
               initializedIndex.get().getMetricsUpdater().getQueryingMetricsUpdater();
           metricsUpdater.getVectorSearchQueriesOverSearchIndexes().increment();
@@ -221,6 +230,44 @@ public class DeprecatedVectorSearchCommand implements Command {
   @Override
   public List<Long> getCreatedCursorIds() {
     return List.copyOf(this.createdCursorIds);
+  }
+
+  /**
+   * Rejects a query against a search index with auto-embedding fields. This route skips the $search
+   * auto-embedding rewrite, so it cannot embed query text, and its filter would read source paths
+   * whose text the materialized view consumed, silently matching nothing or, negated, everything.
+   */
+  private void validateAutoEmbedPaths(VectorSearchQuery query, InitializedIndex index)
+      throws InvalidQueryException {
+    if (!(index.getDefinition() instanceof SearchIndexDefinition servedDefinition)) {
+      return;
+    }
+    Optional<IndexDefinition> autoEmbedDefinition =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingDefinition(
+            this.indexCatalog,
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            query.index(),
+            servedDefinition);
+    if (autoEmbedDefinition.isEmpty()
+        || !(autoEmbedDefinition.get() instanceof SearchIndexDefinition searchDefinition)) {
+      return;
+    }
+    Map<FieldPath, FieldPath> materializedViewPaths =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingFieldsMapping(
+            this.indexCatalog,
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            query.index());
+    Map<FieldPath, FieldPath> sourcePaths = new HashMap<>(materializedViewPaths);
+    for (FieldPath path : searchDefinition.getAutoEmbedFields().byPath().keySet()) {
+      sourcePaths.putIfAbsent(
+          path, AutoEmbedFieldMappingCreator.getMatViewFieldPath(path, materializedViewPaths));
+    }
+    VectorSearchStageAutoEmbedValidator.validateVectorSearchStage(
+        query, sourcePaths, servedDefinition);
   }
 
   private BsonDocument getBatch(Query query, boolean populateCursorResult)

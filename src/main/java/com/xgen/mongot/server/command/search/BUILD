@@ -17,6 +17,7 @@ java_library(
         "ShardedSearchPlannerException.java",
         "VectorQueryEmbedder.java",
         "VectorSearchCommand.java",
+        "VectorSearchStageAutoEmbedValidator.java",
     ],
     visibility = ["//visibility:public"],
     exports = [
@@ -60,6 +61,7 @@ java_library(
         "//src/main/java/com/xgen/mongot/index/query/counts",
         "//src/main/java/com/xgen/mongot/index/query/highlights",
         "//src/main/java/com/xgen/mongot/index/query/operators",
+        "//src/main/java/com/xgen/mongot/index/query/operators/mql",
         "//src/main/java/com/xgen/mongot/index/query/sort",
         "//src/main/java/com/xgen/mongot/index/version",
         "//src/main/java/com/xgen/mongot/metrics",
