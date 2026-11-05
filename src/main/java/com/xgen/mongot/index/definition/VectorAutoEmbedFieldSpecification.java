@@ -164,6 +164,9 @@ public final class VectorAutoEmbedFieldSpecification extends VectorFieldSpecific
 
   public static VectorAutoEmbedFieldSpecification fromBson(DocumentParser parser)
       throws BsonParseException {
+    // TODO(CLOUDP-472812): hold modality as the Modality enum, still accepting any casing here and
+    // writing "text" so the materialized view hash is unchanged. Model and modality stay lowercased
+    // because production vector indexes may already store mixed-case values like "tEXt".
     String modelName = parser.getField(Fields.MODEL).unwrap().toLowerCase(Locale.ROOT);
     String modality = parser.getField(Fields.MODALITY).unwrap().toLowerCase(Locale.ROOT);
 

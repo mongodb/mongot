@@ -7,7 +7,6 @@ import com.xgen.mongot.util.bson.parser.BsonDocumentBuilder;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.bson.parser.DocumentParser;
 import com.xgen.mongot.util.bson.parser.Field;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import org.bson.BsonDocument;
@@ -21,22 +20,20 @@ import org.bson.BsonDocument;
 public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition {
 
   private static class Fields {
-    static final Field.Required<String> MODEL = Field.builder("model").stringField().required();
-    static final Field.Required<String> MODALITY =
-        Field.builder("modality")
+    static final Field.Required<String> MODEL =
+        Field.builder("model")
             .stringField()
-            .validate(
-                modality ->
-                    modality.equalsIgnoreCase(DEFAULT_MODALITY)
-                        ? java.util.Optional.empty()
-                        : java.util.Optional.of("must be '" + DEFAULT_MODALITY + "'"))
+            .validate(SearchAutoEmbedFieldDefinition::lowercaseViolation)
             .required();
+    static final Field.Required<Modality> MODALITY =
+        Field.builder("modality").enumField(Modality.class).asCamelCase().required();
   }
 
   private final VectorAutoEmbedFieldSpecification specification;
+  private final Modality modality;
 
   public SearchAutoEmbedFieldDefinition(String modelName, String modality) {
-    this(resolveSpecificationFromModelConfig(modelName, modality));
+    this(resolveSpecificationFromModelConfig(modelName, modality), Modality.fromValue(modality));
   }
 
   public SearchAutoEmbedFieldDefinition(String modelName) {
@@ -45,7 +42,27 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
 
   /** Creates a Search auto-embed definition with an explicit, already-resolved specification. */
   public SearchAutoEmbedFieldDefinition(VectorAutoEmbedFieldSpecification specification) {
-    this.specification = validateResolvedSpecification(specification);
+    this(
+        validateResolvedSpecification(specification), Modality.fromValue(specification.modality()));
+  }
+
+  private SearchAutoEmbedFieldDefinition(
+      VectorAutoEmbedFieldSpecification specification, Modality modality) {
+    this.specification = specification;
+    this.modality = modality;
+  }
+
+  /** Returns the parse error message when {@code modelName} is not lowercase, else empty. */
+  private static Optional<String> lowercaseViolation(String modelName) {
+    return modelName.chars().anyMatch(Character::isUpperCase)
+        ? Optional.of("must be lowercase")
+        : Optional.empty();
+  }
+
+  private static void requireLowercaseModel(String modelName) {
+    if (lowercaseViolation(modelName).isPresent()) {
+      throw new IllegalArgumentException(String.format("model '%s' must be lowercase", modelName));
+    }
   }
 
   private static Optional<VectorFieldSpecification.HnswOptions> hnswOptions(
@@ -60,10 +77,6 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
 
   public String modelName() {
     return this.specification.modelName();
-  }
-
-  public String modality() {
-    return this.specification.modality();
   }
 
   public VectorAutoEmbedFieldSpecification specification() {
@@ -83,7 +96,7 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
   public BsonDocument fieldTypeToBson() {
     return BsonDocumentBuilder.builder()
         .field(Fields.MODEL, this.specification.modelName())
-        .field(Fields.MODALITY, this.specification.modality())
+        .field(Fields.MODALITY, this.modality)
         .field(
             VectorAutoEmbedFieldSpecification.Fields.NUM_DIMENSIONS,
             Optional.of(this.specification.numDimensions()))
@@ -104,8 +117,8 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
   }
 
   static SearchAutoEmbedFieldDefinition fromBson(DocumentParser parser) throws BsonParseException {
-    String modelName = parser.getField(Fields.MODEL).unwrap().toLowerCase(Locale.ROOT);
-    String modality = parser.getField(Fields.MODALITY).unwrap().toLowerCase(Locale.ROOT);
+    String modelName = parser.getField(Fields.MODEL).unwrap();
+    String modality = parser.getField(Fields.MODALITY).unwrap().value();
 
     var indexingMethod = parser.getField(VectorFieldSpecification.Fields.INDEXING_ALGORITHM);
     Optional<VectorFieldSpecification.HnswOptions> hnswOptions =
@@ -139,6 +152,7 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
   /** Rejects resolved settings that the vector field cannot index. */
   private static VectorAutoEmbedFieldSpecification validateResolvedSpecification(
       VectorAutoEmbedFieldSpecification specification) {
+    requireLowercaseModel(specification.modelName());
     try {
       VectorAutoEmbedFieldSpecification.validateResolvedParams(
           specification.numDimensions(),
@@ -157,19 +171,18 @@ public final class SearchAutoEmbedFieldDefinition implements FieldTypeDefinition
    */
   private static VectorAutoEmbedFieldSpecification resolveSpecificationFromModelConfig(
       String modelName, String modality) {
-    String canonicalModelName = modelName.toLowerCase(Locale.ROOT);
-    String canonicalModality = modality.toLowerCase(Locale.ROOT);
+    requireLowercaseModel(modelName);
     try {
       VectorAutoEmbedFieldSpecification.ResolvedAutoEmbedVectorParams resolved =
           VectorAutoEmbedFieldSpecification.resolveSearchAutoEmbedVectorParams(
-              canonicalModelName, Optional.empty(), Optional.empty(), Optional.empty());
+              modelName, Optional.empty(), Optional.empty(), Optional.empty());
       return new VectorAutoEmbedFieldSpecification(
           resolved.numDimensions(),
           resolved.similarity(),
           resolved.providerQuantization(),
           new VectorIndexingAlgorithm.HnswIndexingAlgorithm(),
-          canonicalModelName,
-          canonicalModality);
+          modelName,
+          modality);
     } catch (BsonParseException e) {
       throw new IllegalArgumentException(e.getMessage(), e);
     }

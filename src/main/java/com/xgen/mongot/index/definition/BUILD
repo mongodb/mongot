@@ -30,6 +30,7 @@ java_library(
         "InvalidViewDefinitionException.java",
         "KnnVectorFieldDefinition.java",
         "MaterializedViewIndexDefinitionGeneration.java",
+        "Modality.java",
         "NumberFacetFieldDefinition.java",
         "NumberFieldDefinition.java",
         "NumericFieldDefinition.java",

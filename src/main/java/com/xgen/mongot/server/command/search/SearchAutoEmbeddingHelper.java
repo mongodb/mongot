@@ -115,10 +115,12 @@ final class SearchAutoEmbeddingHelper {
               "model '%s' is not allowed. Allowed models are: %s",
               queryModel.get(), EmbeddingModelCatalog.getAllowedQueryModels()));
     }
-    // Catalog model keys are stored lowercased: getCompatibleIndexModels and isQueryModelAllowed
-    // lowercase queryModel internally, so only indexModelName needs normalizing for the lookup.
+    // Both callers pass a lowercase index model: Search autoEmbed accessors are canonical
+    // lowercase, and vector autoEmbed model names are lowercased while parsing. If that vector
+    // normalization is removed (see TODO(CLOUDP-472812) in VectorAutoEmbedFieldSpecification), this
+    // lookup needs to normalize or the guarantee needs to be replaced.
     if (!EmbeddingModelCatalog.getCompatibleIndexModels(queryModel.get())
-        .contains(indexModelName.toLowerCase())) {
+        .contains(indexModelName)) {
       throw new InvalidQueryException(
           String.format(
               "query model '%s' is not compatible with the index model '%s'",

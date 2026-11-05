@@ -21,6 +21,7 @@ java_test_suite(
         "IndexSortValidatorTest.java",
         "KnnVectorFieldDefinitionTest.java",
         "MaterializedViewIndexDefinitionGenerationTest.java",
+        "ModalityTest.java",
         "NumberFacetFieldDefinitionTest.java",
         "NumberFieldDefinitionTest.java",
         "ObjectIdFieldDefinitionTest.java",

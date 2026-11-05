@@ -63,24 +63,57 @@ public class SearchAutoEmbedFieldDefinitionTest {
   }
 
   @Test
-  public void fromBson_normalizesModelAndModalityToLowerCase() throws Exception {
+  public void fromBson_uppercaseModelFailsToParse() {
     BsonDocument bson =
         BsonDocument.parse(
             """
             {
               "type": "autoEmbed",
               "model": "Voyage-3-Large",
+              "modality": "text"
+            }
+            """);
+
+    BsonParseException exception = assertThrows(BsonParseException.class, () -> parse(bson));
+
+    assertThat(exception.getMessage()).contains("must be lowercase");
+  }
+
+  @Test
+  public void fromBson_uppercaseModalityFailsToParse() {
+    BsonDocument bson =
+        BsonDocument.parse(
+            """
+            {
+              "type": "autoEmbed",
+              "model": "voyage-3-large",
               "modality": "TEXT"
             }
             """);
 
-    SearchAutoEmbedFieldDefinition definition = parse(bson);
-    BsonDocument serialized = definition.fieldTypeToBson();
+    BsonParseException exception = assertThrows(BsonParseException.class, () -> parse(bson));
 
-    assertThat(definition.modelName()).isEqualTo("voyage-3-large");
-    assertThat(definition.modality()).isEqualTo("text");
-    assertThat(serialized.getString("model").getValue()).isEqualTo("voyage-3-large");
-    assertThat(serialized.getString("modality").getValue()).isEqualTo("text");
+    assertThat(exception.getMessage()).contains("must be one of [text]");
+  }
+
+  @Test
+  public void constructor_uppercaseModel_throws() {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new SearchAutoEmbedFieldDefinition("Voyage-3-Large"));
+
+    assertThat(exception.getMessage()).contains("must be lowercase");
+  }
+
+  @Test
+  public void constructor_uppercaseModality_throws() {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new SearchAutoEmbedFieldDefinition(MODEL, "TEXT"));
+
+    assertThat(exception.getMessage()).contains("must be one of [text]");
   }
 
   @Test

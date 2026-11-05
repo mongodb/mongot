@@ -11,9 +11,11 @@ import com.xgen.mongot.embedding.providers.configs.EmbeddingModelConfig;
 import com.xgen.mongot.embedding.providers.configs.EmbeddingServiceConfig;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification.ResolvedAutoEmbedVectorParams;
 import com.xgen.mongot.index.definition.quantization.VectorAutoEmbedQuantization;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
 import java.util.Map;
 import java.util.Optional;
+import org.bson.BsonDocument;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -35,6 +37,33 @@ public class VectorAutoEmbedFieldSpecificationTest {
   @After
   public void tearDown() {
     EmbeddingModelCatalog.clear();
+  }
+
+  @Test
+  public void fromBson_mixedCaseModelAndModality_normalizesToLowercase() throws Exception {
+    // Existing vector indexes may carry spellings such as modality "tEXt"; the vector path keeps
+    // accepting and normalizing them. Only Search autoEmbed rejects non-lowercase values.
+    BsonDocument bson =
+        BsonDocument.parse(
+            """
+            {
+              "type": "autoEmbed",
+              "path": "description",
+              "model": "Voyage-3-Large",
+              "modality": "tEXt",
+              "numDimensions": 1024,
+              "similarity": "cosine",
+              "quantization": "float"
+            }
+            """);
+
+    try (var parser = BsonDocumentParser.fromRoot(bson).allowUnknownFields(true).build()) {
+      VectorAutoEmbedFieldSpecification specification =
+          VectorAutoEmbedFieldSpecification.fromBson(parser);
+
+      assertThat(specification.modelName()).isEqualTo("voyage-3-large");
+      assertThat(specification.modality()).isEqualTo("text");
+    }
   }
 
   @Test

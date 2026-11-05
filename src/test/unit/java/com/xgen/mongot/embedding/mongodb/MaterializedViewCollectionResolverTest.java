@@ -23,10 +23,13 @@ import com.xgen.mongot.embedding.exceptions.MaterializedViewTransientException;
 import com.xgen.mongot.embedding.mongodb.common.AutoEmbeddingMongoClient;
 import com.xgen.mongot.embedding.mongodb.common.DefaultInternalDatabaseResolver;
 import com.xgen.mongot.embedding.mongodb.leasing.LeaseManager;
+import com.xgen.mongot.embedding.providers.configs.EmbeddingModelCatalog;
 import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
+import com.xgen.mongot.index.definition.FieldTypeDefinition;
 import com.xgen.mongot.index.definition.MaterializedViewIndexDefinitionGeneration;
 import com.xgen.mongot.index.definition.SearchAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
+import com.xgen.mongot.index.definition.VectorAutoEmbedFieldDefinition;
 import com.xgen.mongot.index.definition.VectorAutoEmbedFieldSpecification;
 import com.xgen.mongot.index.definition.VectorFieldSpecification;
 import com.xgen.mongot.index.definition.VectorIndexDefinition;
@@ -38,9 +41,12 @@ import com.xgen.mongot.index.version.MaterializedViewGeneration;
 import com.xgen.mongot.replication.mongodb.common.AutoEmbeddingMaterializedViewConfig;
 import com.xgen.mongot.replication.mongodb.common.CommonReplicationConfig;
 import com.xgen.mongot.util.FieldPath;
+import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
+import com.xgen.mongot.util.bson.parser.BsonParseException;
 import com.xgen.mongot.util.mongodb.SyncSourceConfig;
 import com.xgen.mongot.util.mongodb.serialization.MongoDbCollectionInfo;
 import com.xgen.testing.mongot.index.definition.DocumentFieldDefinitionBuilder;
+import com.xgen.testing.mongot.index.definition.EmbeddingModelCatalogTestUtils;
 import com.xgen.testing.mongot.index.definition.FieldDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.SearchIndexDefinitionBuilder;
 import com.xgen.testing.mongot.index.definition.VectorIndexDefinitionBuilder;
@@ -1196,14 +1202,6 @@ public class MaterializedViewCollectionResolverTest {
             baseline.similarity(),
             baseline.autoEmbedQuantization(),
             baseline.indexingAlgorithm());
-    VectorAutoEmbedFieldSpecification modalityChanged =
-        hashTestSpecWith(
-            baseline.modelName(),
-            "image",
-            baseline.numDimensions(),
-            baseline.similarity(),
-            baseline.autoEmbedQuantization(),
-            baseline.indexingAlgorithm());
     VectorAutoEmbedFieldSpecification dimensionsChanged =
         hashTestSpecWith(
             baseline.modelName(),
@@ -1226,12 +1224,75 @@ public class MaterializedViewCollectionResolverTest {
     assertThat(hashFor(indexingChanged)).isEqualTo(baselineHash);
     assertThat(hashFor(hnswChanged)).isEqualTo(baselineHash);
     assertThat(hashFor(modelChanged)).isNotEqualTo(baselineHash);
-    assertThat(hashFor(modalityChanged)).isNotEqualTo(baselineHash);
     assertThat(hashFor(dimensionsChanged)).isNotEqualTo(baselineHash);
     assertThat(hashFor(quantizationChanged)).isNotEqualTo(baselineHash);
   }
 
+  /**
+   * The materialized view hash for path {@code content}, model {@code voyage-3-large}, modality
+   * {@code text}, 1024 dimensions and FLOAT quantization. Existing materialized view collections
+   * are named by this value, so any change to it creates new collections and re-embeds every index.
+   */
+  private static final String PINNED_TEXT_HASH = "a914cc6f6ef733f489f5ff2db462b1b3";
+
+  @Test
+  public void computeHash_canonicalSpecification_matchesPinnedHash() {
+    assertThat(hashFor(hashTestSpec())).isEqualTo(PINNED_TEXT_HASH);
+    assertThat(vectorHashFor(hashTestSpec())).isEqualTo(PINNED_TEXT_HASH);
+  }
+
+  @Test
+  public void computeHash_searchAutoEmbedEntryPoints_matchPinnedHash() throws Exception {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel("voyage-3-large");
+    try {
+      assertThat(searchHashFor(new SearchAutoEmbedFieldDefinition("voyage-3-large")))
+          .isEqualTo(PINNED_TEXT_HASH);
+      assertThat(searchHashFor(new SearchAutoEmbedFieldDefinition("voyage-3-large", "text")))
+          .isEqualTo(PINNED_TEXT_HASH);
+      assertThat(
+              searchHashFor(
+                  parseSearchAutoEmbed(
+                      "{\"type\": \"autoEmbed\", \"model\": \"voyage-3-large\","
+                          + " \"modality\": \"text\"}")))
+          .isEqualTo(PINNED_TEXT_HASH);
+    } finally {
+      EmbeddingModelCatalog.clear();
+    }
+  }
+
+  @Test
+  public void computeHash_vectorAutoEmbedMixedCaseBson_matchesPinnedHash() throws Exception {
+    // Persisted vector definitions may store mixed case; vector parsing lowercases both values, so
+    // they keep the materialized view hash of the lowercase definition.
+    for (String model : List.of("voyage-3-large", "Voyage-3-Large", "VOYAGE-3-LARGE")) {
+      for (String modality : List.of("text", "Text", "TEXT", "tEXt")) {
+        assertThat(vectorHashFor(parseVectorAutoEmbed(model, modality)))
+            .isEqualTo(PINNED_TEXT_HASH);
+      }
+    }
+  }
+
+  @Test
+  public void computeHash_modalityChanged_changesHash() {
+    // Search autoEmbed only builds modality "text", so vary modality through a vector index.
+    VectorAutoEmbedFieldSpecification baseline = hashTestSpec();
+    VectorAutoEmbedFieldSpecification modalityChanged =
+        hashTestSpecWith(
+            baseline.modelName(),
+            "image",
+            baseline.numDimensions(),
+            baseline.similarity(),
+            baseline.autoEmbedQuantization(),
+            baseline.indexingAlgorithm());
+
+    assertThat(vectorHashFor(modalityChanged)).isNotEqualTo(PINNED_TEXT_HASH);
+  }
+
   private static String hashFor(VectorAutoEmbedFieldSpecification specification) {
+    return searchHashFor(new SearchAutoEmbedFieldDefinition(specification));
+  }
+
+  private static String searchHashFor(SearchAutoEmbedFieldDefinition autoEmbed) {
     SearchIndexDefinition definition =
         SearchIndexDefinitionBuilder.builder()
             .defaultMetadata()
@@ -1245,13 +1306,50 @@ public class MaterializedViewCollectionResolverTest {
                     .dynamic(false)
                     .field(
                         "content",
-                        FieldDefinitionBuilder.builder()
-                            .searchAutoEmbed(new SearchAutoEmbedFieldDefinition(specification))
-                            .build())
+                        FieldDefinitionBuilder.builder().searchAutoEmbed(autoEmbed).build())
                     .build())
             .build();
     return MaterializedViewCollectionResolver.computeHash(
         AutoEmbedFieldMappingCreator.createAutoEmbedMapping(definition));
+  }
+
+  private static String vectorHashFor(VectorAutoEmbedFieldSpecification specification) {
+    VectorIndexDefinition definition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition(FieldPath.parse("content"), specification)))
+            .build();
+    return MaterializedViewCollectionResolver.computeHash(
+        AutoEmbedFieldMappingCreator.createAutoEmbedMapping(definition));
+  }
+
+  private static SearchAutoEmbedFieldDefinition parseSearchAutoEmbed(String json)
+      throws BsonParseException {
+    try (var parser = BsonDocumentParser.fromRoot(BsonDocument.parse(json)).build()) {
+      return (SearchAutoEmbedFieldDefinition) FieldTypeDefinition.fromBson(parser);
+    }
+  }
+
+  private static VectorAutoEmbedFieldSpecification parseVectorAutoEmbed(
+      String model, String modality) throws BsonParseException {
+    BsonDocument bson =
+        BsonDocument.parse(
+            """
+            {
+              "type": "autoEmbed",
+              "path": "content",
+              "model": "%s",
+              "modality": "%s",
+              "numDimensions": 1024,
+              "similarity": "cosine",
+              "quantization": "float"
+            }
+            """
+                .formatted(model, modality));
+    try (var parser = BsonDocumentParser.fromRoot(bson).allowUnknownFields(true).build()) {
+      return VectorAutoEmbedFieldSpecification.fromBson(parser);
+    }
   }
 
   private static VectorAutoEmbedFieldSpecification hashTestSpec() {

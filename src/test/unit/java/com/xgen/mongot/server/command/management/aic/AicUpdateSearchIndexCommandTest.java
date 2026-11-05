@@ -509,6 +509,66 @@ public class AicUpdateSearchIndexCommandTest {
   }
 
   @Test
+  public void testSearchAutoEmbedUpdateWithUppercaseModel_rejected()
+      throws MetadataServiceException {
+    String model = "aic-update-search-ae-uppercase-model";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    assertSearchAutoEmbedUpdateRejected(model, model.toUpperCase(), "text", "must be lowercase");
+  }
+
+  @Test
+  public void testSearchAutoEmbedUpdateWithUppercaseModality_rejected()
+      throws MetadataServiceException {
+    String model = "aic-update-search-ae-uppercase-modality";
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(model);
+
+    assertSearchAutoEmbedUpdateRejected(model, model, "TEXT", "must be one of [text]");
+  }
+
+  /**
+   * Runs an update of an existing Search autoEmbed index whose requested definition is raw BSON, so
+   * the mixed-case value reaches the command's own parse step, and asserts a BAD_VALUE response
+   * that leaves the catalog untouched.
+   */
+  private static void assertSearchAutoEmbedUpdateRejected(
+      String existingModel, String requestedModel, String requestedModality, String expectedMessage)
+      throws MetadataServiceException {
+    var mockAic = mock(AuthoritativeIndexCatalog.class);
+    var indexId = new ObjectId();
+    when(mockAic.listIndexes(COLLECTION_UUID))
+        .thenReturn(List.of(toIndexEntry(autoEmbedSearchIndex(indexId, existingModel))));
+
+    BsonDocument requestedDefinition =
+        bson(
+            """
+            {
+              "mappings": {
+                "dynamic": false,
+                "fields": {
+                  "embedding": {"type": "autoEmbed", "model": "%s", "modality": "%s"}
+                }
+              }
+            }
+            """
+                .formatted(requestedModel, requestedModality));
+    var updateDefinition =
+        new UpdateSearchIndexCommandDefinition(
+            COLLECTION_NAME,
+            Optional.of(indexId),
+            Optional.empty(),
+            Optional.empty(),
+            requestedDefinition);
+
+    BsonDocument response = makeTarget(mockAic, updateDefinition).run();
+
+    assertEquals(0, response.getInt32("ok").getValue());
+    assertEquals(Errors.BAD_VALUE.code, response.getInt32("code").getValue());
+    assertTrue(response.getString("errmsg").getValue().contains(expectedMessage));
+    verify(mockAic, never()).updateIndex(any(), any(), any());
+  }
+
+  @Test
   public void testSearchAutoEmbedUpdateWithDynamicMappings_rejected()
       throws MetadataServiceException {
     String model = "aic-update-search-ae-dynamic";

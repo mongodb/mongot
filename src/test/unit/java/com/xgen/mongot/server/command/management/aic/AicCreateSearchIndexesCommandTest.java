@@ -636,6 +636,66 @@ public class AicCreateSearchIndexesCommandTest {
   }
 
   @Test
+  public void searchAutoEmbedWithUppercaseModelFailsToParse() {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    BsonDocument indexDefinition =
+        bson(
+            """
+            {
+              "name": "ae-uppercase-model",
+              "type": "search",
+              "definition": {
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {
+                    "embedding": {
+                      "type": "autoEmbed",
+                      "model": "%s",
+                      "modality": "text"
+                    }
+                  }
+                }
+              }
+            }
+            """
+                .formatted(AE_MODEL.toUpperCase()));
+
+    BsonParseException exception =
+        assertThrows(BsonParseException.class, () -> parseNamedSearchIndex(indexDefinition));
+    assertTrue(exception.getMessage().contains("must be lowercase"));
+  }
+
+  @Test
+  public void searchAutoEmbedWithUppercaseModalityFailsToParse() {
+    EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
+    BsonDocument indexDefinition =
+        bson(
+            """
+            {
+              "name": "ae-uppercase-modality",
+              "type": "search",
+              "definition": {
+                "mappings": {
+                  "dynamic": false,
+                  "fields": {
+                    "embedding": {
+                      "type": "autoEmbed",
+                      "model": "%s",
+                      "modality": "TEXT"
+                    }
+                  }
+                }
+              }
+            }
+            """
+                .formatted(AE_MODEL));
+
+    BsonParseException exception =
+        assertThrows(BsonParseException.class, () -> parseNamedSearchIndex(indexDefinition));
+    assertTrue(exception.getMessage().contains("must be one of [text]"));
+  }
+
+  @Test
   public void searchAutoEmbedWithDynamicMappingsFailsToCreate()
       throws BsonParseException, MetadataServiceException {
     EmbeddingModelCatalogTestUtils.registerAutoEmbedModel(AE_MODEL);
@@ -850,6 +910,13 @@ public class AicCreateSearchIndexesCommandTest {
         exception
             .getMessage()
             .contains("cannot define fields of type autoEmbed inside an embeddedDocuments field"));
+  }
+
+  private static NamedSearchIndex parseNamedSearchIndex(BsonDocument indexDefinition)
+      throws BsonParseException {
+    try (var parser = BsonDocumentParser.fromRoot(indexDefinition).build()) {
+      return NamedSearchIndex.fromBson(parser);
+    }
   }
 
   private void failsWithBadValue(String expectedMessagePart, BsonDocument indexDefinition)
