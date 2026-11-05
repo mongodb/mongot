@@ -33,10 +33,13 @@ import com.xgen.mongot.featureflag.FeatureFlags;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlagRegistry;
 import com.xgen.mongot.index.CountResult;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexMetricsUpdater;
+import com.xgen.mongot.index.IndexTypeData;
 import com.xgen.mongot.index.InitializedSearchIndex;
 import com.xgen.mongot.index.MetaResults;
 import com.xgen.mongot.index.autoembedding.UnresolvedAutoEmbeddingIndexGeneration;
 import com.xgen.mongot.index.definition.AnalyzerBoundSearchIndexDefinition;
+import com.xgen.mongot.index.definition.SearchIndexCapabilities;
 import com.xgen.mongot.index.definition.SearchIndexDefinition;
 import com.xgen.mongot.index.definition.SearchIndexDefinitionGeneration;
 import com.xgen.mongot.index.query.OperatorQuery;
@@ -122,6 +125,16 @@ public class SearchCommandOfflineServeTest {
     when(reconstructed.getStatus())
         .thenReturn(IndexStatus.stale("serving offline", new BsonTimestamp(7, 1)));
     when(reconstructed.getDefinition()).thenReturn(derivedDef);
+    IndexMetricsUpdater.QueryingMetricsUpdater queryingMetrics =
+        new IndexMetricsUpdater.QueryingMetricsUpdater(
+            SearchIndex.mockMetricsFactory(),
+            IndexTypeData.IndexTypeTag.TAG_SEARCH_AUTO_EMBEDDING,
+            SearchIndexCapabilities.CURRENT_FEATURE_VERSION,
+            true,
+            /* isSearchAggregationEnabled= */ true);
+    IndexMetricsUpdater indexMetricsUpdater = mock(IndexMetricsUpdater.class);
+    when(indexMetricsUpdater.getQueryingMetricsUpdater()).thenReturn(queryingMetrics);
+    when(reconstructed.getMetricsUpdater()).thenReturn(indexMetricsUpdater);
     IndexGeneration unresolvedGeneration =
         UnresolvedAutoEmbeddingIndexGeneration.createStale(rawGen, reconstructed, FIELDS_MAPPING);
 
@@ -164,6 +177,8 @@ public class SearchCommandOfflineServeTest {
     BsonDocument result = command.run();
 
     assertThat(result.getInt32("ok").getValue()).isEqualTo(1);
+    assertThat(queryingMetrics.getSearchVectorSearchQueryCounter().count()).isEqualTo(1.0);
+    assertThat(queryingMetrics.getSearchVectorSearchFailedQueryCounter().count()).isEqualTo(0.0);
     // Status reporting: the unresolved generation delegates to the reconstructed index -> STALE.
     assertThat(unresolvedGeneration.getIndex().getStatus().getStatusCode())
         .isEqualTo(IndexStatus.StatusCode.STALE);

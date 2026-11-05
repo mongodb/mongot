@@ -24,6 +24,7 @@ import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
 import com.xgen.mongot.index.IndexGeneration;
+import com.xgen.mongot.index.IndexMetricsUpdater;
 import com.xgen.mongot.index.IndexUnavailableException;
 import com.xgen.mongot.index.InitializedIndex;
 import com.xgen.mongot.index.MetaResults;
@@ -187,49 +188,65 @@ public class SearchCommand implements Command {
 
       Optional<InitializedIndex> index = getIndexFromCatalog(queryDefinition);
 
-      if (index.isPresent()) {
-        queryDefinition = maybeEmbedSearchQuery(queryDefinition, index.get().getDefinition());
-      }
+      // Counted before auto-embedding so embedding and execution failures are both attributed to
+      // the index. Nested vectorSearch is rejected at parse time, so the root operator is enough.
+      Optional<IndexMetricsUpdater.QueryingMetricsUpdater> searchVectorSearchMetrics =
+          isSearchVectorSearch(queryDefinition)
+              ? index.map(idx -> idx.getMetricsUpdater().getQueryingMetricsUpdater())
+              : Optional.empty();
+      searchVectorSearchMetrics.ifPresent(m -> m.getSearchVectorSearchQueryCounter().increment());
+      @Var boolean succeeded = false;
+      try {
+        if (index.isPresent()) {
+          queryDefinition = maybeEmbedSearchQuery(queryDefinition, index.get().getDefinition());
+        }
 
-      try (var unusedExplain =
-              Explain.setup(
-                  this.definition.explain().map(ExplainDefinition::verbosity),
-                  index.map(idx -> idx.getDefinition().getNumPartitions()));
-          var unusedFeatureFlags = DynamicFeatureFlagsMetricsRecorder.setup()) {
+        try (var unusedExplain =
+                Explain.setup(
+                    this.definition.explain().map(ExplainDefinition::verbosity),
+                    index.map(idx -> idx.getDefinition().getNumPartitions()));
+            var unusedFeatureFlags = DynamicFeatureFlagsMetricsRecorder.setup()) {
 
-        addMetadataIfExplain(queryDefinition);
+          addMetadataIfExplain(queryDefinition);
 
-        boolean populateCursorResult =
-            determinePopulateCursor(
-                Explain.getExplainQueryState(),
-                this.metadata
-                    .mongoDbServerInfoProvider()
-                    .getCachedMongoDbServerInfo()
-                    .mongoDbVersion());
+          boolean populateCursorResult =
+              determinePopulateCursor(
+                  Explain.getExplainQueryState(),
+                  this.metadata
+                      .mongoDbServerInfoProvider()
+                      .getCachedMongoDbServerInfo()
+                      .mongoDbVersion());
 
-        try (var cursorGuard = new CursorGuard(this.createdCursorIds, this.cursorManager)) {
-          BsonDocument batch;
-          if (this.definition.intermediateVersion().isEmpty()) {
-            batch =
-                getBatch(
-                    queryDefinition,
-                    queryCursorOptions,
-                    queryOptimizationFlags,
-                    populateCursorResult);
-          } else {
-            var protocolVersion = this.definition.intermediateVersion().get();
-            batch =
-                getIntermediateBatch(
-                    queryDefinition,
-                    protocolVersion,
-                    queryCursorOptions,
-                    queryOptimizationFlags,
-                    populateCursorResult);
+          try (var cursorGuard = new CursorGuard(this.createdCursorIds, this.cursorManager)) {
+            BsonDocument batch;
+            if (this.definition.intermediateVersion().isEmpty()) {
+              batch =
+                  getBatch(
+                      queryDefinition,
+                      queryCursorOptions,
+                      queryOptimizationFlags,
+                      populateCursorResult);
+            } else {
+              var protocolVersion = this.definition.intermediateVersion().get();
+              batch =
+                  getIntermediateBatch(
+                      queryDefinition,
+                      protocolVersion,
+                      queryCursorOptions,
+                      queryOptimizationFlags,
+                      populateCursorResult);
+            }
+            if (populateCursorResult) {
+              cursorGuard.keepCursors();
+            }
+            succeeded = true;
+            return batch;
           }
-          if (populateCursorResult) {
-            cursorGuard.keepCursors();
-          }
-          return batch;
+        }
+      } finally {
+        if (!succeeded) {
+          searchVectorSearchMetrics.ifPresent(
+              m -> m.getSearchVectorSearchFailedQueryCounter().increment());
         }
       }
     } catch (RegexLimitExceededException e) {
@@ -537,6 +554,11 @@ public class SearchCommand implements Command {
 
       return batch.toBson();
     }
+  }
+
+  private static boolean isSearchVectorSearch(SearchQuery query) {
+    return query instanceof OperatorQuery operatorQuery
+        && operatorQuery.operator() instanceof VectorSearchOperator;
   }
 
   private Optional<InitializedIndex> getIndexFromCatalog(Query query)

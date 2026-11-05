@@ -919,6 +919,7 @@ public class IndexMetricsUpdaterTest {
         queryingMetricsUpdater.getTotalQueryCounter().increment();
         queryingMetricsUpdater.getFailedQueryCounter().increment();
         queryingMetricsUpdater.getSearchAndGetMoreCommandCounter().increment();
+        queryingMetricsUpdater.getSearchVectorSearchQueryCounter().increment();
         queryingMetricsUpdater.getSearchResultBatchLatencyTimer().record(Duration.ofMillis(100));
 
         Tags perIndexTags = Tags.of("indexId logString", indexId.toHexString());
@@ -942,6 +943,13 @@ public class IndexMetricsUpdaterTest {
                 metricsFactory
                     .get("getMoreCommandCalls")
                     .tags(perIndexTags)
+                    .tag(INDEX_TYPE_TAG_NAME, "search_auto_embedding")
+                    .counter()
+                    .count())
+            .isEqualTo(1);
+        assertThat(
+                metricsFactory
+                    .get("searchVectorSearchQueries")
                     .tag(INDEX_TYPE_TAG_NAME, "search_auto_embedding")
                     .counter()
                     .count())

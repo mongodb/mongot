@@ -606,6 +606,21 @@ public class IndexMetricsUpdater implements Closeable {
     /** The overall number of times mongot was called for search. */
     private final Counter searchGetMoreCommandCounter;
 
+    /**
+     * The number of $search queries whose root operator is vectorSearch, counted by {@code
+     * SearchCommand} once the index is resolved and before auto-embedding, so it includes queries
+     * that later fail. Per-process, broken down by the explicit index type tag, which attributes
+     * auto-embedding indexes correctly even though their derived definition has no autoEmbed
+     * fields.
+     */
+    private final Counter searchVectorSearchQueryCounter;
+
+    /**
+     * The subset of {@link #searchVectorSearchQueryCounter} that failed, including auto-embedding
+     * and query execution failures.
+     */
+    private final Counter searchVectorSearchFailedQueryCounter;
+
     /** The overall number of times mongot was called for $vectorSearch over vector indexes. */
     private final Counter vectorCommandCounter;
 
@@ -803,6 +818,14 @@ public class IndexMetricsUpdater implements Closeable {
       this.searchGetMoreCommandCounter =
           isSearchIndex
               ? metricsFactory.perIndexCounter("getMoreCommandCalls", indexTypeTags)
+              : MetricsFactory.NOOP_COUNTER;
+      this.searchVectorSearchQueryCounter =
+          isSearchIndex
+              ? processMetricsFactory.counter("searchVectorSearchQueries", indexTypeTags)
+              : MetricsFactory.NOOP_COUNTER;
+      this.searchVectorSearchFailedQueryCounter =
+          isSearchIndex
+              ? processMetricsFactory.counter("searchVectorSearchFailedQueries", indexTypeTags)
               : MetricsFactory.NOOP_COUNTER;
       this.vectorCommandCounter =
           processMetricsFactory.counter(
@@ -1084,6 +1107,14 @@ public class IndexMetricsUpdater implements Closeable {
 
     public Counter getSearchAndGetMoreCommandCounter() {
       return this.searchGetMoreCommandCounter;
+    }
+
+    public Counter getSearchVectorSearchQueryCounter() {
+      return this.searchVectorSearchQueryCounter;
+    }
+
+    public Counter getSearchVectorSearchFailedQueryCounter() {
+      return this.searchVectorSearchFailedQueryCounter;
     }
 
     public Counter getVectorCommandCounter() {
