@@ -185,8 +185,8 @@ public class VectorSearchFilterQueryFactoryTest {
                     .translate(query));
 
     assertTrue(
-        "Expected error about auto-embedding field, got: " + exception.getMessage(),
-        exception.getMessage().contains("is an auto-embedding field"));
+        "Expected error about automated embeddings field, got: " + exception.getMessage(),
+        exception.getMessage().contains("uses automated embeddings"));
     assertTrue(
         "Expected field name in error message, got: " + exception.getMessage(),
         exception.getMessage().contains("description"));
@@ -223,6 +223,51 @@ public class VectorSearchFilterQueryFactoryTest {
             .build();
 
     new LuceneVectorTranslation(definition).translate(query);
+  }
+
+  @Test
+  public void existsOnAutoEmbedField_throwsWithNonAutoEmbedTypeHint() throws Exception {
+    VectorIndexDefinition indexDefinition =
+        VectorIndexDefinitionBuilder.builder()
+            .setFields(
+                List.of(
+                    new VectorAutoEmbedFieldDefinition(
+                        "voyage-3-large", FieldPath.parse("description")),
+                    VectorIndexFilterFieldDefinition.create(FieldPath.parse("category"))))
+            .build();
+    VectorSearchFilterQueryFactory factory =
+        VectorSearchFilterQueryFactory.create(
+            new VectorQueryFactoryContext(
+                new VectorFieldDefinitionResolver(indexDefinition, IndexFormatVersion.CURRENT),
+                FeatureFlags.getDefault(),
+                metrics),
+            DynamicFeatureFlagRegistry.empty());
+    VectorSearchFilter filter =
+        new ClauseFilter(
+            ClauseBuilder.simpleClause()
+                .path(FieldPath.parse("description"))
+                .addOperator(MqlFilterOperatorBuilder.exists().value(true).build())
+                .build());
+
+    InvalidQueryException exception;
+    try (ByteBuffersDirectory directory = new ByteBuffersDirectory()) {
+      try (IndexWriter writer = new IndexWriter(directory, new IndexWriterConfig())) {
+        writer.commit();
+      }
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        exception =
+            assertThrows(
+                InvalidQueryException.class,
+                () ->
+                    factory.createLuceneFilter(filter, SingleQueryContext.createQueryRoot(reader)));
+      }
+    }
+
+    Assert.assertEquals(
+        "Field 'description' uses automated embeddings and cannot be used in filters. To filter"
+            + " on it, index the field you filter on with a non-autoEmbed type, such as a separate"
+            + " filter field.",
+        exception.getMessage());
   }
 
   @Test

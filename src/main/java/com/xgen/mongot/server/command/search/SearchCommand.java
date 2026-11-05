@@ -20,6 +20,7 @@ import com.xgen.mongot.cursor.serialization.MongotCursorBatch;
 import com.xgen.mongot.cursor.serialization.MongotCursorResult;
 import com.xgen.mongot.cursor.serialization.MongotIntermediateCursorBatch;
 import com.xgen.mongot.embedding.providers.EmbeddingServiceManager;
+import com.xgen.mongot.embedding.utils.AutoEmbedFieldMappingCreator;
 import com.xgen.mongot.featureflag.Feature;
 import com.xgen.mongot.featureflag.dynamic.DynamicFeatureFlags;
 import com.xgen.mongot.index.DynamicFeatureFlagsMetricsRecorder;
@@ -59,6 +60,7 @@ import com.xgen.mongot.trace.Tracing;
 import com.xgen.mongot.util.Bytes;
 import com.xgen.mongot.util.Check;
 import com.xgen.mongot.util.ErrorType;
+import com.xgen.mongot.util.FieldPath;
 import com.xgen.mongot.util.UserFacingException;
 import com.xgen.mongot.util.bson.parser.BsonDocumentParser;
 import com.xgen.mongot.util.bson.parser.BsonParseException;
@@ -71,7 +73,9 @@ import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
@@ -198,6 +202,8 @@ public class SearchCommand implements Command {
       @Var boolean succeeded = false;
       try {
         if (index.isPresent()) {
+          validateAutoEmbedQueryPaths(
+              queryDefinition, index.get().getDefinition(), queryOptimizationFlags);
           queryDefinition = maybeEmbedSearchQuery(queryDefinition, index.get().getDefinition());
         }
 
@@ -300,6 +306,52 @@ public class SearchCommand implements Command {
     FLOGGER.atWarning().atMostEvery(1, TimeUnit.HOURS).withCause(e).log(
         "searchCommand query is invalid");
     return MessageUtils.createErrorBody(e);
+  }
+
+  /**
+   * Rejects a query that reads an auto-embed source path outside a vectorSearch operator path when
+   * the served index embeds that path and does not also map it with another type. Source paths come
+   * from both the catalog definition and the materialized-view schema, since the served generation
+   * can lag the catalog during a definition change; the served definition decides which of them it
+   * embeds.
+   */
+  private void validateAutoEmbedQueryPaths(
+      SearchQuery queryDefinition,
+      IndexDefinition servedDefinition,
+      QueryOptimizationFlags queryOptimizationFlags)
+      throws InvalidQueryException {
+    if (!(servedDefinition instanceof SearchIndexDefinition servedSearchDefinition)) {
+      return;
+    }
+    Optional<IndexDefinition> autoEmbedDefinition =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingDefinition(
+            this.indexCatalog,
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            queryDefinition.index(),
+            servedDefinition);
+    if (autoEmbedDefinition.isEmpty()
+        || !(autoEmbedDefinition.get() instanceof SearchIndexDefinition searchDef)) {
+      return;
+    }
+    Map<FieldPath, FieldPath> materializedViewPaths =
+        SearchAutoEmbeddingHelper.resolveAutoEmbeddingFieldsMapping(
+            this.indexCatalog,
+            this.definition.db(),
+            this.definition.collectionUuid(),
+            this.definition.viewName(),
+            queryDefinition.index());
+    Map<FieldPath, FieldPath> sourcePaths = new HashMap<>(materializedViewPaths);
+    for (FieldPath path : searchDef.getAutoEmbedFields().byPath().keySet()) {
+      sourcePaths.putIfAbsent(
+          path, AutoEmbedFieldMappingCreator.getMatViewFieldPath(path, materializedViewPaths));
+    }
+    AutoEmbedQueryPathValidator.validate(
+        queryDefinition,
+        sourcePaths,
+        servedSearchDefinition,
+        queryOptimizationFlags.omitSearchDocumentResults());
   }
 
   /**

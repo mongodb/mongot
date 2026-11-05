@@ -187,8 +187,9 @@ public class VectorSearchFilterQueryFactory {
       if (vectorContext.isAutoEmbedField(path)) {
         throw new InvalidQueryException(
             String.format(
-                "Field '%s' is an auto-embedding field and cannot be used in filters. "
-                    + "Please use a separate field for filtering.",
+                "Field '%s' uses automated embeddings and cannot be used in filters. To filter"
+                    + " on it, index the field you filter on with a non-autoEmbed type, such as a"
+                    + " separate filter field.",
                 path));
       }
     }

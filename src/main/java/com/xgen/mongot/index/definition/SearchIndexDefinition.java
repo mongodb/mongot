@@ -542,6 +542,11 @@ public final class SearchIndexDefinition implements IndexDefinition {
         .collect(Collectors.toSet());
   }
 
+  /** Returns the static mapping declared at {@code path}, if any. */
+  public Optional<FieldDefinition> getStaticFieldDefinition(FieldPath path) {
+    return Optional.ofNullable(this.staticFieldDefinitions.get(path.toString()));
+  }
+
   /** Returns the fields in the static configuration. */
   UnmodifiableTrie<String, FieldDefinition> getStaticFields() {
     return this.staticFieldDefinitions;
