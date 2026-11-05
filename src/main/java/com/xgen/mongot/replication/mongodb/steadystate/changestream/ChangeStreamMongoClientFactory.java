@@ -16,6 +16,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamThrottlingRetry;
 import com.xgen.mongot.replication.mongodb.common.OverloadRejectionMetrics;
 import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamClient;
+import com.xgen.mongot.replication.mongodb.common.ResumeTokenUtils;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
 import com.xgen.mongot.replication.mongodb.common.SplitEventChangeStreamClient;
 import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
@@ -32,8 +33,12 @@ import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class ChangeStreamMongoClientFactory {
+  private static final Logger LOG = LoggerFactory.getLogger(ChangeStreamMongoClientFactory.class);
+
   private final BatchMongoClient mongoClient;
   private final SessionRefresher sessionRefresher;
   private final ChangeStreamModeSelector modeSelector;
@@ -258,19 +263,29 @@ class ChangeStreamMongoClientFactory {
 
     var operationFactory = operationFactoryFor(indexDefinition, removeMatchCollectionUuid);
     ChangeStreamClientFactory cursorFactory = cursorFactoryFor(indexDefinition, stopRetrying);
+    var prefix = ResumeTokenUtils.tryParseResumeTokenPrefix(resumeInfo.getResumeToken());
+    if (prefix.isEmpty()) {
+      LOG.warn("Cannot determine partitioned resume policy from token prefix; resyncing index");
+      throw SteadyStateException.createRequiresResync(
+          "Cannot determine partitioned resume policy from resume token");
+    }
+    boolean resumeAfterInvalidate = prefix.orElseThrow().fromInvalidate();
 
-    // TODO(CLOUDP-443150): Each reader currently opens at the resume token's timestamp with the
-    // inclusive `startAtOperationTime`, which can redeliver events already indexed. Replace this
-    // with a different approach, for example skipping documents up to the resume token.
+    // Partition readers normally start inclusively at the shared token's timestamp. An invalidate
+    // token must instead use startAfter; replaying it would repeat the lifecycle transition and
+    // resume from the same invalidate token indefinitely.
     PartitionedChangeStreamClient.ReaderFactory<SteadyStateException> readerFactory =
         (unusedMongoClient, partition, start) ->
-            newPartitionReader(
-                generationId,
-                resumeInfo.getNamespace(),
-                operationFactory,
-                cursorFactory,
-                partition,
-                start);
+            resumeAfterInvalidate
+                ? newPartitionReaderAfterInvalidate(
+                    generationId, resumeInfo, operationFactory, cursorFactory, partition)
+                : newPartitionReader(
+                    generationId,
+                    resumeInfo.getNamespace(),
+                    operationFactory,
+                    cursorFactory,
+                    partition,
+                    start);
 
     return PartitionedChangeStreamClient.resume(
         this.numParallelChangeStreamReaders,
@@ -312,6 +327,34 @@ class ChangeStreamMongoClientFactory {
     return new TimedChangeStreamClient(
         initialClient,
         partitionClientFactory(operationFactory, cursorFactory, namespace, partition),
+        generationId,
+        timeToLive);
+  }
+
+  /** Opens after an invalidate token so the lifecycle event is not replayed. */
+  @VisibleForTesting
+  TimeableChangeStreamMongoClient<SteadyStateException> newPartitionReaderAfterInvalidate(
+      GenerationId generationId,
+      ChangeStreamResumeInfo resumeInfo,
+      ChangeStreamAggregateOperationFactory operationFactory,
+      ChangeStreamClientFactory cursorFactory,
+      ChangeStreamPartition partition) {
+    // Jitter the TTL so N partitions of one index don't all restart at once.
+    Duration timeToLive =
+        DurationUtils.getRandomlyDistributionDuration(this.changeStreamCursorMaxTime, 0.1);
+    var initialClient =
+        new ModeAwareChangeStreamClient(
+            this.modeSelector,
+            operationFactory,
+            cursorFactory,
+            resumeInfo,
+            partition,
+            generationId);
+
+    return new TimedChangeStreamClient(
+        initialClient,
+        partitionClientFactory(
+            operationFactory, cursorFactory, resumeInfo.getNamespace(), partition),
         generationId,
         timeToLive);
   }

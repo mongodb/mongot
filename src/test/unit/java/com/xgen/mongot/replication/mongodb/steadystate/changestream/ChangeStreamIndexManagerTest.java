@@ -436,6 +436,110 @@ public class ChangeStreamIndexManagerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    public void indexBatch_partitionedMixedLifecycleBatch_handlesCheckpointAndLifecycle()
+        throws Exception {
+      List<Optional<IndexCommitUserData>> committed =
+          Collections.synchronizedList(new ArrayList<>());
+      var scheduler = capturingScheduler(committed, CompletableFuture.completedFuture(null));
+      var anchor = ChangeStreamUtils.invalidateResumeToken(new BsonTimestamp(1, 2));
+      var tracker =
+          new PartitionedChangeStreamProgressTracker(
+              Map.of(PARTITION_0, anchor, PARTITION_1, anchor));
+      var resumeInfoReference = new AtomicReference<ChangeStreamResumeInfo>();
+      var generationId = GenerationIdBuilder.create();
+      var decodingScheduler = DecodingWorkScheduler.create(1, new SimpleMeterRegistry());
+      var manager =
+          ChangeStreamManager.indexManagerFactoryWithDecodingScheduler(decodingScheduler)
+              .create(
+                  MOCK_INDEX_DEFINITION,
+                  scheduler,
+                  indexer(),
+                  ChangeStreamUtils.NAMESPACE,
+                  resumeInfoReference::set,
+                  IGNORE_METRICS,
+                  new CompletableFuture<>(),
+                  generationId,
+                  Optional.of(tracker));
+      var firstDocument = ChangeStreamUtils.insertEvent(1, MOCK_INDEX_DEFINITION);
+      var lastDocument = ChangeStreamUtils.insertEvent(2, MOCK_INDEX_DEFINITION);
+      var rename = ChangeStreamUtils.renameEvent(49);
+      var invalidate = ChangeStreamUtils.invalidateEvent(51);
+      ChangeStreamMongoClient<SteadyStateException> first = mock(ChangeStreamMongoClient.class);
+      ChangeStreamMongoClient<SteadyStateException> last = mock(ChangeStreamMongoClient.class);
+      when(first.getNext())
+          .thenReturn(
+              new ChangeStreamBatch(
+                  toRawBsonDocuments(List.of(firstDocument, rename, invalidate)),
+                  invalidate.getResumeToken(),
+                  Optional.empty()));
+      when(last.getNext())
+          .thenReturn(
+              new ChangeStreamBatch(
+                  toRawBsonDocuments(List.of(lastDocument, rename, invalidate)),
+                  invalidate.getResumeToken(),
+                  Optional.empty()));
+      var readers = List.of(first, last);
+
+      try (var client =
+          PartitionedChangeStreamClient.resume(
+              2,
+              anchor,
+              mock(BatchMongoClient.class),
+              (mongoClient, partition, start) -> readers.get(partition.partitionId()),
+              Runnable::run,
+              SteadyStateException::wrapIfThrows)) {
+        var firstInfo =
+            manager.indexBatch(client.getNext(), NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER);
+        firstInfo.indexingFuture.get(5, TimeUnit.SECONDS);
+
+        var finalBatch = client.getNext();
+        assertThat(finalBatch.getRawEvents())
+            .containsExactlyElementsIn(
+                toRawBsonDocuments(List.of(lastDocument, rename, invalidate)))
+            .inOrder();
+        // The last ordinary event is a safe transient restart position because it precedes the
+        // rename and invalidate suffix. The durable commit still uses the low-water mark captured
+        // before this batch is acknowledged.
+        assertThat(manager.getResumeInfo(finalBatch).orElseThrow().getResumeToken())
+            .isEqualTo(lastDocument.getResumeToken());
+        var finalInfo = manager.indexBatch(finalBatch, NOOP_DOCUMENT_METRICS_UPDATER, NOOP_TIMER);
+        finalInfo.indexingFuture.get(5, TimeUnit.SECONDS);
+
+        assertThat(firstInfo.lifecycleEvent).isEmpty();
+        var lifecycle = finalInfo.lifecycleEvent.orElseThrow();
+        assertThat(lifecycle.getType()).isEqualTo(Type.RENAMED);
+        assertThat(lifecycle.getResumeInfo())
+            .isEqualTo(
+                ChangeStreamResumeInfo.create(
+                    ChangeStreamUtils.OTHER_NAMESPACE, invalidate.getResumeToken()));
+        assertThat(tracker.snapshot())
+            .containsExactly(PARTITION_0, anchor, PARTITION_1, lastDocument.getResumeToken());
+        assertThat(tracker.getLowWaterMark()).isEqualTo(lastDocument.getResumeToken());
+        assertThat(resumeInfoReference.get().getResumeToken())
+            .isEqualTo(lastDocument.getResumeToken());
+        assertThat(committed.get(1).orElseThrow().resumeInfo().orElseThrow().getResumeToken())
+            .isEqualTo(anchor);
+        var failure =
+            Assert.assertThrows(
+                ExecutionException.class, () -> manager.lifecycleFuture.get(5, TimeUnit.SECONDS));
+        assertThat(failure.getCause()).isSameInstanceAs(lifecycle);
+        Assert.assertThrows(IllegalStateException.class, client::getNext);
+        verify(first).getNext();
+        verify(last).getNext();
+      } finally {
+        try {
+          // Indexing can finish before decoding removes its batch from the scheduler.
+          decodingScheduler
+              .cancel(generationId, Optional.empty(), SteadyStateException.createShutDown())
+              .get(5, TimeUnit.SECONDS);
+        } finally {
+          decodingScheduler.shutdown().get(5, TimeUnit.SECONDS);
+        }
+      }
+    }
+
+    @Test
     public void indexBatch_partitionedEmptyBatchAfterRename_keepsCheckpointBeforeRename()
         throws Exception {
       List<Optional<IndexCommitUserData>> committed =

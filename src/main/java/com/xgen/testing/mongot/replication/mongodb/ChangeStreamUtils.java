@@ -1,5 +1,7 @@
 package com.xgen.testing.mongot.replication.mongodb;
 
+import static com.xgen.mongot.util.Check.checkArg;
+
 import com.mongodb.MongoNamespace;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
@@ -8,6 +10,7 @@ import com.xgen.mongot.index.definition.IndexDefinition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamDocumentUtils;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.util.BsonUtils;
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -19,6 +22,16 @@ import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
 
 public class ChangeStreamUtils {
+
+  // These constants are used to construct resume tokens but only used for testing and not used in
+  // the production code.
+  private static final byte TIMESTAMP_IDENTIFIER = (byte) 0x82;
+  private static final int KEY_STRING_ZERO = 0x29;
+  private static final int KEY_STRING_POSITIVE_ONE_BYTE_INT = 0x2B;
+  private static final int KEY_STRING_FALSE = 0x6E;
+  private static final int KEY_STRING_TRUE = 0x6F;
+  private static final int HIGH_WATER_MARK_TOKEN = 0;
+  private static final int EVENT_TOKEN = 128;
 
   public static final BsonDocument POST_BATCH_RESUME_TOKEN = resumeToken(new BsonTimestamp(1, 0));
 
@@ -35,26 +48,58 @@ public class ChangeStreamUtils {
 
   /** Returns a resumeToken representing the given opTime. */
   public static BsonDocument resumeToken(BsonTimestamp opTime) {
-    return new BsonDocument(
-        "_data",
-        new BsonString(
-            // A resume token is a hex-encoded WT KeyString with several required fields, and a
-            // couple optional ones. The KeyString type prefix bytes are defined in mongo:
-            // https://github.com/mongodb/mongo/blob/r5.0.0/src/mongo/db/storage/key_string.cpp#L65-L117
-            // Notably, non-timestamp integers are encoded with as few bytes as possible.
-            //
-            // The specific resume token KeyString fields are defined also in mongo:
-            // https://github.com/mongodb/mongo/blob/r5.0.0/src/mongo/db/pipeline/resume_token.cpp#L139-L224
-            Hex.encodeHexString(
-                ByteBuffer.allocate(14)
-                    .put(0, (byte) -126) // type: Timestamp
-                    .putLong(1, opTime.getValue()) // clusterTime
-                    .put(9, (byte) 43) // type: 1-byte positive int
-                    .put(10, (byte) 2) // version (1 << 1)
-                    .put(11, (byte) 41) // type: zero (high water mark resume token)
-                    .put(12, (byte) 41) // type: zero (txnOpIndex)
-                    .put(13, (byte) 110) // type: boolean False (fromInvalidate)
-                )));
+    return resumeTokenPrefix(opTime, 1, HIGH_WATER_MARK_TOKEN, 0, false);
+  }
+
+  /** Returns an event token prefix with the invalidation flag set. */
+  public static BsonDocument invalidateResumeToken(BsonTimestamp opTime) {
+    return invalidateResumeToken(opTime, 1, 0);
+  }
+
+  /** Returns a version 1 or 2 event token prefix with the invalidation flag set. */
+  public static BsonDocument invalidateResumeToken(
+      BsonTimestamp opTime, int version, int txnOpIndex) {
+    return eventResumeTokenPrefix(opTime, version, txnOpIndex, true);
+  }
+
+  /** Returns an ordinary event token prefix with the invalidation flag set to false. */
+  public static BsonDocument eventResumeToken(BsonTimestamp opTime) {
+    return eventResumeToken(opTime, 1, 0);
+  }
+
+  /** Returns a version 1 or 2 ordinary event token prefix. */
+  public static BsonDocument eventResumeToken(BsonTimestamp opTime, int version, int txnOpIndex) {
+    return eventResumeTokenPrefix(opTime, version, txnOpIndex, false);
+  }
+
+  private static BsonDocument eventResumeTokenPrefix(
+      BsonTimestamp opTime, int version, int txnOpIndex, boolean fromInvalidate) {
+    checkArg(version == 1 || version == 2, "Expected resume token version 1 or 2");
+    return resumeTokenPrefix(opTime, version, EVENT_TOKEN, txnOpIndex, fromInvalidate);
+  }
+
+  private static BsonDocument resumeTokenPrefix(
+      BsonTimestamp opTime, int version, int tokenType, int txnOpIndex, boolean fromInvalidate) {
+    // Append each field in server order instead of assuming fixed byte offsets or prefix size.
+    // These prefixes are test fixtures; server resume requests use complete MongoDB tokens.
+    var data = new ByteArrayOutputStream();
+    data.write(TIMESTAMP_IDENTIFIER);
+    data.writeBytes(ByteBuffer.allocate(Long.BYTES).putLong(opTime.getValue()).array());
+    writeNonnegativeInteger(data, version);
+    writeNonnegativeInteger(data, tokenType);
+    writeNonnegativeInteger(data, txnOpIndex);
+    data.write(fromInvalidate ? KEY_STRING_TRUE : KEY_STRING_FALSE);
+    return new BsonDocument("_data", new BsonString(Hex.encodeHexString(data.toByteArray())));
+  }
+
+  private static void writeNonnegativeInteger(ByteArrayOutputStream data, int value) {
+    checkArg(value >= 0, "Expected nonnegative integer");
+    long encoded = ((long) value) << 1;
+    int size = (Long.SIZE - Long.numberOfLeadingZeros(encoded) + Byte.SIZE - 1) / Byte.SIZE;
+    data.write(size == 0 ? KEY_STRING_ZERO : KEY_STRING_POSITIVE_ONE_BYTE_INT + size - 1);
+    for (int i = size - 1; i >= 0; i--) {
+      data.write((byte) (encoded >>> (i * Byte.SIZE)));
+    }
   }
 
   public static ChangeStreamDocument<RawBsonDocument> insertEvent(

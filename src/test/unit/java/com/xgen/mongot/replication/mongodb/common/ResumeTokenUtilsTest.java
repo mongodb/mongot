@@ -26,14 +26,14 @@ public class ResumeTokenUtilsTest {
   private static final String EVENT_NEXT_IN_TXN = event(CLUSTER_TIME, "2B02");
   private static final String EVENT_LATER_OPTIME = event(LATER_CLUSTER_TIME, "29");
 
-  /** A high water mark token: tokenType zero, truncated after it. */
+  /** A high water mark token: tokenType zero, txnOpIndex zero, and fromInvalidate false. */
   private static String highWaterMark(String clusterTime) {
-    return "82" + clusterTime + VERSION + "29";
+    return "82" + clusterTime + VERSION + "29296E1404";
   }
 
   /** An event token at the given encoded txnOpIndex. */
   private static String event(String clusterTime, String txnOpIndex) {
-    return "82" + clusterTime + VERSION + "2B02" + txnOpIndex + "6E" + DOCUMENT_KEY;
+    return "82" + clusterTime + VERSION + "2C0100" + txnOpIndex + "6E" + DOCUMENT_KEY;
   }
 
   @Test
@@ -198,6 +198,53 @@ public class ResumeTokenUtilsTest {
 
     assertThrows(
         IllegalArgumentException.class, () -> ResumeTokenUtils.dataFromResumeToken(notAString));
+  }
+
+  @Test
+  public void tryParseResumeTokenPrefix_invalidateToken_returnsInvalidationFlag() {
+    var token =
+        resumeToken("826AE97138000000012B022C0100296F5A1004B1303839DF5D452D96342C4B7D56C52304");
+
+    assertThat(ResumeTokenUtils.tryParseResumeTokenPrefix(token))
+        .hasValue(new ResumeTokenUtils.ResumeTokenPrefix(new BsonTimestamp(1793683768, 1), true));
+  }
+
+  @Test
+  public void tryParseResumeTokenPrefix_versionZeroToken_returnsFalseInvalidationFlag() {
+    // Captured from MongoDB 4.0.0. Version zero tokens do not contain fromInvalidate.
+    var token =
+        resumeToken(
+            "826AE9712E0000000729295A100420EE454FB7F346379A96E44A81612732461E5F6964002B020004");
+
+    assertThat(ResumeTokenUtils.tryParseResumeTokenPrefix(token))
+        .hasValue(new ResumeTokenUtils.ResumeTokenPrefix(new BsonTimestamp(1793683758, 7), false));
+  }
+
+  @Test
+  public void tryParseResumeTokenPrefix_versionTwoToken_returnsFalseInvalidationFlag() {
+    // Captured token from MongoDB's independent resume-token decoder fixtures.
+    var token =
+        resumeToken(
+            "826275077A000000012B042C0100296E5A1004BFFDB617400E486099007C0E0048B3054"
+                + "63C6F7065726174696F6E54797065003C696E736572740046646F63756D656E744B6579"
+                + "0046645F696400646275077A2F3159F971E405C6000004");
+
+    assertThat(ResumeTokenUtils.tryParseResumeTokenPrefix(token))
+        .hasValue(new ResumeTokenUtils.ResumeTokenPrefix(new BsonTimestamp(1651836794, 1), false));
+  }
+
+  @Test
+  public void tryParseResumeTokenPrefix_ordinaryToken_returnsFalseInvalidationFlag() {
+    var token = resumeToken(EVENT);
+
+    assertThat(ResumeTokenUtils.tryParseResumeTokenPrefix(token))
+        .hasValue(
+            new ResumeTokenUtils.ResumeTokenPrefix(new BsonTimestamp(0x68D0A4B400000001L), false));
+  }
+
+  @Test
+  public void tryParseResumeTokenPrefix_unsupportedToken_returnsEmpty() {
+    assertThat(ResumeTokenUtils.tryParseResumeTokenPrefix(resumeToken("not-hex"))).isEmpty();
   }
 
   @Test

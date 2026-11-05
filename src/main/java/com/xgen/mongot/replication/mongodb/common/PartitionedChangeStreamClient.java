@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.BsonDocument;
 import org.bson.BsonTimestamp;
+import org.bson.RawBsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +31,9 @@ import org.slf4j.LoggerFactory;
  * PartitionedChangeStreamClient reads one collection's change stream as N separate partitions and
  * exposes them through the same getNext() interface as an ordinary change stream. Each call returns
  * one batch from whichever partition has finished fetching. The batch is tagged with that partition
- * and carries that partition's own resume token. Partitions are scheduled independently, up to the
+ * and ordinary batches carry the minimum safe checkpoint across all partitions. The final lifecycle
+ * batch retains its actual server token. Each reader's checkpoint starts at the shared restart
+ * token and advances on each non-lifecycle batch. Partitions are scheduled independently, up to the
  * shared executor's capacity. Readers more than 60 seconds ahead of the slowest unfinished reader
  * stop submitting new fetches until it catches up. Already submitted fetches may overshoot this
  * gap.
@@ -41,12 +44,14 @@ import org.slf4j.LoggerFactory;
  *
  * <p>This client does not track confirmed indexing progress. Each reader stops at its first
  * lifecycle batch and retains that batch while other readers catch up. Once all readers stop, their
- * remaining documents are returned before a single copy of the lifecycle events. Trimmed batches
- * use their last returned event's resume token so checkpoints stay before the lifecycle event.
+ * remaining documents are returned with the minimum safe checkpoint before a single copy of the
+ * lifecycle events is returned with its actual token.
  *
  * <p>Retries must be handled by the low-level change stream clients. If getNext() throws, the
  * caller must close this client and resume from the last confirmed checkpoint. Retrying this client
- * may skip an undelivered rename batch.
+ * may skip an undelivered rename batch. Tokens used for pacing or checkpoint selection must contain
+ * a decodable timestamp; a malformed token fails the read instead of producing an unsafe
+ * checkpoint.
  */
 public class PartitionedChangeStreamClient<E extends Exception>
     implements ChangeStreamMongoClient<E> {
@@ -55,15 +60,13 @@ public class PartitionedChangeStreamClient<E extends Exception>
 
   private static final Logger LOG = LoggerFactory.getLogger(PartitionedChangeStreamClient.class);
 
-  /**
-   * Opens partition readers at a shared timestamp, with split events reassembled before delivery.
-   */
+  /** Creates partition readers with caller-selected resumption and split-event reassembly. */
   @FunctionalInterface
   public interface ReaderFactory<E extends Exception> {
     /**
-     * Creates a reader using the supplied Mongo client. Its pipeline must apply the partition
-     * filter and start at the supplied timestamp, including events at that timestamp. The reader
-     * must emit complete, reassembled events.
+     * Creates a reader using the supplied Mongo client. The caller chooses how to resume; {@code
+     * start} is the saved token's timestamp. The pipeline must apply the partition filter and emit
+     * complete, reassembled events.
      */
     ChangeStreamMongoClient<E> create(
         BatchMongoClient mongoClient, ChangeStreamPartition partition, BsonTimestamp start)
@@ -100,9 +103,8 @@ public class PartitionedChangeStreamClient<E extends Exception>
   private int nextFinalReader;
 
   /**
-   * Creates all partition readers from the saved token's timestamp. Using the exact token with
-   * {@code startAfter} can fail when another partition's filter excludes its event. Timestamp
-   * replay also supports tokens identifying split-event fragments.
+   * Creates partition readers through the supplied factory and seeds their safe checkpoint and
+   * pacing at the saved token. The factory owns cursor resumption.
    *
    * <p>Takes ownership of the created readers. The supplied Mongo client is shared and remains open
    * when this client closes. Closing a reader aborts any active fetch.
@@ -131,13 +133,20 @@ public class PartitionedChangeStreamClient<E extends Exception>
           try {
             checkArg(partitionCount > 0, "partitionCount must be positive");
             BsonTimestamp start = ResumeTokenUtils.opTimeFromResumeToken(resumeToken);
+            BsonDocument restartToken = resumeToken.clone();
             for (int id = 0; id < partitionCount; id++) {
               clients.add(
                   readerFactory.create(
                       mongoClient, new ChangeStreamPartition(id, partitionCount), start));
             }
             return new PartitionedChangeStreamClient<>(
-                clients, executor, exceptionWrapper, start, DEFAULT_MAX_OPTIME_GAP, metricsFactory);
+                clients,
+                executor,
+                exceptionWrapper,
+                restartToken,
+                start,
+                DEFAULT_MAX_OPTIME_GAP,
+                metricsFactory);
           } catch (Exception | Error failure) {
             for (var client : clients) {
               try {
@@ -181,6 +190,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
       List<ChangeStreamMongoClient<E>> clients,
       Executor executor,
       WrapIfThrows<E> exceptionWrapper,
+      BsonDocument resumeToken,
       BsonTimestamp start,
       Duration maxOptimeGap,
       MetricsFactory metricsFactory) {
@@ -196,6 +206,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
           new Reader<>(
               clients.get(id),
               new ChangeStreamPartition(id, clients.size()),
+              resumeToken,
               start,
               () -> this.metrics.pauses.increment()));
     }
@@ -213,12 +224,14 @@ public class PartitionedChangeStreamClient<E extends Exception>
       List<ChangeStreamMongoClient<E>> clients,
       Executor executor,
       WrapIfThrows<E> exceptionWrapper,
+      BsonDocument resumeToken,
       BsonTimestamp start,
       Duration maxOptimeGap) {
     this(
         clients,
         executor,
         exceptionWrapper,
+        resumeToken,
         start,
         maxOptimeGap,
         new MetricsFactory("changestream", io.micrometer.core.instrument.Metrics.globalRegistry));
@@ -238,9 +251,10 @@ public class PartitionedChangeStreamClient<E extends Exception>
    * 4. Take the fetched batch, freeing its reader's slot, or propagate the fetch failure so the
    *    caller can close this client and resume from its checkpoint.
    * 5. If the reader reached a lifecycle boundary, retain its entire batch and repeat these steps
-   *    for the remaining readers. Otherwise, return the batch with its original partition metadata.
-   *    Retained lifecycle batches do not advance the caller's checkpoint.
-   *    Each reader combines split rename and invalidate batches within its fetch.
+   *    for the remaining readers. Otherwise, return the batch with the minimum safe checkpoint and
+   *    its original partition metadata. Retained lifecycle batches are not returned until every
+   *    reader reaches the boundary. Each reader combines split rename and invalidate batches within
+   *    its fetch.
    * 6. After the terminal batch is returned, further calls fail without submitting more fetches.
    * 7. OTHER does not itself finish a reader. If there is no lifecycle suffix, return the batch
    *    without waiting for other readers to observe the event or catch up. The index manager
@@ -294,7 +308,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
             if (reader.isFinished()) {
               continue;
             }
-            return batch;
+            return withCheckpoint(batch, safeCheckpoint());
           }
         });
   }
@@ -325,8 +339,8 @@ public class PartitionedChangeStreamClient<E extends Exception>
     //   Call 2: [B1]
     //   Call 3: [C1, rename, invalidate]
     //
-    // Return lifecycle events only in the last batch so the dispatcher does not stop fetching
-    // before every reader's documents have been delivered.
+    // Return lifecycle events only with the last reader's documents. ChangeStreamIndexManager uses
+    // the partition tracker's confirmed low-water mark when committing this mixed final batch.
     for (int readerIndex = this.nextFinalReader;
         readerIndex < this.readers.size() - 1;
         readerIndex++) {
@@ -337,19 +351,49 @@ public class PartitionedChangeStreamClient<E extends Exception>
       if (result.lifecycleStart() == 0) {
         continue;
       }
-      // Use the last returned event's token to stay before the removed lifecycle events.
       var documents = batch.getRawEvents().subList(0, result.lifecycleStart());
-      return new ChangeStreamBatch(
-          documents,
-          documents.getLast().getDocument("_id"),
-          batch.getCommandOperationTime(),
-          batch.getPartition());
+      return withCheckpoint(batchWithEvents(batch, documents), safeCheckpoint());
     }
 
     var reader = this.readers.getLast();
     checkState(!this.closed.get(), "Change stream client is closed");
     this.nextFinalReader++;
     return reader.lifecycleResult.orElseThrow().batch();
+  }
+
+  // Each reader records the latest non-lifecycle position it has passed.
+  // Ordinary batches expose the minimum of those positions so no partition is skipped on restart.
+  //
+  // Checkpoint safety rules:
+  // 1. Each reader starts with the shared restart token.
+  // 2. Each non-lifecycle batch replaces that reader's safe token with its post-batch token.
+  //    Empty batches count because their post-batch token proves reader progress.
+  // 3. Ordinary and document-only batches use the minimum safe token across all readers.
+  // 4. The final lifecycle batch uses its actual token.
+  // 5. Every batch retains its originating partition for acknowledgment tracking.
+  private BsonDocument safeCheckpoint() {
+    return this.readers.stream()
+        .map(Reader::resumeTokenOfNonLifecycleBatch)
+        .min(ResumeTokenUtils.BY_STREAM_POSITION)
+        .orElseThrow()
+        .clone();
+  }
+
+  // Replace only the outgoing checkpoint. It will always preserve the batch contents and
+  // originating partition.
+  private static ChangeStreamBatch withCheckpoint(
+      ChangeStreamBatch batch, BsonDocument checkpoint) {
+    return new ChangeStreamBatch(
+        batch.getRawEvents(), checkpoint, batch.getCommandOperationTime(), batch.getPartition());
+  }
+
+  private static ChangeStreamBatch batchWithEvents(
+      ChangeStreamBatch batch, List<RawBsonDocument> events) {
+    return new ChangeStreamBatch(
+        events,
+        batch.getPostBatchResumeToken(),
+        batch.getCommandOperationTime(),
+        batch.getPartition());
   }
 
   // Helper function to check if the batch ends with a rename event.
@@ -409,7 +453,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
     this.readers.forEach(Reader::close);
   }
 
-  /** Caches the retained suffix start, preserving it when a split rename is merged. */
+  /** Records the lifecycle suffix start, preserving it when a split rename is merged. */
   private record FetchResult(ChangeStreamBatch batch, int lifecycleStart) {
     boolean hasLifecycleEvent() {
       return this.lifecycleStart < this.batch.getRawEvents().size();
@@ -437,6 +481,9 @@ public class PartitionedChangeStreamClient<E extends Exception>
     /** Monotonic progress from consumed batches' resume tokens, including empty batches. */
     private BsonTimestamp optime;
 
+    /** Shared restart token, replaced by the latest non-lifecycle batch token. */
+    private BsonDocument resumeTokenOfNonLifecycleBatch;
+
     /**
      * Present while a fetch is queued, running, or completed and awaiting consumption. Accessed
      * only by the serialized calls to the outer client's getNext().
@@ -457,12 +504,14 @@ public class PartitionedChangeStreamClient<E extends Exception>
     Reader(
         ChangeStreamMongoClient<E> client,
         ChangeStreamPartition partition,
+        BsonDocument resumeToken,
         BsonTimestamp start,
         Runnable onPauseStart) {
       this.client = client;
       this.partition = partition;
       this.closeRequested = false;
       this.optime = start;
+      this.resumeTokenOfNonLifecycleBatch = resumeToken;
       this.pendingFetch = Optional.empty();
       this.lifecycleResult = Optional.empty();
       this.onPauseStart = onPauseStart;
@@ -475,6 +524,10 @@ public class PartitionedChangeStreamClient<E extends Exception>
 
     BsonTimestamp optime() {
       return this.optime;
+    }
+
+    BsonDocument resumeTokenOfNonLifecycleBatch() {
+      return this.resumeTokenOfNonLifecycleBatch;
     }
 
     private boolean shouldPauseForPacing(
@@ -536,7 +589,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
      *
      * 1. Free the pending slot for a future fetch.
      * 2. Get the fetched batch and attach this reader's partition.
-     * 3. Retain completed lifecycle batches while other readers catch up.
+     * 3. Retain a lifecycle batch, or update this reader's safe non-lifecycle checkpoint.
      * 4. Propagate the failure so the caller can resume from its checkpoint.
      */
     ChangeStreamBatch takeFetchedBatch() throws Exception {
@@ -547,7 +600,7 @@ public class PartitionedChangeStreamClient<E extends Exception>
         // 2. Get the fetched batch and attach this reader's partition.
         var result = completedFetch.get();
         var fetched = result.batch();
-        // Batches from one reader are ordered; cursor restarts use its last returned resume token.
+        // Pacing uses the raw reader position rather than the shared outgoing checkpoint.
         this.optime = ResumeTokenUtils.opTimeFromResumeToken(fetched.getPostBatchResumeToken());
         var batch =
             new ChangeStreamBatch(
@@ -555,9 +608,11 @@ public class PartitionedChangeStreamClient<E extends Exception>
                 fetched.getPostBatchResumeToken(),
                 fetched.getCommandOperationTime(),
                 Optional.of(this.partition));
-        // 3. Retain completed lifecycle batches while other readers catch up.
+        // 3. Retain a lifecycle batch, or advance this reader's safe checkpoint.
         if (result.hasLifecycleEvent()) {
           this.lifecycleResult = Optional.of(new FetchResult(batch, result.lifecycleStart()));
+        } else {
+          this.resumeTokenOfNonLifecycleBatch = fetched.getPostBatchResumeToken();
         }
         return batch;
       } catch (ExecutionException failure) {
@@ -579,7 +634,6 @@ public class PartitionedChangeStreamClient<E extends Exception>
 
       // Combine rename with the next nonempty response. A failure fails the whole fetch, so
       // replication must recreate the client from its confirmed checkpoint to replay this batch.
-      //
       //
       // This loop is necessary because a single fetch can perform several underlying reads.
       //

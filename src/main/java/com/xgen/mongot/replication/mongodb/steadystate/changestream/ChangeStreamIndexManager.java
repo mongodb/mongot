@@ -340,7 +340,9 @@ abstract class ChangeStreamIndexManager {
           ChangeStreamResumeInfo.create(this.namespace, batch.getPostBatchResumeToken()));
     }
 
-    // Return resume info of last non-invalidating operation
+    // PartitionedChangeStreamClient returns terminal documents separately because this selection
+    // ignores the batch checkpoint when lifecycle events follow them.
+    // Return resume info of last non-invalidating operation.
     for (RawBsonDocument rawEvent : batch.getRawEvents().reversed()) {
       ChangeStreamDocument<RawBsonDocument> changeStreamDoc =
           bsonDocumentToChangeStreamDocument(rawEvent);

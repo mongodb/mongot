@@ -1,6 +1,7 @@
 package com.xgen.mongot.replication.mongodb.steadystate.changestream;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -26,6 +27,7 @@ import com.xgen.mongot.replication.mongodb.common.ChangeStreamPartition;
 import com.xgen.mongot.replication.mongodb.common.ChangeStreamResumeInfo;
 import com.xgen.mongot.replication.mongodb.common.PartitionedChangeStreamClient;
 import com.xgen.mongot.replication.mongodb.common.SessionRefresher;
+import com.xgen.mongot.replication.mongodb.common.SteadyStateException;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamMongoClientFactory.ChangeStreamClientFactory;
 import com.xgen.mongot.replication.mongodb.steadystate.changestream.ChangeStreamMongoClientFactory.TimedChangeStreamClientFactory;
 import com.xgen.mongot.util.mongodb.BatchMongoClient;
@@ -39,6 +41,8 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonBinary;
+import org.bson.BsonDocument;
+import org.bson.BsonString;
 import org.bson.BsonTimestamp;
 import org.bson.RawBsonDocument;
 import org.bson.types.ObjectId;
@@ -109,6 +113,27 @@ public class ChangeStreamMongoClientFactoryTest {
 
     assertThat(client).isInstanceOf(PartitionedChangeStreamClient.class);
     client.close();
+  }
+
+  @Test
+  public void resumeTimedModeAwareChangeStream_unknownTokenPrefix_requiresResync()
+      throws Exception {
+    var factory = factoryWithParallelReadersEnabled(3);
+    var token = new BsonDocument("_data", new BsonString("8200000064000000052B062C0100296F"));
+
+    var failure =
+        assertThrows(
+            SteadyStateException.class,
+            () ->
+                factory.resumeTimedModeAwareChangeStream(
+                    GENERATION_ID,
+                    ChangeStreamResumeInfo.create(ChangeStreamUtils.NAMESPACE, token),
+                    SearchIndexDefinitionBuilder.VALID_INDEX,
+                    false,
+                    true,
+                    () -> false));
+
+    assertThat(failure.getType()).isEqualTo(SteadyStateException.Type.REQUIRES_RESYNC);
   }
 
   @Test
@@ -193,6 +218,31 @@ public class ChangeStreamMongoClientFactoryTest {
               partition);
       verify(operationFactory, never()).fromOperationTime(any(), any(), any(), any());
     }
+  }
+
+  @Test
+  public void newPartitionReaderAfterInvalidate_firstOpen_resumesAfterInvalidateToken() {
+    var factory = factoryWithParallelReadersEnabled(3);
+    var operationFactory = mock(ChangeStreamAggregateOperationFactory.class);
+    var cursorFactory = mock(ChangeStreamClientFactory.class);
+    var namespace = new MongoNamespace("test", "renamed");
+    var partition = new ChangeStreamPartition(1, 3);
+    var invalidateToken = ChangeStreamUtils.invalidateResumeToken(new BsonTimestamp(100, 0));
+    var resumeInfo = ChangeStreamResumeInfo.create(namespace, invalidateToken);
+    var operationTemplate = mock(AggregateOperationTemplate.class);
+
+    when(cursorFactory.resumeChangeStream(any(), any()))
+        .thenReturn(mock(ChangeStreamMongoClient.class));
+    when(operationFactory.fromResumeInfo(
+            eq(resumeInfo), eq(ChangeStreamMode.getDefault()), eq(partition)))
+        .thenReturn(operationTemplate);
+
+    try (var client =
+        factory.newPartitionReaderAfterInvalidate(
+            GENERATION_ID, resumeInfo, operationFactory, cursorFactory, partition)) {
+      verify(cursorFactory).resumeChangeStream(GENERATION_ID, operationTemplate);
+    }
+    verify(operationFactory, never()).fromOperationTime(any(), any(), any(), any());
   }
 
   @Test
