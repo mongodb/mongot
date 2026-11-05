@@ -1,13 +1,12 @@
 package com.xgen.mongot.trace;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.io.SegmentedStringWriter;
 import io.opentelemetry.exporter.internal.otlp.traces.ResourceSpansMarshaler;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -41,19 +40,14 @@ public final class Slf4jExporter implements SpanExporter {
 
     ResourceSpansMarshaler[] allResourceSpans = ResourceSpansMarshaler.create(spans);
     for (ResourceSpansMarshaler resourceSpans : allResourceSpans) {
-      SegmentedStringWriter sw =
-          new SegmentedStringWriter(JsonUtil.JSON_FACTORY._getBufferRecycler());
-      try (JsonGenerator gen = JsonUtil.create(sw)) {
-        resourceSpans.writeJsonToGenerator(gen);
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
+      try {
+        resourceSpans.writeJsonTo(out);
       } catch (IOException e) {
         // Shouldn't happen in practice, just skip it.
         continue;
       }
-      try {
-        logger.info(sw.getAndClear());
-      } catch (IOException e) {
-        logger.warn("Unable to read OTLP JSON spans", e);
-      }
+      logger.info(out.toString(StandardCharsets.UTF_8));
     }
     return CompletableResultCode.ofSuccess();
   }
@@ -69,21 +63,5 @@ public final class Slf4jExporter implements SpanExporter {
       logger.info("Calling shutdown() multiple times.");
     }
     return CompletableResultCode.ofSuccess();
-  }
-
-  private static final class JsonUtil {
-
-    static final JsonFactory JSON_FACTORY = new JsonFactory();
-
-    static JsonGenerator create(SegmentedStringWriter stringWriter) {
-      try {
-        return JSON_FACTORY.createGenerator(stringWriter);
-      } catch (IOException e) {
-        throw new IllegalStateException(
-            "Unable to create in-memory JsonGenerator, can't happen.", e);
-      }
-    }
-
-    private JsonUtil() {}
   }
 }

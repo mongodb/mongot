@@ -17,13 +17,11 @@ java_library(
     ],
     visibility = ["//visibility:public"],
     exports = [
-        "@maven//:com_fasterxml_jackson_core_jackson_core",
         "@maven//:io_opentelemetry_opentelemetry_api",
         "@maven//:io_opentelemetry_opentelemetry_sdk_common",
         "@maven//:io_opentelemetry_opentelemetry_sdk_trace",
     ],
     deps = [
-        "@maven//:com_fasterxml_jackson_core_jackson_core",
         "@maven//:com_google_errorprone_error_prone_annotations",
         "@maven//:com_google_guava_guava",
         "@maven//:io_opentelemetry_opentelemetry_api",
