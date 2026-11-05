@@ -515,6 +515,11 @@ public class InitialSyncQueue {
         throw InitialSyncException.createShutDown();
       }
 
+      if (this.initialSyncPauseState.isPaused(indexDefinition.getIndexId())) {
+        throw InitialSyncException.createResumableTransient(
+            new PauseInitialSyncException("Initial sync for index is paused"));
+      }
+
       checkState(
           !this.cancelled.contains(generationId), "index %s has been cancelled", generationId);
       checkState(
@@ -853,6 +858,16 @@ public class InitialSyncQueue {
 
             if (InitialSyncQueue.this.cancelled.remove(generationId)) {
               this.concurrentSyncs.release();
+              continue;
+            }
+
+            if (InitialSyncQueue.this.initialSyncPauseState.isPaused(generationId.indexId)) {
+              this.concurrentSyncs.release();
+              request
+                  .getOnCompleteFuture()
+                  .completeExceptionally(
+                      InitialSyncException.createResumableTransient(
+                          new PauseInitialSyncException("Initial sync for index is paused")));
               continue;
             }
 
