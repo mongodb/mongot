@@ -5,6 +5,7 @@ java_test_suite(
     srcs = [
         "DocumentWrapperTest.java",
         "IndexableFieldFactoryTest.java",
+        "LuceneVectorIndexFieldValueHandlerTest.java",
         "VectorIndexDocumentWrapperTest.java",
     ],
     tags = ["unit"],
@@ -21,6 +22,7 @@ java_test_suite(
         "//src/main/java/com/xgen/mongot/util",
         "//src/main/java/com/xgen/mongot/util/bson",
         "//src/main/java/com/xgen/testing",
+        "//src/main/java/com/xgen/testing/mongot/index/definition",
         "//src/main/java/com/xgen/testing/mongot/mock/index",
         "@maven//:ch_qos_logback_logback_classic",
         "@maven//:ch_qos_logback_logback_core",

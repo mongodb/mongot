@@ -86,7 +86,7 @@ public class LuceneVectorIndexFieldValueHandler implements FieldValueHandler {
         NumericFieldOptions.Representation.DOUBLE,
         true);
     IndexableFieldFactory.addFloatingPointValueToSortableNumericField(
-        this.documentWrapper, this.path, supplier.get(), NumericFieldOptions.Representation.INT64);
+        this.documentWrapper, this.path, supplier.get(), NumericFieldOptions.Representation.DOUBLE);
   }
 
   @Override
